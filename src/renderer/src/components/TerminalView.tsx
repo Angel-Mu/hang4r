@@ -170,6 +170,21 @@ export function TerminalView({
     })
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true
+      // ⌘C copies the selection. The terminal renders to a canvas — its selection
+      // is xterm's own, NOT a DOM selection — so the OS copy never sees it and
+      // ⌘C did nothing (Angel: "cannot copy text from the terminal"). Wire it
+      // explicitly. With NO selection, fall through so ⌘C is a no-op here and
+      // never sends SIGINT — that's ⌃C's job. (Paste already works: ⌘V feeds
+      // xterm's hidden input textarea natively.)
+      if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        const sel = term.getSelection()
+        if (sel) {
+          void navigator.clipboard.writeText(sel).catch(() => {})
+          e.preventDefault()
+          return false
+        }
+        return true
+      }
       for (const b of keymap) {
         if (!matchesChord(e, b.key)) continue
         // returning false stops xterm's keydown handling, but a PRINTABLE bound

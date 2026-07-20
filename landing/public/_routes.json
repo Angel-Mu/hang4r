@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "description": "Run Functions (host-canonicalization middleware) on every path; static assets are served via next() fall-through.",
+  "include": ["/*"],
+  "exclude": []
+}

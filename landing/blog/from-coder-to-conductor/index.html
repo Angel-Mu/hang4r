@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>From coder to conductor: the agentic engineer's loop — hang4r blog</title>
+    <meta
+      name="description"
+      content="Dispatch, glance, review, merge. What a working day looks like when agents write most of the code — and the tooling an agentic engineer needs to run five sessions without losing the thread."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/from-coder-to-conductor/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/from-coder-to-conductor/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="From coder to conductor: the agentic engineer's loop" />
+    <meta property="og:description" content="Dispatch, glance, review, merge — what a working day looks like when agents write most of the code." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-07-13" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "From coder to conductor: the agentic engineer's loop",
+        "description": "Dispatch, glance, review, merge — what a working day looks like when agents write most of the code.",
+        "datePublished": "2026-07-13",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/from-coder-to-conductor/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">workflow</p>
+        <h1 class="post-title">From coder to conductor: the agentic engineer's loop</h1>
+        <p class="post-meta">July 13, 2026 · 7 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          Somewhere in the last two years the job quietly changed. The bottleneck stopped being
+          "how fast can I write this" and became "how many well-specified tasks can I keep in
+          flight, and how fast can I judge the results." The engineers getting outsized leverage
+          from agents aren't typing faster — they're running a different loop.
+        </p>
+
+        <h2>The loop</h2>
+        <p>It has four beats, and each one has a failure mode the tooling has to solve:</p>
+        <ol>
+          <li>
+            <strong>Dispatch.</strong> Turn an intention into a well-scoped brief and hand it to
+            an agent — the right agent, with the right model, permissions, and isolation.
+            <em>Failure mode: dispatch friction.</em> If starting an agent takes a minute of
+            setup, you'll batch tasks in your head instead, and the parallelism never happens.
+            In <a href="https://hang4r.dev/">hang4r</a>, New Agent is one dialog: backend
+            (Claude, Codex, or Cursor), model, permission mode, worktree toggle, go. Defaults
+            come from your <code>settings.json</code>, per workspace.
+          </li>
+          <li>
+            <strong>Glance.</strong> Know, at any moment, which of your sessions needs you.
+            <em>Failure mode: polling.</em> If you have to read each session to know its state,
+            five agents cost more attention than they save. The tiled workspace answers it
+            ambiently: status LEDs per tile, action-required badges that hit the dock, queued
+            messages so your next thought doesn't wait for the agent's current turn.
+          </li>
+          <li>
+            <strong>Review.</strong> Judge the diff, not the conversation.
+            <em>Failure mode: trust by exhaustion.</em> The 400-line diff at the end of a long
+            session gets skimmed, not reviewed. Per-turn checkpoints keep diffs turn-sized, and
+            inline comments go back to the agent as the next prompt — so review effort turns
+            into revision, not into chat archaeology.
+          </li>
+          <li>
+            <strong>Merge.</strong> Land it and move on.
+            <em>Failure mode: the integration pile.</em> Ten finished branches you haven't merged
+            are ten open loops. Because every session lives on its own worktree branch, merge is
+            a button on the diff panel — commit, merge, or open the PR — and the session archives
+            with its transcript.
+          </li>
+        </ol>
+
+        <h2>What changes in your day</h2>
+        <p>
+          Run this loop with decent tooling and the texture of the day changes. Mornings start
+          by dispatching three or four briefs, not by opening an editor. The "focus block"
+          becomes a review block. You develop a new instinct for which tasks parallelize (bug
+          fixes, tests, migrations, refactors with crisp boundaries) and which deserve a single
+          long-running session with your full attention.
+        </p>
+        <p>
+          You also hit the new constraint fast: <strong>your plan's rate limits are the new CI
+          queue</strong>. This is why hang4r keeps your Claude 5-hour and weekly gauges on
+          screen — dispatching is a spending decision now, and you should make it with the meter
+          visible.
+        </p>
+
+        <h2>Conductor is not a metaphor for "manager"</h2>
+        <p>
+          The conductor doesn't write the music and doesn't play the instruments — but nothing
+          coherent happens without them. The skill is still deeply technical: writing briefs
+          that are really specifications, smelling a wrong approach in a diff at a glance,
+          knowing when to rewind a session instead of arguing with it. Agents didn't remove the
+          engineering. They moved it up one level of abstraction.
+        </p>
+        <p>
+          The tools are catching up to that job description. That's the window we're building.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Run the loop in one window.</h3>
+        <p>hang4r is in early access on macOS — dispatch, glance, review, merge, on your own subscription.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

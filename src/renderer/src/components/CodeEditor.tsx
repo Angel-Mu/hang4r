@@ -1,0 +1,784 @@
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
+import * as monaco from 'monaco-editor'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { mdComponents } from './MarkdownBlocks'
+import { useHang4r } from '../state/store'
+import { onForgetSession } from '../sessionUiMemos'
+import { htmlDataUrl } from '../htmlPreview'
+import { ensureModel, loadProject, tsDefinition } from '../monacoProject'
+import { isDarkTheme, resolveTheme, cssToken } from '../theme'
+import { mediaKind } from './MediaViewer'
+import { EditorFindBar } from './EditorFindBar'
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
+import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+
+// Wire Monaco's language workers for Vite (Electron renderer).
+;(self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
+  getWorker(_id, label) {
+    if (label === 'json') return new jsonWorker()
+    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker()
+    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker()
+    if (label === 'typescript' || label === 'javascript') return new tsWorker()
+    return new editorWorker()
+  }
+}
+
+// Enable real syntax/semantic diagnostics (the red squiggles) for JS/TS.
+// The monaco-editor barrel types stub `languages.typescript` as deprecated even
+// though the runtime object is present (the language contribution is bundled),
+// so we reach it through a cast and guard at runtime.
+let diagnosticsConfigured = false
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function ensureDiagnostics(): void {
+  if (diagnosticsConfigured) return
+  const ts = (monaco.languages as any).typescript
+  if (!ts?.typescriptDefaults) return
+  const compiler = {
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeJs,
+    allowNonTsExtensions: true,
+    allowJs: true,
+    checkJs: false, // keep JS to SYNTAX errors — no noisy "cannot find module"
+    jsx: ts.JsxEmit.React,
+    esModuleInterop: true,
+    noEmit: true
+  }
+  ts.typescriptDefaults.setCompilerOptions(compiler)
+  ts.javascriptDefaults.setCompilerOptions(compiler)
+  // TS: full syntax + semantic. JS: syntax only (semantic needs the whole
+  // project graph, which a single in-memory model doesn't have → false errors).
+  ts.typescriptDefaults.setDiagnosticsOptions({
+    noSyntaxValidation: false,
+    noSemanticValidation: false,
+    noSuggestionDiagnostics: false
+  })
+  ts.javascriptDefaults.setDiagnosticsOptions({
+    noSyntaxValidation: false,
+    noSemanticValidation: true,
+    noSuggestionDiagnostics: false
+  })
+  ts.typescriptDefaults.setEagerModelSync(true)
+  ts.javascriptDefaults.setEagerModelSync(true)
+  diagnosticsConfigured = true
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const HANG4R_DARK = 'hang4r-dark'
+
+/** (re)define the dark Monaco theme from the ACTIVE theme's tokens — called on
+ *  every theme application, so dark and nord each get their own ground instead
+ *  of a baked-in hex that matches neither. */
+function ensureTheme(): void {
+  const bg = cssToken('--bg', '#0e0f13')
+  monaco.editor.defineTheme(HANG4R_DARK, {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': bg,
+      'editorGutter.background': bg,
+      'editor.lineHighlightBackground': cssToken('--surface', '#15161c')
+    }
+  })
+}
+
+/** the quoted string containing 1-based `column`, or null (for cmd-click imports) */
+function quotedStringAt(line: string, column: number): string | null {
+  const idx = column - 1
+  for (const q of ['"', "'", '`']) {
+    let start = -1
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] !== q) continue
+      if (start === -1) {
+        start = i
+      } else {
+        if (idx > start && idx <= i) return line.slice(start + 1, i)
+        start = -1
+      }
+    }
+  }
+  return null
+}
+
+function langForPath(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  const map: Record<string, string> = {
+    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', mjs: 'javascript',
+    json: 'json', css: 'css', scss: 'scss', less: 'less', html: 'html', md: 'markdown',
+    py: 'python', rs: 'rust', go: 'go', sh: 'shell', yml: 'yaml', yaml: 'yaml', toml: 'ini',
+    sql: 'sql', java: 'java', c: 'c', cpp: 'cpp', rb: 'ruby', php: 'php'
+  }
+  return map[ext] ?? 'plaintext'
+}
+
+/**
+ * Editable code editor (Monaco). Full editing, syntax highlighting, and save
+ * (⌘S / Save button) back to disk via IPC. "Add selection to chat" from the
+ * right-click menu attaches a context chip.
+ */
+export interface EditorHandle {
+  isDirty: () => boolean
+  save: () => Promise<void>
+  /** user chose "Don't Save": mark the shared doc clean so a later open reloads from disk */
+  discard: () => void
+}
+
+/**
+ * Shared dirty state per `${sessionId}:${path}` — the Monaco MODEL is shared
+ * across split groups, so "unsaved" is a property of the document, not of one
+ * editor view. Keeps both views' Save buttons/dots in sync, and lets a
+ * remounting editor know it must NOT clobber an unsaved model with disk
+ * content (the silent-data-loss bug QA round 4 caught).
+ */
+const sharedDirty = new Map<string, boolean>()
+const dirtyWatchers = new Set<(key: string, dirty: boolean) => void>()
+
+/** Preview/Source choice per `${sessionId}:${path}` — survives tab switches */
+const previewModeMemo = new Map<string, boolean>()
+
+/**
+ * Scroll/cursor/selection per `${sessionId}:${path}` — survives both a file
+ * switch (tab change reuses the same editor+model) and a full remount (the
+ * workspace re-splitting unmounts/remounts SessionTile, recreating the Monaco
+ * instance from scratch).
+ */
+const viewStateMemo = new Map<string, monaco.editor.ICodeEditorViewState>()
+
+// archiving a session removes its worktree — drop its `${sessionId}:${path}`
+// entries so the maps don't grow forever (QA hunt #9's leak finding)
+onForgetSession((sessionId) => {
+  const prefix = `${sessionId}:`
+  for (const map of [sharedDirty, previewModeMemo, viewStateMemo]) {
+    for (const key of map.keys()) {
+      if (key.startsWith(prefix)) map.delete(key)
+    }
+  }
+})
+function setSharedDirty(key: string, dirty: boolean): void {
+  if ((sharedDirty.get(key) ?? false) === dirty) return
+  sharedDirty.set(key, dirty)
+  for (const cb of dirtyWatchers) cb(key, dirty)
+}
+
+export function CodeEditor({
+  sessionId,
+  path,
+  onAddToChat,
+  onRegister,
+  onDirtyChange
+}: {
+  sessionId: string
+  path: string
+  onAddToChat: (label: string, text: string) => void
+  /** register a save handle so the parent can flush unsaved changes on close */
+  onRegister?: (path: string, handle: EditorHandle | null) => void
+  /** notify the parent when the unsaved state changes (tab dirty-dot) */
+  onDirtyChange?: (path: string, dirty: boolean) => void
+}): JSX.Element {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  // key (`${sessionId}:${path}`) of the file currently loaded into the editor's
+  // model — lets the load-file effect know whose view state to save before it
+  // swaps to a new file, and the unmount cleanup know whose to save on dispose.
+  const viewStateKeyRef = useRef<string | null>(null)
+  const addRef = useRef(onAddToChat)
+  addRef.current = onAddToChat
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  // ⌘F unified find bar over the editor (round 13 ①). Monaco routes ⌘F to us
+  // via an editor command (see the create effect); a repeat ⌘F re-focuses.
+  const [findOpen, setFindOpen] = useState(false)
+  const [findToken, setFindToken] = useState(0)
+  const openFindRef = useRef(() => {})
+  openFindRef.current = (): void => {
+    setFindOpen(true)
+    setFindToken((t) => t + 1)
+  }
+  const [truncated, setTruncated] = useState(false)
+  const [hasSel, setHasSel] = useState(false)
+  // Preview/Source segmented control (md/html only) — default is source, like
+  // VS Code; the choice is remembered per doc so leaving the tab and coming
+  // back doesn't snap Preview back to Source.
+  const [previewMode, setPreviewModeState] = useState(
+    previewModeMemo.get(`${sessionId}:${path}`) ?? false
+  )
+  const setPreviewMode = (v: boolean): void => {
+    previewModeMemo.set(`${sessionId}:${path}`, v)
+    setPreviewModeState(v)
+  }
+  // same component instance can be re-pointed at another file — re-read memo
+  useEffect(() => {
+    setPreviewModeState(previewModeMemo.get(`${sessionId}:${path}`) ?? false)
+  }, [sessionId, path])
+  const [previewText, setPreviewText] = useState('')
+  const [previewSrc, setPreviewSrc] = useState('')
+  const previewNonce = useRef(0)
+  const kind = mediaKind(path)
+  const previewable = kind === 'markdown' || kind === 'html'
+  // refs mirror live state so the unmount cleanup (deps []) sees current values
+  const dirtyRef = useRef(false)
+  dirtyRef.current = dirty
+  const dirtyCbRef = useRef(onDirtyChange)
+  dirtyCbRef.current = onDirtyChange
+
+  // the shared-doc dirty key; both split views of a file resolve to the same one
+  const dirtyKey = `${sessionId}:${path}`
+  const dirtyKeyRef = useRef(dirtyKey)
+  dirtyKeyRef.current = dirtyKey
+  // stay in sync when the OTHER view of this doc edits/saves/discards it
+  useEffect(() => {
+    const watch = (key: string, d: boolean): void => {
+      if (key === dirtyKeyRef.current) setDirty(d)
+    }
+    dirtyWatchers.add(watch)
+    return () => {
+      dirtyWatchers.delete(watch)
+    }
+  }, [])
+  useEffect(() => {
+    dirtyCbRef.current?.(path, dirty)
+  }, [dirty, path])
+  const truncatedRef = useRef(false)
+  truncatedRef.current = truncated
+  const cwd = useHang4r((s) => s.sessions.find((x) => x.id === sessionId)?.cwd)
+  const environment = useHang4r((s) => s.sessions.find((x) => x.id === sessionId)?.environment)
+  // live-apply the Settings font size to every open editor
+  const editorFontSize = useHang4r((s) => s.editorFontSize)
+  useEffect(() => {
+    editorRef.current?.updateOptions({ fontSize: editorFontSize })
+  }, [editorFontSize])
+
+  // HTML preview: serve the live buffer through hang4r-preview:// so RELATIVE
+  // assets (images/css/js next to the file) resolve against the workdir — a
+  // data: URL has no base. SSH sessions keep the data: URL (assets are remote).
+  useEffect(() => {
+    if (!(previewMode && kind === 'html')) return
+    if (environment === 'ssh') {
+      setPreviewSrc(htmlDataUrl(previewText))
+      return
+    }
+    let stale = false
+    const rel = path.replace(/^\.?\//, '')
+    void window.hang4r.setPreviewDoc(sessionId, rel, previewText).then(() => {
+      if (stale) return
+      const enc = rel.split('/').map(encodeURIComponent).join('/')
+      setPreviewSrc(`hang4r-preview://s/${sessionId}/${enc}?v=${++previewNonce.current}`)
+    })
+    return () => {
+      stale = true
+    }
+  }, [previewMode, kind, environment, previewText, sessionId, path])
+  const metaRef = useRef({ sessionId, path, cwd })
+  metaRef.current = { sessionId, path, cwd }
+  // inline git-gutter peek state (set in the editor-create effect + applyGutter)
+  const changedLinesRef = useRef<number[]>([])
+  const peekLineRef = useRef(0)
+  const applyGutterRef = useRef<() => void>(() => {})
+  const reloadRef = useRef<() => void>(() => {})
+  const peekControlsRef = useRef<{ show: (l: number) => void; hide: () => void } | null>(null)
+
+  // create the editor once
+  // follow the app theme (Monaco: hang4r-dark for dark grounds, vs for light)
+  const appTheme = useHang4r((s) => s.theme)
+  const monacoTheme = isDarkTheme(resolveTheme(appTheme)) ? HANG4R_DARK : 'vs'
+  useEffect(() => {
+    if (monacoTheme === HANG4R_DARK) ensureTheme() // re-read the active theme's tokens
+    monaco.editor.setTheme(monacoTheme)
+  }, [monacoTheme, appTheme])
+
+  useEffect(() => {
+    if (!hostRef.current) return
+    ensureTheme()
+    ensureDiagnostics()
+    const editor = monaco.editor.create(hostRef.current, {
+      value: '',
+      language: 'plaintext',
+      theme: monacoTheme,
+      automaticLayout: true,
+      fontSize: useHang4r.getState().editorFontSize,
+      fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, monospace",
+      fontLigatures: false,
+      letterSpacing: 0,
+      // Cursor/VS Code-style minimap (Angel's ask); blocks not characters,
+      // so it stays readable at the editor's typical pane widths
+      minimap: { enabled: true, maxColumn: 80, renderCharacters: false },
+      scrollBeyondLastLine: false,
+      glyphMargin: true,
+      tabSize: 2
+    })
+    editorRef.current = editor
+
+    // ---- inline git-gutter peek: an inline diff of the hunk + toolbar
+    //      (click a change bar → see the removed/added lines right here, like Cursor) ----
+    const mkBtn = (label: string, title: string, extra: string, onClick: () => void): HTMLButtonElement => {
+      const b = document.createElement('button')
+      b.textContent = label
+      b.title = title
+      b.className = 'git-peek-btn ' + extra
+      b.onmousedown = (ev) => ev.preventDefault()
+      b.onclick = (ev) => {
+        ev.stopPropagation()
+        onClick()
+      }
+      return b
+    }
+    const gotoChange = (dir: number): void => {
+      const arr = changedLinesRef.current
+      if (!arr.length) return
+      const cur = peekLineRef.current
+      const next =
+        dir > 0
+          ? (arr.find((l) => l > cur) ?? arr[0])
+          : ([...arr].reverse().find((l) => l < cur) ?? arr[arr.length - 1])
+      showPeek(next)
+    }
+    const afterGit = (): void => {
+      applyGutterRef.current()
+      useHang4r.getState().bumpGit()
+    }
+    const toolbarButtons = (): HTMLButtonElement[] => [
+      mkBtn('↑', 'Previous change (⇧⌘↑)', '', () => gotoChange(-1)),
+      mkBtn('↓', 'Next change (⇧⌘↓)', '', () => gotoChange(1)),
+      mkBtn('+', 'Stage this change', 'git-peek-stage', () => {
+        const { sessionId: sid, path: pth } = metaRef.current
+        void window.hang4r.stageHunkAt(sid, pth, peekLineRef.current).then(afterGit)
+        hidePeek()
+      }),
+      mkBtn('⟲', 'Revert this change', 'git-peek-revert', () => {
+        const { sessionId: sid, path: pth } = metaRef.current
+        void window.hang4r.revertHunkAt(sid, pth, peekLineRef.current).then(() => {
+          reloadRef.current()
+          afterGit()
+        })
+        hidePeek()
+      }),
+      mkBtn('⧉', 'Open in the Diff panel', '', () => {
+        const { sessionId: sid, path: pth } = metaRef.current
+        const store = useHang4r.getState()
+        store.focusSession(sid)
+        store.openDiffFor(sid, pth)
+        hidePeek()
+      }),
+      mkBtn('×', 'Close (Esc)', '', () => hidePeek())
+    ]
+    // parse a single-hunk unified patch into its new-file start + diff rows
+    const parseHunk = (
+      patch: string
+    ): { newStart: number; rows: { kind: 'ctx' | 'add' | 'del'; text: string }[] } => {
+      const rows: { kind: 'ctx' | 'add' | 'del'; text: string }[] = []
+      let newStart = 1
+      for (const raw of patch.split('\n')) {
+        if (raw.startsWith('@@')) {
+          const m = /@@ -\d+(?:,\d+)? \+(\d+)/.exec(raw)
+          if (m) newStart = Number(m[1])
+          continue
+        }
+        if (/^(diff |index |--- |\+\+\+ |\\)/.test(raw)) continue
+        if (raw.startsWith('+')) rows.push({ kind: 'add', text: raw.slice(1) })
+        else if (raw.startsWith('-')) rows.push({ kind: 'del', text: raw.slice(1) })
+        else if (raw.startsWith(' ')) rows.push({ kind: 'ctx', text: raw.slice(1) })
+      }
+      return { newStart, rows }
+    }
+    let zoneId: string | null = null
+    const clearZone = (): void => {
+      if (zoneId !== null) {
+        const z = zoneId
+        editor.changeViewZones((a) => a.removeZone(z))
+        zoneId = null
+      }
+    }
+    const showPeek = (line: number): void => {
+      peekLineRef.current = line
+      clearZone()
+      const { sessionId: sid, path: pth } = metaRef.current
+      void window.hang4r.hunkAt(sid, pth, line).then((patch) => {
+        if (peekLineRef.current !== line) return // superseded by another click
+        const parsed = patch ? parseHunk(patch) : null
+        const rows = parsed?.rows ?? []
+        const zone = document.createElement('div')
+        zone.className = 'git-peek-zone'
+        const head = document.createElement('div')
+        head.className = 'git-peek-zone-head'
+        const title = document.createElement('span')
+        title.className = 'git-peek-title'
+        title.textContent = `${pth.split('/').pop()} — Git local changes`
+        const bar = document.createElement('span')
+        bar.className = 'git-peek'
+        bar.append(...toolbarButtons())
+        head.append(title, bar)
+        const body = document.createElement('div')
+        body.className = 'git-peek-body'
+        if (!rows.length) {
+          const d = document.createElement('div')
+          d.className = 'git-peek-line git-peek-ctx'
+          d.textContent = '  (new file — no previous content)'
+          body.append(d)
+        }
+        for (const r of rows) {
+          const d = document.createElement('div')
+          d.className = 'git-peek-line git-peek-' + r.kind
+          d.textContent = (r.kind === 'add' ? '+ ' : r.kind === 'del' ? '- ' : '  ') + r.text
+          body.append(d)
+        }
+        zone.append(head, body)
+        const height = 1 + Math.min(Math.max(rows.length, 1), 18) + 1
+        editor.changeViewZones((a) => {
+          zoneId = a.addZone({
+            afterLineNumber: Math.max(0, (parsed?.newStart ?? line) - 1),
+            heightInLines: height,
+            domNode: zone
+          })
+        })
+        editor.revealLineInCenterIfOutsideViewport(line)
+      })
+    }
+    const hidePeek = (): void => clearZone()
+    peekControlsRef.current = { show: showPeek, hide: hidePeek }
+    // Esc closes the peek
+    editor.addCommand(monaco.KeyCode.Escape, () => hidePeek())
+    // click a change bar in the gutter → open the inline peek at that line
+    editor.onMouseDown((e) => {
+      const t = e.target.type
+      const inGutter =
+        t === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN ||
+        t === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS
+      const line = e.target.position?.lineNumber
+      if (inGutter && line && changedLinesRef.current.includes(line)) {
+        showPeek(line)
+      } else if (!(e.target.element?.closest('.git-peek-zone'))) {
+        hidePeek()
+      }
+    })
+    editor.onDidChangeModelContent(() => {
+      setDirty(true)
+      setSharedDirty(dirtyKeyRef.current, true)
+      setPreviewText(editor.getValue())
+    })
+    editor.onDidChangeCursorSelection((e) => setHasSel(!e.selection.isEmpty()))
+    editor.addAction({
+      id: 'hang4r.addToChat',
+      label: 'Add selection to chat',
+      contextMenuGroupId: 'navigation',
+      run: (ed) => {
+        const sel = ed.getSelection()
+        const model = ed.getModel()
+        if (!sel || !model) return
+        const text = model.getValueInRange(sel)
+        if (text.trim()) {
+          addRef.current(
+            `${path.split('/').pop()} L${sel.startLineNumber}-${sel.endLineNumber}`,
+            `${path}:${sel.startLineNumber}-${sel.endLineNumber}\n${text}`
+          )
+        }
+      }
+    })
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      void doSave()
+    })
+    // ⌘F → open OUR find bar, not Monaco's built-in widget. Registering the
+    // command binds ⌘F ahead of the default `actions.find` keybinding; Monaco
+    // eats the key before any window-level handler, so this IS the routing.
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, () => openFindRef.current())
+
+    // Cmd/Ctrl-click: an import/path string → open that file; otherwise treat the
+    // identifier under the cursor as a symbol and jump to its definition.
+    const goToPos = async (pos: monaco.Position, model: monaco.editor.ITextModel): Promise<void> => {
+      const { sessionId: sid, path: pth, cwd: root } = metaRef.current
+      const spec = quotedStringAt(model.getLineContent(pos.lineNumber), pos.column)
+      if (spec) {
+        const resolved = await window.hang4r.resolveImport(sid, pth, spec)
+        if (resolved) useHang4r.getState().requestOpenFile(sid, resolved)
+        return
+      }
+      const word = model.getWordAtPosition(pos)
+      if (!word) return
+      // semantic definition via the TS language service (cross-file, type-aware)
+      if (root && model.uri.scheme === 'file') {
+        const def = await tsDefinition(model.uri, model.getOffsetAt(pos), root)
+        if (def) {
+          useHang4r.getState().requestOpenFile(sid, def.rel, def.line)
+          return
+        }
+      }
+      // fallback: git-grep declaration finder (non-project files / service not ready)
+      const def = await window.hang4r.findDefinition(sid, word.word)
+      if (def) useHang4r.getState().requestOpenFile(sid, def.path, def.line)
+    }
+    editor.onMouseDown((e) => {
+      if (!(e.event.metaKey || e.event.ctrlKey)) return
+      const pos = e.target.position
+      const model = editor.getModel()
+      if (pos && model) void goToPos(pos, model)
+    })
+    // F12 — Go to Definition
+    editor.addCommand(monaco.KeyCode.F12, () => {
+      const pos = editor.getPosition()
+      const model = editor.getModel()
+      if (pos && model) void goToPos(pos, model)
+    })
+    editor.addAction({
+      id: 'hang4r.goToDefinition',
+      label: 'Go to Definition',
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 0,
+      run: (ed) => {
+        const pos = ed.getPosition()
+        const model = ed.getModel()
+        if (pos && model) void goToPos(pos, model)
+      }
+    })
+    return () => {
+      // persist scroll/cursor/selection so a remount (workspace re-split) restores it
+      const key = viewStateKeyRef.current
+      if (key) {
+        const viewState = editor.saveViewState()
+        if (viewState) viewStateMemo.set(key, viewState)
+      }
+      editor.dispose()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // load file when the path changes. When we know the workspace root, back the
+  // editor with a file-URI model so the TS language service resolves this file
+  // as part of the project (cross-file defs/hover); otherwise fall back to the
+  // plain reused model.
+  useEffect(() => {
+    let cancelled = false
+    void window.hang4r.readFile(sessionId, path).then((res) => {
+      const editor = editorRef.current
+      if (cancelled || !editor) return
+      const key = `${sessionId}:${path}`
+      // switching files (not the initial load into a fresh editor) — save the
+      // outgoing file's view state before the model underneath it changes
+      if (viewStateKeyRef.current && viewStateKeyRef.current !== key) {
+        const outgoing = editor.saveViewState()
+        if (outgoing) viewStateMemo.set(viewStateKeyRef.current, outgoing)
+      }
+      const docDirty = sharedDirty.get(key) ?? false
+      if (cwd) {
+        const model = ensureModel(cwd, path, res.content, langForPath(path))
+        // an unsaved shared model must survive a remount (split/unsplit) —
+        // only refresh from disk when the doc is clean
+        if (!docDirty && model.getValue() !== res.content) model.setValue(res.content)
+        if (editor.getModel() !== model) {
+          const prev = editor.getModel()
+          editor.setModel(model)
+          // dispose the throwaway inmemory model Monaco auto-created at startup
+          if (prev && prev.uri.scheme !== 'file') prev.dispose()
+        }
+        void loadProject(sessionId, cwd) // background — enables cross-file defs
+      } else {
+        const model = editor.getModel()
+        if (model) {
+          monaco.editor.setModelLanguage(model, langForPath(path))
+          if (!docDirty) model.setValue(res.content)
+        }
+      }
+      viewStateKeyRef.current = key
+      const savedViewState = viewStateMemo.get(key)
+      if (savedViewState) editor.restoreViewState(savedViewState)
+      setTruncated(res.truncated)
+      setDirty(docDirty)
+      setPreviewText(docDirty ? (editor.getModel()?.getValue() ?? res.content) : res.content)
+      void applyGutter()
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId, path, cwd])
+
+  // go-to-definition: reveal + select the target line when this file is opened
+  // with one (fileToOpen.line from findDefinition)
+  const fileToOpen = useHang4r((s) => s.fileToOpen)
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor || !fileToOpen?.line) return
+    if (fileToOpen.sessionId !== sessionId || fileToOpen.path !== path) return
+    const line = fileToOpen.line
+    // wait a tick so the model content is loaded before revealing
+    const t = setTimeout(() => {
+      editor.revealLineInCenter(line)
+      editor.setPosition({ lineNumber: line, column: 1 })
+      editor.focus()
+    }, 60)
+    return () => clearTimeout(t)
+  }, [fileToOpen, sessionId, path])
+
+  // git dirty-diff bars in the editor gutter (added/modified/deleted vs HEAD)
+  const gitNonce = useHang4r((s) => s.gitNonce)
+  const gutterRef = useRef<string[]>([])
+  const applyGutter = useCallback(async (): Promise<void> => {
+    const editor = editorRef.current
+    if (!editor) return
+    const st = await window.hang4r.gitLineStatus(sessionId, path).catch(() => null)
+    if (!st || !editorRef.current) return
+    const ruler = monaco.editor.OverviewRulerLane.Left
+    const decos: monaco.editor.IModelDeltaDecoration[] = []
+    const add = (lines: number[], cls: string, color: string): void => {
+      for (const l of lines) {
+        decos.push({
+          range: new monaco.Range(l, 1, l, 1),
+          options: {
+            isWholeLine: false,
+            linesDecorationsClassName: cls,
+            overviewRuler: { color, position: ruler }
+          }
+        })
+      }
+    }
+    add(st.added, 'gutter-added', cssToken('--green', '#66bd7e'))
+    add(st.modified, 'gutter-modified', '#42a5f5')
+    add(st.deleted, 'gutter-deleted', cssToken('--red', '#d97070'))
+    gutterRef.current = editor.deltaDecorations(gutterRef.current, decos)
+    changedLinesRef.current = [...st.added, ...st.modified, ...st.deleted].sort((a, b) => a - b)
+    // if the peeked line is no longer a change (e.g. after revert), close the peek
+    if (peekLineRef.current && !changedLinesRef.current.includes(peekLineRef.current)) {
+      peekControlsRef.current?.hide()
+    }
+  }, [sessionId, path])
+  applyGutterRef.current = () => void applyGutter()
+  const reloadFromDisk = useCallback((): void => {
+    if (dirtyRef.current || sharedDirty.get(dirtyKeyRef.current)) return // don't clobber unsaved edits
+    void window.hang4r.readFile(sessionId, path).then((res) => {
+      const model = editorRef.current?.getModel()
+      if (model) model.setValue(res.content)
+      setDirty(false)
+      setPreviewText(res.content)
+    })
+  }, [sessionId, path])
+  reloadRef.current = reloadFromDisk
+  useEffect(() => {
+    void applyGutter()
+  }, [applyGutter, gitNonce])
+
+  const doSave = async (): Promise<void> => {
+    const editor = editorRef.current
+    if (!editor || truncated) return
+    setSaving(true)
+    try {
+      await window.hang4r.writeFile(sessionId, path, editor.getValue())
+      setDirty(false)
+      setSharedDirty(dirtyKeyRef.current, false)
+      void applyGutter()
+      useHang4r.getState().bumpGit()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // expose a save handle so the parent can auto-flush unsaved changes on close
+  useEffect(() => {
+    onRegister?.(path, {
+      isDirty: () => dirtyRef.current,
+      save: async () => {
+        const editor = editorRef.current
+        if (editor && !truncated) {
+          await window.hang4r.writeFile(sessionId, path, editor.getValue())
+          setSharedDirty(`${sessionId}:${path}`, false)
+        }
+      },
+      discard: () => {
+        setSharedDirty(`${sessionId}:${path}`, false)
+        setDirty(false)
+      }
+    })
+    return () => onRegister?.(path, null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, sessionId, truncated])
+
+  const addSelection = (): void => {
+    const editor = editorRef.current
+    const sel = editor?.getSelection()
+    const model = editor?.getModel()
+    if (!editor || !sel || !model || sel.isEmpty()) return
+    const text = model.getValueInRange(sel)
+    addRef.current(
+      `${path.split('/').pop()} L${sel.startLineNumber}-${sel.endLineNumber}`,
+      `${path}:${sel.startLineNumber}-${sel.endLineNumber}\n${text}`
+    )
+  }
+
+  return (
+    <div className="code-editor">
+      {findOpen && editorRef.current && (
+        <EditorFindBar
+          editor={editorRef.current}
+          focusToken={findToken}
+          onClose={() => {
+            setFindOpen(false)
+            editorRef.current?.focus()
+          }}
+        />
+      )}
+      <div className="code-editor-bar">
+        <span className="code-editor-path">
+          {path}
+          {dirty && <span className="code-editor-dot" title="Unsaved changes">●</span>}
+        </span>
+        {truncated && <span className="files-truncated">large file — read-only</span>}
+        {hasSel && (
+          <button className="ghost-btn code-editor-addchat" onClick={addSelection}>
+            ↳ Add to chat
+          </button>
+        )}
+        {previewable && (
+          <div className="preview-source-tabs" role="tablist" aria-label="Preview or source">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={previewMode}
+              className={'preview-source-tab' + (previewMode ? ' preview-source-tab-active' : '')}
+              onClick={() => setPreviewMode(true)}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!previewMode}
+              className={'preview-source-tab' + (!previewMode ? ' preview-source-tab-active' : '')}
+              onClick={() => setPreviewMode(false)}
+            >
+              Source
+            </button>
+          </div>
+        )}
+        <button
+          className="primary-btn code-editor-save"
+          disabled={!dirty || saving || truncated}
+          onClick={() => void doSave()}
+        >
+          {saving ? 'Saving…' : 'Save ⌘S'}
+        </button>
+      </div>
+      <div
+        className="code-editor-host"
+        ref={hostRef}
+        style={previewable && previewMode ? { display: 'none' } : undefined}
+      />
+      {previewable && previewMode && (
+        <div className={'code-editor-preview' + (kind === 'html' ? ' code-editor-preview-html' : '')}>
+          {kind === 'markdown' ? (
+            <div className="markdown-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents(sessionId, path)}>{previewText}</ReactMarkdown>
+            </div>
+          ) : previewSrc ? (
+            <webview
+              // eslint-disable-next-line react/no-unknown-property
+              src={previewSrc}
+              partition="persist:hang4r-preview"
+              className="html-preview-webview"
+            />
+          ) : null}
+        </div>
+      )}
+    </div>
+  )
+}

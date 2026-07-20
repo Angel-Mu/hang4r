@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    hang4r small-size icon variant (favicons, 16-32px slots in icns/ico).
+    Simplified for legibility: just the arch with the light on inside —
+    no caret, no glow filters.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1c2a"/>
+      <stop offset="1" stop-color="#0d0d13"/>
+    </linearGradient>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="210" fill="url(#bg)"/>
+  <!-- hang4r arch, bolder for tiny sizes -->
+  <path d="M 288 768 L 288 520 A 224 224 0 0 1 736 520 L 736 768"
+        fill="none" stroke="#8a8af8" stroke-width="96" stroke-linecap="round"/>
+  <!-- the light is on inside -->
+  <rect x="452" y="628" width="120" height="92" rx="22" fill="#50fa7b"/>
+</svg>

@@ -1,0 +1,110 @@
+appId: dev.hang4r.app
+productName: hang4r
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!e2e/*'
+  - '!test-results/*'
+  - '!docs/*'
+  # NEVER pack build output, nested git worktrees, or the landing site into the
+  # app.asar. A stale .worktrees/ tree (each worktree carries its own dist/ full
+  # of release dmgs) ballooned the asar to 3.4 GB → over GitHub's 2 GB asset
+  # limit → v1.0.8/1.0.9 shipped with no app. These dirs are dev-only.
+  - '!dist'
+  - '!dist/**'
+  - '!.worktrees'
+  - '!.worktrees/**'
+  - '!.hang4r-worktrees'
+  - '!.hang4r-worktrees/**'
+  - '!landing'
+  - '!landing/**'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!playwright.config.ts'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md,GOAL.md,.nvmrc}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+  - '**/node_modules/node-pty/**'
+  - '**/node_modules/better-sqlite3/**'
+# The agent-drivable browser CLI (hang4r-cli.js) is run as a standalone Node
+# script by the per-session bin shim, so it must live OUTSIDE the asar as a real
+# file. extraResources copies it to Contents/Resources/ctl (process.resourcesPath).
+extraResources:
+  - from: resources/ctl
+    to: ctl
+win:
+  executableName: hang4r
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  # Custom code-sign hook: signs by cert SHA-1 HASH (via HANG4R_SIGN_ID) so the
+  # build survives two "Developer ID Application" certs sharing one name in the
+  # keychain, which makes codesign-by-name ambiguous. See build/sign.cjs.
+  sign: build/sign.cjs
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Required for notarization; harmless on dev builds. The entitlements plist
+  # carries the allow-jit/unsigned-memory keys Electron needs under it.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  # Usage strings shown INSIDE macOS permission prompts. hang4r itself only
+  # touches folders the user adds — but macOS attributes AGENT/terminal child
+  # process access to the host app (same as iTerm/Cursor/Zed), so honest
+  # strings keep those prompts from reading as sketchy. NOTE: extendInfo must
+  # be a MAP — the previous list form was silently dropped by electron-builder.
+  extendInfo:
+    NSDocumentsFolderUsageDescription: >-
+      An agent or terminal command running in hang4r accessed your Documents
+      folder. hang4r itself only reads workspaces you add.
+    NSDownloadsFolderUsageDescription: >-
+      An agent or terminal command running in hang4r accessed your Downloads
+      folder. hang4r itself only reads workspaces you add.
+    NSDesktopFolderUsageDescription: >-
+      An agent or terminal command running in hang4r accessed your Desktop.
+      hang4r itself only reads workspaces you add.
+    NSRemovableVolumesUsageDescription: >-
+      An agent or terminal command running in hang4r accessed a removable
+      volume. hang4r itself only reads workspaces you add.
+    NSNetworkVolumesUsageDescription: >-
+      An agent or terminal command running in hang4r accessed a network
+      volume. hang4r itself only reads workspaces you add.
+    NSPhotoLibraryUsageDescription: >-
+      An agent or terminal command running in hang4r tried to read your
+      Photos library. hang4r itself never does — denying is safe.
+    NSAppleMusicUsageDescription: >-
+      An agent or terminal command running in hang4r tried to read your
+      media library. hang4r itself never does — denying is safe.
+    NSLocalNetworkUsageDescription: >-
+      Used only when a dev server or agent tool you run communicates on your
+      local network.
+  # notarize stays FALSE for dev/reinstall builds (they're self-signed).
+  # scripts/release.sh overrides with --config.mac.notarize=true and the
+  # App Store Connect API-key env vars; electron-builder then runs the full
+  # notarytool submit→ticket→staple flow automatically.
+  notarize: false
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - deb
+  maintainer: hang4r
+  category: Development
+appImage:
+  artifactName: ${name}-${version}.${ext}
+# Auto-update feed: electron-updater pulls signed releases from the PUBLIC
+# releases-only repo (the source repo stays private — Angel's call, Jul 16;
+# private-repo feeds would require embedding a GH token in the app).
+# This generates app-update.yml into packaged builds so the updater knows where
+# to look. A real update requires a published, signed GitHub release.
+publish:
+  provider: github
+  owner: Angel-Mu
+  repo: hang4r-releases
+npmRebuild: false

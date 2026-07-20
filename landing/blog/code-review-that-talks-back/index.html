@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code review that talks back — hang4r blog</title>
+    <meta
+      name="description"
+      content="In hang4r, inline comments on an agent's diff become the agent's next prompt. How closing the review loop changes the way you work with Claude Code, Codex, and Cursor."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/code-review-that-talks-back/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/code-review-that-talks-back/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="Code review that talks back" />
+    <meta property="og:description" content="Inline diff comments that become the agent's next prompt — closing the loop between review and revision." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-07-13" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "Code review that talks back",
+        "description": "Inline diff comments that become the agent's next prompt — closing the loop between review and revision.",
+        "datePublished": "2026-07-13",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/code-review-that-talks-back/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">product</p>
+        <h1 class="post-title">Code review that talks back</h1>
+        <p class="post-meta">July 13, 2026 · 4 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          Here's the loop most people run with a coding agent today: the agent produces a diff,
+          you read it, you find the thing you don't like… and then you <em>alt-tab back to the
+          chat and describe the location in prose</em>. "In the rate limiter, around the bucket
+          function, the new limit needs a burst allowance." You are a human doing a text-offset
+          lookup for a machine.
+        </p>
+        <p>
+          Review is a spatial activity — your objection lives on a line. The agent's input is a
+          conversation. Every serious agent workflow eventually hits this seam, and the tape
+          holding it together is you.
+        </p>
+
+        <h2>Comments as prompts</h2>
+        <p>
+          In <a href="https://hang4r.dev/">hang4r</a>, the diff viewer is writable. Click a line
+          in the agent's diff — added, removed, or context — and leave a comment, exactly like a
+          PR review. When you hit send, every comment travels back to the agent as a structured
+          follow-up: file, hunk, line, your words, batched together in one revision request.
+        </p>
+        <p>
+          The agent answers in the only medium that matters: a new diff. Your next pass reviews
+          the revision, not the conversation. When the diff is right, the same panel stages,
+          commits, or opens the PR — the branch was isolated in its own worktree all along.
+        </p>
+
+        <h2>Why this beats "just chat about it"</h2>
+        <ul>
+          <li>
+            <strong>Precision without prose.</strong> The agent gets coordinates, not directions.
+            "This line" never gets misresolved to the wrong function.
+          </li>
+          <li>
+            <strong>Batching.</strong> Six comments in one pass is one coherent revision request —
+            not six chat turns that each trigger a partial rewrite and a rebase of your attention.
+          </li>
+          <li>
+            <strong>Review artifacts.</strong> The comments live with the session. When you come
+            back tomorrow, the "why" of every revision is on the timeline, not lost in scrollback.
+          </li>
+        </ul>
+
+        <h2>Where the industry is</h2>
+        <p>
+          To be fair about the landscape: this loop is spreading. Conductor attaches inline
+          comments to its composer; Vibe Kanban sends feedback from its board; the first-party
+          Claude Code desktop app added line comments this year, and Cursor's cloud agents take
+          follow-ups through PR mentions. We think that's the strongest possible confirmation of
+          the design — and the reason to go further: in hang4r the loop is the same across
+          <strong>all three backends</strong>, works on deletions and binary-adjacent changes, and
+          lands in the same tile where the terminal, editor, and checkpoints already live.
+        </p>
+        <p>
+          The uncomfortable truth about agentic engineering is that review is now the job. The
+          tool should treat it that way.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Review is the job. Get a tool built for it.</h3>
+        <p>hang4r is in early access on macOS — diff review that feeds the agent, on your own subscription.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

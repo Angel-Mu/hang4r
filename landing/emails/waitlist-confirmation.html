@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  hang4r — waitlist confirmation email.
+  Sent automatically by functions/api/waitlist.ts when someone joins the list
+  (the function embeds this same markup; edit BOTH if you change the design).
+  Placeholder: {{EMAIL}} — the subscriber's address.
+-->
+<html>
+  <body style="margin:0;padding:0;background:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a24;">
+    <div style="max-width:560px;margin:0 auto;padding:40px 24px;">
+      <div style="background:#ffffff;border:1px solid #e4e4ee;border-radius:12px;padding:36px 32px;">
+        <p style="font-family:ui-monospace,Menlo,monospace;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#7c7cf0;margin:0 0 18px;">hang4r · updates</p>
+        <h1 style="font-size:24px;line-height:1.25;letter-spacing:-0.02em;margin:0 0 14px;">You're subscribed.</h1>
+        <p style="font-size:15px;line-height:1.65;color:#43435a;margin:0 0 12px;">
+          Thanks for subscribing to <strong>hang4r</strong> updates — the free desktop agents
+          window that runs parallel <strong>Claude Code</strong>, <strong>Codex</strong>, and
+          <strong>Cursor</strong> sessions in isolated git worktrees, on the subscription you
+          already pay for.
+        </p>
+        <p style="font-size:15px;line-height:1.65;color:#43435a;margin:0 0 12px;">
+          What to expect: release notes and new-feature announcements, and nothing else —
+          no drip campaigns, one-click unsubscribe. The app itself is a free download at
+          <a href="https://hang4r.dev/" style="color:#5b5bd6;">hang4r.dev</a>, no list required.
+        </p>
+        <p style="font-size:15px;line-height:1.65;color:#43435a;margin:0 0 24px;">
+          Meanwhile, the <a href="https://hang4r.dev/blog/" style="color:#5b5bd6;">blog</a> covers
+          how we run parallel agents day to day, and the
+          <a href="https://hang4r.dev/#compare" style="color:#5b5bd6;">comparison table</a> shows
+          honestly where hang4r stands in the landscape.
+        </p>
+        <a href="https://hang4r.dev/" style="display:inline-block;background:#5b5bd6;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 20px;border-radius:8px;">hang4r.dev</a>
+      </div>
+      <p style="font-size:12px;color:#8a8aa3;line-height:1.6;margin:20px 8px 0;">
+        You're receiving this because {{EMAIL}} was submitted at hang4r.dev.
+        Wasn't you, or changed your mind? <a href="{{UNSUBSCRIBE_URL}}" style="color:#8a8aa3;">Unsubscribe</a>.
+        <br />© 2026 hang4r · built by Angel Malavar
+      </p>
+    </div>
+  </body>
+</html>

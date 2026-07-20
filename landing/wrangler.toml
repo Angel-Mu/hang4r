@@ -1,0 +1,15 @@
+# hang4r.dev — Cloudflare Pages project config.
+# Deploy: npm run deploy  (vite build && wrangler pages deploy)
+# Secrets (set once): npx wrangler pages secret put RESEND_API_KEY --project-name=hang4r
+name = "hang4r"
+compatibility_date = "2026-07-01"
+pages_build_output_dir = "dist"
+
+# Waitlist storage — KV is the source of truth (key = email, value = {ts, ua});
+# signups are also mirrored into the Resend audience below for dashboard broadcasts.
+[[kv_namespaces]]
+binding = "WAITLIST"
+id = "d8f312dfb10b41cd82aee632beae8816"
+
+[vars]
+RESEND_AUDIENCE_ID = "1fac15c2-2472-407e-810d-a62e25c33dd4"

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your subscription is the API — hang4r blog</title>
+    <meta
+      name="description"
+      content="Why hang4r wraps the Claude Code, Codex, and Cursor CLIs you already pay for instead of asking for API keys — keeping your hooks, skills, subagents, MCP servers, and subscription billing intact."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/your-subscription-is-the-api/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/your-subscription-is-the-api/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="Your subscription is the API" />
+    <meta property="og:description" content="Why wrapping the CLIs you already pay for beats yet another API-key SaaS — hooks, skills, MCP, and billing included." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-07-13" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "Your subscription is the API",
+        "description": "Why wrapping the CLIs you already pay for beats yet another API-key SaaS — hooks, skills, MCP, and billing included.",
+        "datePublished": "2026-07-13",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/your-subscription-is-the-api/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">philosophy</p>
+        <h1 class="post-title">Your subscription is the API</h1>
+        <p class="post-meta">July 13, 2026 · 5 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          Every month a new "agent platform" launches, and every one of them opens with the same
+          form field: <em>paste your API key</em>. It looks harmless. It isn't. That one field
+          quietly discards most of what makes your coding agent good.
+        </p>
+
+        <h2>What an API key doesn't carry</h2>
+        <p>
+          When you run <code>claude</code> in your terminal, you're not just getting a model. You're
+          getting the whole environment you've built around it:
+        </p>
+        <ul>
+          <li><strong>Hooks</strong> that gate dangerous commands and format on save.</li>
+          <li><strong>Skills</strong> that encode how your team deploys, migrates, reviews.</li>
+          <li><strong>Subagents</strong> and their orchestration.</li>
+          <li><strong>MCP servers</strong> wired into your infra — databases, browsers, issue trackers.</li>
+          <li><strong>Subscription billing</strong> — the flat monthly plan you already budgeted, with
+            its rate limits and its predictable ceiling.</li>
+        </ul>
+        <p>
+          An API-key integration reimplements the model call and abandons the rest. Your hooks
+          don't fire. Your skills don't exist. And you pay per token, on top of the subscription
+          you're already paying. For heavy agentic work, metered API billing routinely costs
+          multiples of a flat plan doing the same tokens.
+        </p>
+
+        <h2>Wrapping the CLI instead</h2>
+        <p>
+          <a href="https://hang4r.dev/">hang4r</a> takes the other path: it drives the
+          <code>claude</code>, <code>codex</code>, and <code>cursor-agent</code> binaries you already
+          have, as subprocesses, speaking their native streaming protocols. The app never sees an
+          API key, never proxies your traffic through anyone's cloud, and never writes to
+          <code>~/.claude</code>. If the CLI can do it, the wrapped session can do it — because it
+          <em>is</em> the CLI.
+        </p>
+        <p>
+          This has a few consequences we consider features:
+        </p>
+        <ul>
+          <li>
+            <strong>Zero new trust.</strong> You already trusted the CLI vendor with your code and
+            your login. hang4r adds no third party to that list — it's a local app on your machine.
+          </li>
+          <li>
+            <strong>Rate limits become a UI problem, not a surprise.</strong> Since you're on your
+            own plan, hang4r shows your Claude 5-hour and weekly windows as live gauges, plus
+            per-session token and cost counters. You always know how much runway is left before
+            you dispatch one more agent.
+          </li>
+          <li>
+            <strong>Vendor upgrades are free.</strong> When Anthropic ships a new model or a new CLI
+            capability, it shows up in hang4r the day you update the CLI — there's no waiting for a
+            platform to re-integrate.
+          </li>
+        </ul>
+
+        <h2>The honest trade-off</h2>
+        <p>
+          The subscription-CLI model has real limits, and you should know them. You can't sidestep
+          your plan's rate limits (the gauges just make them visible). Cursor is the exception in
+          the landscape — its agents bill through Cursor's own plans, so hang4r drives its CLI but
+          your Cursor subscription is still the meter. And a local-first app means your machine
+          (or a host you SSH into) does the work — there's no vendor cloud absorbing long tasks
+          overnight.
+        </p>
+        <p>
+          We think that trade is right for working engineers: predictable cost, full capability,
+          nothing new to trust. Your subscription is the API. The window is the product.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Bring your own subscription.</h3>
+        <p>hang4r is in early access on macOS — it wraps the CLIs you already pay for.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

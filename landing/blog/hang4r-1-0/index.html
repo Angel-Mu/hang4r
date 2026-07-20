@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>hang4r 1.0 is out — your agents, in parallel — hang4r blog</title>
+    <meta
+      name="description"
+      content="hang4r 1.0 is available for download: a free macOS agents window that runs Claude Code, Codex, and Cursor CLI agents in parallel. Signed, notarized, auto-updating — your own subscriptions, no API keys."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/hang4r-1-0/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/hang4r-1-0/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="hang4r 1.0 is out — your agents, in parallel" />
+    <meta property="og:description" content="A free macOS agents window for Claude Code, Codex & Cursor — parallel sessions, isolated git worktrees, diff review that talks back, and agents that prove their web changes. Download now." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-07-17" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "hang4r 1.0 is out — your agents, in parallel",
+        "description": "A free macOS agents window for Claude Code, Codex & Cursor — parallel sessions, isolated git worktrees, diff review that talks back, and agents that prove their web changes.",
+        "datePublished": "2026-07-17",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/hang4r-1-0/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">release</p>
+        <h1 class="post-title">hang4r 1.0 is out — your agents, in parallel</h1>
+        <p class="post-meta">July 17, 2026 · 3 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          hang4r 1.0 is <a href="https://hang4r.dev/download">available for download</a> —
+          a free macOS agents window that runs your <strong>Claude Code</strong>,
+          <strong>Codex</strong>, and <strong>Cursor</strong> CLI agents in parallel.
+          Signed and notarized by Apple's standards, auto-updating, and built on one
+          non-negotiable idea: <em>your subscriptions, your machine</em>. hang4r spawns the
+          CLIs you already have installed and logged in. No API keys, no markup, nothing
+          to pay.
+        </p>
+
+        <h2>What's in 1.0</h2>
+        <ul>
+          <li>
+            <strong>Parallel sessions in one window</strong> — tiled agent sessions, each
+            with streaming chat, an editor, a real terminal, and diff review.
+          </li>
+          <li>
+            <strong>Isolated git worktrees</strong> — every session on its own branch,
+            checkpointed after every turn. Edit a sent message and the conversation
+            rewinds: a true fork on Claude, a real thread rollback on Codex — and on
+            Cursor the UI honestly says it can only append.
+          </li>
+          <li>
+            <strong>Diff review that talks back</strong> — comment on the changes; your
+            comments become the agent's next prompt.
+          </li>
+          <li>
+            <strong>Agents with eyes</strong> — every agent gets a <code>hang4r browser</code>
+            CLI to drive the built-in browser: click, read the DOM, check console errors,
+            screenshot. "I fixed the form" ships with evidence.
+          </li>
+          <li>
+            <strong>Worktree setup scripts &amp; dev processes</strong> — provision each
+            fresh worktree in the background; opt processes into starting with the agent.
+          </li>
+        </ul>
+
+        <h2>Honest by design</h2>
+        <p>
+          When a backend can't do something, hang4r says so instead of faking it. And the
+          same honesty applies to your Mac: hang4r itself requires no special permissions —
+          if a permission prompt ever appears, it's because <em>your</em> agent or terminal
+          command touched that location, the prompt says so in plain words, and denying is
+          always safe.
+        </p>
+
+        <h2>Get it</h2>
+        <p>
+          <a href="https://hang4r.dev/download">Direct download</a> (Apple Silicon), or:
+        </p>
+        <pre><code>brew tap angel-mu/hang4r
+brew install --cask hang4r</code></pre>
+        <p>
+          You'll need the CLIs you want to drive, installed and logged in:
+          <code>claude</code>, <code>codex</code>, and/or <code>cursor-agent</code>.
+          Updates arrive in-app, always as your choice.
+        </p>
+        <p>
+          hang4r is free and stays free — it wraps subscriptions you already pay for, so
+          there's nothing to sell you. If it saves you an afternoon:
+          <a href="https://github.com/sponsors/Angel-Mu">GitHub Sponsors</a> ·
+          <a href="https://ko-fi.com/angel_xmu">Ko-fi</a>. Bugs and ideas →
+          <a href="https://github.com/Angel-Mu/hang4r-releases/issues">issues</a>.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Run your agents in parallel, today.</h3>
+        <p>Free on macOS — bring your Claude Code, Codex, or Cursor subscription.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>hang4r — the agents window &amp; agentic IDE for Claude Code, Codex &amp; Cursor</title>
+    <meta
+      name="description"
+      content="hang4r is the agents window and agentic IDE for agentic engineering: a macOS desktop app that runs parallel Claude Code, Codex, and Cursor CLI sessions in one window — isolated git worktrees, live diffs, review comments that go back to the agent, terminal, and usage gauges. Your hooks, skills, MCP, and subscription come with you."
+    />
+    <meta
+      name="keywords"
+      content="agentic IDE, agents window, agentic engineering, AI coding agents, Claude Code, Codex, Cursor, parallel agents, macOS"
+    />
+    <link rel="canonical" href="https://hang4r.dev/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta name="author" content="Angel Malavar" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://hang4r.dev/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="hang4r — the agents window & agentic IDE for Claude Code, Codex & Cursor" />
+    <meta
+      property="og:description"
+      content="Run parallel coding agents in one desktop window. Isolated worktrees, live diffs, review that talks back — on your own subscription."
+    />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="hang4r — the agents window & agentic IDE for Claude Code, Codex & Cursor" />
+    <meta
+      name="twitter:description"
+      content="Run parallel coding agents in one desktop window. Isolated worktrees, live diffs, review that talks back — on your own subscription."
+    />
+    <meta name="twitter:image" content="https://hang4r.dev/og.png" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "name": "hang4r",
+            "url": "https://hang4r.dev/",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "macOS",
+            "description": "A desktop agents window that runs parallel Claude Code, Codex, and Cursor CLI sessions with git-worktree isolation, diff review, and usage gauges — on your own subscription.",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD", "description": "Free" },
+            "author": { "@type": "Person", "name": "Angel Malavar" }
+          },
+          {
+            "@type": "WebSite",
+            "name": "hang4r",
+            "url": "https://hang4r.dev/"
+          }
+        ]
+      }
+    </script>
+
+    <noscript><style>[data-reveal],[data-t],[data-d]{opacity:1 !important;transform:none !important}</style></noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="#top">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="#product">Product</a>
+          <a href="#workflow">Workflow</a>
+          <a href="#compare">Compare</a>
+          <a href="/blog/">Blog</a>
+          <a class="nav-github" href="https://github.com/Angel-Mu/hang4r" target="_blank" rel="noopener" aria-label="View hang4r on GitHub" style="display:inline-flex;align-items:center;gap:6px">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+            View on GitHub
+          </a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- ============ HERO ============ -->
+      <section class="hero">
+        <p class="eyebrow" data-reveal>
+          <span class="eyebrow-led" aria-hidden="true"></span>free · macOS · signed &amp; notarized
+        </p>
+        <h1 class="hero-title" data-reveal>
+          Run parallel coding agents<br />in one desktop window.
+        </h1>
+        <p class="hero-sub" data-reveal>
+          The <strong>agents window</strong> — an <strong>agentic IDE</strong> for
+          <strong>Claude Code</strong>, <strong>Codex</strong>, and <strong>Cursor</strong> —
+          wrapping the CLIs you already pay for. Parallel sessions in isolated git
+          worktrees — streaming chat, diffs, terminal, review — with your hooks, skills,
+          subagents, MCP, and subscription intact.
+        </p>
+
+        <div class="hero-cta" data-reveal>
+          <a class="download-btn" href="https://hang4r.dev/download">Download for macOS</a>
+          <p class="download-note">Free · Apple Silicon · bring your Claude Code / Codex / Cursor login</p>
+        </div>
+
+        <!-- animated product window — mirrors the real app UI -->
+        <div class="stage" data-stage>
+          <div class="app-window" aria-label="Animated preview of the hang4r app">
+            <div class="aw-titlebar">
+              <span class="aw-dots"><i></i><i></i><i></i></span>
+              <span class="aw-cmdk">⌘⇧P</span>
+              <span class="aw-gauges">
+                <span class="aw-chip"><b class="g-green">5H</b> ● 1h 58m</span>
+                <span class="aw-chip"><b class="g-amber">SEVEN_DAY</b> ● 71h 59m</span>
+                <span class="aw-chip">COST <b>$0.42</b></span>
+                <span class="aw-chip">TOKENS <b>12.4k↓ 3.1k↑</b></span>
+              </span>
+            </div>
+            <div class="aw-body">
+              <aside class="aw-sidebar">
+                <p class="aw-brand"><span class="aw-brand-bar"></span>hang4r <span class="aw-brand-add">+ Workspace</span></p>
+                <p class="aw-newagent">✦ New Agent</p>
+                <p class="aw-search">Search sessions…</p>
+                <p class="aw-side-label">workspaces</p>
+                <p class="aw-proj-name">HANG4R</p>
+                <div class="aw-sess is-active" data-sess="1">
+                  <i class="aw-led led-run"></i><span>fix flaky e2e</span><em>now</em>
+                </div>
+                <div class="aw-sess" data-sess="2">
+                  <i class="aw-led led-run"></i><span>polish diff viewer</span><em>now</em>
+                </div>
+                <p class="aw-proj-name">API-SERVER</p>
+                <div class="aw-sess" data-sess="3">
+                  <i class="aw-led led-idle" data-codex-led></i><span>codex: migrate to pg 17</span><em>2m</em>
+                </div>
+                <div class="aw-sess" data-sess="4">
+                  <i class="aw-led led-review"></i><span>cursor: fix auth redirect</span><em>5m</em>
+                </div>
+                <div class="aw-side-bottom">
+                  <p class="aw-side-label">account limits</p>
+                  <div class="aw-limit">
+                    <span>5-hour</span><em>resets 1h 58m</em>
+                    <i class="aw-bar"><b class="bar-green" style="width: 34%"></b></i>
+                  </div>
+                  <div class="aw-limit">
+                    <span>Weekly</span><em>resets 71h 59m</em>
+                    <i class="aw-bar"><b class="bar-amber" style="width: 78%"></b></i>
+                  </div>
+                  <p class="aw-side-meta">↓ 12.4k · ↑ 3.1k <b>$0.42</b></p>
+                  <p class="aw-side-meta"><i class="aw-led led-run"></i> 4 sessions · all workspaces</p>
+                </div>
+              </aside>
+
+              <div class="aw-main">
+                <!-- tile 1: claude chat, Files tab -->
+                <div class="aw-tile" data-tile="chat">
+                  <div class="aw-tile-head">
+                    <i class="aw-led led-run"></i>
+                    <span class="aw-tile-title">fix flaky e2e</span>
+                    <span class="aw-tile-repo">○ hang4r</span>
+                    <span class="aw-tabs"><b class="on">Files</b><b>Diff</b><b>Terminal</b></span>
+                    <span class="aw-tile-x">✕</span>
+                  </div>
+                  <div class="aw-chat">
+                    <p class="aw-user" data-t="1">Fix the flaky session-restore e2e test</p>
+                    <p class="aw-line" data-t="2">Working on it — turn 1.</p>
+                    <p class="aw-worked" data-t="3">▸ <b>Worked</b> 1 step</p>
+                    <p class="aw-quote" data-t="4">Subagent scanned the repo and found the fixed
+                      500&nbsp;ms wait in restore.spec.ts.</p>
+                    <p class="aw-toolline" data-t="5"><b class="ok">✓</b> <b class="aw-tool-name">Edit</b> e2e/restore.spec.ts</p>
+                    <p class="aw-done" data-t="6">done · 12.4s · $0.0123</p>
+                  </div>
+                  <div class="aw-composer">
+                    <span class="aw-chip">Changes <b>1</b></span>
+                    <span class="aw-commit-btn">Create Branch &amp; Commit</span>
+                    <span class="aw-input">Send follow-up… <em>(@ file · / command)</em></span>
+                    <span class="aw-send">Send</span>
+                  </div>
+                  <div class="aw-status">
+                    <span>claude</span><span>⌥ worktree</span><span>opus</span><span>acceptEdits</span>
+                    <span class="aw-status-right">1.2k↓ 340↑ $0.012</span>
+                  </div>
+                </div>
+
+                <!-- tile 2: diff review, Diff tab -->
+                <div class="aw-tile" data-tile="diff">
+                  <div class="aw-tile-head">
+                    <i class="aw-led led-run"></i>
+                    <span class="aw-tile-title">polish diff viewer</span>
+                    <span class="aw-tile-repo">○ hang4r</span>
+                    <span class="aw-tabs"><b>Files</b><b class="on">Diff</b><b>Terminal</b></span>
+                    <span class="aw-tile-x">✕</span>
+                  </div>
+                  <div class="aw-diff">
+                    <p class="aw-diff-head" data-d="1"><b>CHANGED FILES</b> (1)
+                      <span class="aw-diff-actions">Commit&ensp;Merge&ensp;PR</span></p>
+                    <p class="aw-filerow" data-d="2"><b class="mod">M</b> src/components/DiffView.tsx
+                      <span class="aw-plusminus"><b class="ok">+2</b> <b class="bad">−1</b></span></p>
+                    <p class="aw-dline hunk" data-d="3">@@ -212,3 +212,4 @@</p>
+                    <p class="aw-dline del" data-d="4">- setTimeout(apply, 500)</p>
+                    <p class="aw-dline add" data-d="5">+ requestAnimationFrame(apply)</p>
+                    <p class="aw-dline add" data-d="6">+ // paint before Monaco re-measures</p>
+                    <div class="aw-comment" data-d="7">
+                      <span class="aw-comment-chip">you</span> use rAF here too? → sent to agent
+                    </div>
+                  </div>
+                  <div class="aw-composer">
+                    <span class="aw-chip">Changes <b>1</b></span>
+                    <span class="aw-commit-btn">Create Branch &amp; Commit</span>
+                    <span class="aw-input">Send follow-up… <em>(@ file · / command)</em></span>
+                    <span class="aw-send">Send</span>
+                  </div>
+                  <div class="aw-status">
+                    <span>claude</span><span>⌥ worktree</span><span>sonnet</span><span>plan</span>
+                    <span class="aw-status-right">2.8k↓ 610↑ $0.019</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ REAL SCREENSHOTS ============ -->
+      <section class="section" id="product">
+        <div class="section-head" data-reveal>
+          <p class="kicker">inside the window</p>
+          <h2>Everything in flight, at a glance.</h2>
+          <p class="section-sub">
+            Parallel sessions tiled side by side, diffs you can talk back to, and your account
+            limits always in view — this is what a day of orchestrating agents actually looks
+            like.
+          </p>
+        </div>
+
+        <figure class="shot shot-primary" data-reveal>
+          <img
+            src="/shots/workspace.png"
+            alt="hang4r tiled workspace: two agent sessions streaming side by side with sidebar, usage gauges, and per-session status bars"
+            width="1440"
+            height="900"
+            loading="lazy"
+          />
+          <figcaption>
+            Two agents mid-task, side by side — each tile is a full session with its own chat,
+            files, diff, and terminal, while the sidebar keeps every project and rate limit in
+            peripheral vision.
+          </figcaption>
+        </figure>
+
+        <div class="shot-row">
+          <figure class="shot" data-reveal>
+            <img
+              src="/shots/diff-review.png"
+              alt="hang4r diff review panel showing changed files and an inline diff for an agent session"
+              width="1440"
+              height="900"
+              loading="lazy"
+            />
+            <figcaption>
+              Diff review per session — changed files, hunks, and inline comments that go back
+              to the agent as a follow-up.
+            </figcaption>
+          </figure>
+          <figure class="shot" data-reveal>
+            <img
+              src="/shots/new-agent.png"
+              alt="hang4r new-agent dialog with backend, model, permission mode, and worktree isolation options"
+              width="1440"
+              height="900"
+              loading="lazy"
+            />
+            <figcaption>
+              Dispatch an agent — pick Claude, Codex, or Cursor, choose model and permissions,
+              isolate it in a worktree.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- ============ WORKFLOW ============ -->
+      <section class="section" id="workflow">
+        <div class="section-head" data-reveal>
+          <p class="kicker">the loop</p>
+          <h2>Dispatch. Glance. Review. Merge.</h2>
+        </div>
+
+        <div class="cap" data-reveal>
+          <div class="cap-copy">
+            <p class="cap-num">01</p>
+            <h3>A tiled workspace for many agents</h3>
+            <p>
+              Sessions live side by side — up to four tiles per workspace, grouped by project in
+              the sidebar with live status. Kick off an agent in one project while three others
+              stream in parallel, and queue follow-ups while they work.
+            </p>
+          </div>
+          <div class="cap-visual" data-viz="tiles" aria-hidden="true">
+            <div class="viz-tiles"><i></i><i></i><i></i><i></i></div>
+          </div>
+        </div>
+
+        <div class="cap cap-flip" data-reveal>
+          <div class="cap-copy">
+            <p class="cap-num">02</p>
+            <h3>Every session in its own worktree</h3>
+            <p>
+              Isolation by default: each agent works on its own branch with per-turn checkpoint
+              commits, so you can rewind any turn — or race the same task across Claude, Codex,
+              and Cursor with <code>/best-of-n</code> and keep the winner.
+            </p>
+          </div>
+          <div class="cap-visual" data-viz="branches" aria-hidden="true">
+            <svg class="viz-branches" viewBox="0 0 320 140" fill="none">
+              <path class="vb-trunk" d="M20 70 H300" />
+              <path class="vb-branch" d="M80 70 C110 70 110 30 140 30 H250" />
+              <path class="vb-branch vb-b2" d="M80 70 C110 70 110 110 140 110 H250" />
+              <circle class="vb-node" cx="80" cy="70" r="4" />
+              <circle class="vb-node vb-n2" cx="180" cy="30" r="4" />
+              <circle class="vb-node vb-n3" cx="220" cy="30" r="4" />
+              <circle class="vb-node vb-n4" cx="180" cy="110" r="4" />
+              <circle class="vb-node vb-n5" cx="250" cy="70" r="5" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="cap" data-reveal>
+          <div class="cap-copy">
+            <p class="cap-num">03</p>
+            <h3>Review that talks back</h3>
+            <p>
+              A changed-files panel and diff viewer where your inline comments are fed back to the
+              agent as a structured follow-up. Annotate the diff, hit send, and the agent revises —
+              then stage, commit, or open the PR.
+            </p>
+          </div>
+          <div class="cap-visual" data-viz="review" aria-hidden="true">
+            <div class="viz-review">
+              <p class="vr-line add">+ const limit = perUserBucket(req)</p>
+              <div class="vr-comment">needs a burst allowance</div>
+              <p class="vr-line vr-reply">↩ agent: added burst=20, updated tests</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="cap cap-flip" data-reveal>
+          <div class="cap-copy">
+            <p class="cap-num">04</p>
+            <h3>Your CLI, not our API keys</h3>
+            <p>
+              hang4r drives the <code>claude</code>, <code>codex</code>, and
+              <code>cursor-agent</code> binaries you already have as subprocesses. Hooks, skills,
+              subagents, MCP servers, and subscription billing all keep working — we never touch
+              <code>~/.claude</code>.
+            </p>
+          </div>
+          <div class="cap-visual" data-viz="cli" aria-hidden="true">
+            <div class="viz-cli">
+              <p><span class="aw-prompt">❯</span> claude -p --output-format stream-json</p>
+              <div class="viz-badges">
+                <span>hooks</span><span>skills</span><span>subagents</span><span>MCP</span
+                ><span>your&nbsp;plan</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ MISSION CONTROL GRID ============ -->
+      <section class="section" id="features">
+        <div class="section-head" data-reveal>
+          <p class="kicker">mission control</p>
+          <h2>Everything around the agents, built in.</h2>
+        </div>
+        <div class="feat-grid" data-reveal>
+          <div class="feat"><h4>⌘F everywhere</h4><p>One find bar across conversation, editor, and terminal — same keys, same highlights.</p></div>
+          <div class="feat"><h4>Session import</h4><p>Your existing Claude Code, Codex, and Cursor session history shows up on day one — continue any of it in hang4r.</p></div>
+          <div class="feat"><h4>settings.json</h4><p>VS Code-style app + workspace settings with schema validation — your comments survive every save.</p></div>
+          <div class="feat"><h4>SSH remote</h4><p>Run agents and terminals on a remote host over SSH tunnels; the UI stays local.</p></div>
+          <div class="feat"><h4>Usage gauges</h4><p>Claude 5-hour and weekly limits, per-session tokens and cost — always visible, never a surprise.</p></div>
+          <div class="feat"><h4>Checkpoints &amp; rewind</h4><p>Per-turn commits on the session branch. Any turn can be rewound, nothing is lost.</p></div>
+          <div class="feat"><h4>Hooks timeline</h4><p>Every hook that fires, in order, per session — see the machinery working.</p></div>
+          <div class="feat"><h4>Subagent inspector</h4><p>The full subagent tree with each child's transcript, not a black box.</p></div>
+          <div class="feat"><h4>Queued messages</h4><p>Type while the agent works — follow-ups queue and dispatch in order.</p></div>
+          <div class="feat"><h4>Notifications</h4><p>Configurable per event, with action-required badges you can't miss on the dock and sidebar.</p></div>
+          <div class="feat"><h4>Terminal · editor · browser</h4><p>Real PTY terminals with splits, a Monaco editor, and an embedded browser per session.</p></div>
+          <div class="feat"><h4>Processes panel</h4><p>Every subprocess an agent spawns, live — inspect them, and kill the whole group cleanly.</p></div>
+        </div>
+      </section>
+
+      <!-- ============ COMPARE ============ -->
+      <section class="section" id="compare">
+        <div class="section-head" data-reveal>
+          <p class="kicker">how it compares</p>
+          <h2>The agent-manager landscape, honestly.</h2>
+          <p class="section-sub">
+            Compiled July 2026 from public docs, changelogs, and repos. Corrections welcome —
+            <a href="mailto:hello@hang4r.dev">hello@hang4r.dev</a>.
+          </p>
+        </div>
+        <div class="compare-wrap" data-reveal>
+          <table class="compare">
+            <thead>
+              <tr>
+                <th scope="col">Feature</th>
+                <th scope="col" class="col-us">hang4r<span>macOS · free EA</span></th>
+                <th scope="col">CLI + tmux + nvim<span>the DIY stack · free</span></th>
+                <th scope="col">Conductor<span>macOS · free</span></th>
+                <th scope="col">Cursor<span>IDE · $20–200/mo</span></th>
+                <th scope="col">Claude Code / Codex apps<span>first-party</span></th>
+                <th scope="col">Vibe Kanban<span>OSS · community</span></th>
+                <th scope="col">claude-squad<span>tmux TUI · AGPL</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Runs on your existing CLI subscription</th>
+                <td class="col-us yes">✓</td><td class="yes">✓ it IS the CLI</td><td class="yes">✓</td><td class="no">✗ own billing</td><td class="part">~ its own agent</td><td class="yes">✓</td><td class="yes">✓</td>
+              </tr>
+              <tr>
+                <th scope="row">Claude + Codex + Cursor in one app</th>
+                <td class="col-us yes">✓</td><td class="yes">✓ any CLI, by hand</td><td class="yes">✓ +OpenCode</td><td class="part">~ multi-model, one vendor</td><td class="no">✗ single agent</td><td class="yes">✓ 10+ agents</td><td class="yes">✓</td>
+              </tr>
+              <tr>
+                <th scope="row">Git worktree isolation per session</th>
+                <td class="col-us yes">✓</td><td class="part">~ manual / scripts</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
+              </tr>
+              <tr>
+                <th scope="row">Diff comments sent back to the agent</th>
+                <td class="col-us yes">✓</td><td class="no">✗ describe it in prose</td><td class="yes">✓</td><td class="part">~ via PR @cursor</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">✗</td>
+              </tr>
+              <tr>
+                <th scope="row">Built-in code editor + real terminal</th>
+                <td class="col-us yes">✓ Monaco + PTY</td><td class="yes">✓ nvim IS the editor</td><td class="part">~ terminal only</td><td class="yes">✓ full IDE</td><td class="part">~ local sessions</td><td class="part">~ terminal + preview</td><td class="no">✗</td>
+              </tr>
+              <tr>
+                <th scope="row">Per-turn checkpoints &amp; rewind</th>
+                <td class="col-us yes">✓</td><td class="part">~ Claude's /rewind only</td><td class="yes">✓</td><td class="yes">✓</td><td class="part">~ Claude ✓ · Codex ✗</td><td class="und">—*</td><td class="no">✗</td>
+              </tr>
+              <tr>
+                <th scope="row">SSH to your own remote host</th>
+                <td class="col-us yes">✓</td><td class="yes">✓ ssh + tmux, natively</td><td class="yes">✓ + cloud</td><td class="yes">✓ + cloud VMs</td><td class="part">~ Claude ✓ · Codex cloud-only</td><td class="part">~ self-host</td><td class="no">✗</td>
+              </tr>
+              <tr>
+                <th scope="row">Rate-limit &amp; per-session cost gauges</th>
+                <td class="col-us yes">✓ all sessions, one view</td><td class="part">~ /status, one pane at a time</td><td class="und">—*</td><td class="part">~ dashboard</td><td class="part">~ usage ring / status</td><td class="und">—*</td><td class="no">✗</td>
+              </tr>
+              <tr>
+                <th scope="row">Imports your existing CLI session history</th>
+                <td class="col-us yes">✓</td><td class="yes">✓ it lives there</td><td class="und">—*</td><td class="no">✗</td><td class="part">~ own history</td><td class="und">—*</td><td class="no">✗</td>
+              </tr>
+              <tr>
+                <th scope="row">Hooks timeline &amp; subagent inspector</th>
+                <td class="col-us yes">✓</td><td class="no">✗ scrollback archaeology</td><td class="und">—*</td><td class="no">✗</td><td class="part">~ partial</td><td class="und">—*</td><td class="no">✗</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="compare-notes" data-reveal>
+          <p>
+            <b>✓</b> shipped &nbsp;·&nbsp; <b>~</b> partial or different shape &nbsp;·&nbsp;
+            <b>✗</b> not offered &nbsp;·&nbsp; <b>—*</b> not documented publicly as of July 2026
+            (absent from docs, not proven absent).
+          </p>
+          <p>
+            Context worth knowing: Crystal was deprecated in Feb 2026 (succeeded by the paid
+            Nimbalyst); Vibe Kanban's company shut down in April 2026 and the project is now
+            community-maintained; Sculptor isolates agents in Docker containers instead of
+            worktrees; opcode has shipped no releases since 2025. Cursor's agents bill through
+            Cursor plans rather than your Claude/ChatGPT subscription. Anthropic and OpenAI both
+            ship first-party session GUIs now — each drives only its own agent, which is exactly
+            why a multi-backend, local-first window exists.
+          </p>
+          <p>
+            And full respect to the DIY column — raw CLIs in tmux splits with neovim is how a
+            lot of this work gets done today, and it holds up better than most products here.
+            hang4r exists for the day you're running five of those panes and can't tell, at a
+            glance, which one is blocked waiting on you.
+          </p>
+        </div>
+      </section>
+
+      <!-- ============ BLOG ============ -->
+      <section class="section" id="blog">
+        <div class="section-head" data-reveal>
+          <p class="kicker">from the blog</p>
+          <h2>Notes on agentic engineering.</h2>
+        </div>
+        <div class="blog-grid" data-reveal>
+          <a class="blog-card" href="/blog/parallel-agents-git-worktrees/">
+            <p class="blog-tag">workflow</p>
+            <h3>Run five coding agents in parallel without them stepping on each other</h3>
+            <p>Git worktrees are the missing primitive for parallel agents. How hang4r isolates every session and checkpoints every turn.</p>
+            <span class="blog-more">Read →</span>
+          </a>
+          <a class="blog-card" href="/blog/your-subscription-is-the-api/">
+            <p class="blog-tag">philosophy</p>
+            <h3>Your subscription is the API</h3>
+            <p>Why wrapping the CLIs you already pay for beats yet another API-key SaaS — hooks, skills, MCP, and billing included.</p>
+            <span class="blog-more">Read →</span>
+          </a>
+          <a class="blog-card" href="/blog/code-review-that-talks-back/">
+            <p class="blog-tag">product</p>
+            <h3>Code review that talks back</h3>
+            <p>Inline diff comments that become the agent's next prompt — closing the loop between review and revision.</p>
+            <span class="blog-more">Read →</span>
+          </a>
+          <a class="blog-card" href="/blog/from-coder-to-conductor/">
+            <p class="blog-tag">workflow</p>
+            <h3>From coder to conductor</h3>
+            <p>The agentic engineer's loop — dispatch, glance, review, merge — and the tooling it takes to run it all day.</p>
+            <span class="blog-more">Read →</span>
+          </a>
+        </div>
+      </section>
+
+      <!-- ============ PRINCIPLES ============ -->
+      <section class="section section-quiet" id="principles">
+        <div class="principles" data-reveal>
+          <p class="kicker">why we're building it</p>
+          <p class="principles-lede">
+            Cursor's Agents Window proved the shape: the control plane for agents, not the text
+            editor, is the primary surface. hang4r takes that shape and grounds it in the CLIs
+            you already trust — open in approach, desktop-native, subscription-friendly.
+          </p>
+          <div class="principles-row">
+            <div><h4>MIT-clean</h4><p>Learn from everything, copy nothing.</p></div>
+            <div><h4>Local-first</h4><p>Your repos, your machine, your keys — SSH when you want it.</p></div>
+            <div><h4>Transparent</h4><p>Usage gauges, hooks timeline, subagent inspector. See the machinery.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CTA ============ -->
+      <section class="section section-cta" id="access">
+        <div data-reveal>
+          <h2 class="cta-title">Stay in the loop.</h2>
+          <p class="cta-sub">
+            Release notes and new features, straight to your inbox. No spam, unsubscribe
+            with one click, ever.
+          </p>
+          <form class="waitlist waitlist-footer" aria-label="Subscribe to updates">
+            <input
+              type="email"
+              name="email"
+              required
+              placeholder="you@yourteam.dev"
+              autocomplete="email"
+              aria-label="Email address"
+            />
+            <button type="submit"><span>Subscribe</span></button>
+            <p class="waitlist-note" role="status"></p>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor. Claude Code, Codex, and Cursor are trademarks of their respective owners.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/blog/">Blog</a>
+          <a href="#compare">Compare</a>
+          <a href="mailto:hello@hang4r.dev">Contact</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

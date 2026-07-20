@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Give your coding agent eyes: a browser it can drive and assert against — hang4r blog</title>
+    <meta
+      name="description"
+      content="hang4r ships a cmux-style CLI that lets any Claude Code, Codex, or Cursor agent drive the embedded browser next to it — click, type, read the DOM, check console errors, screenshot — and prove its web changes actually work."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/agents-that-see-the-browser/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/agents-that-see-the-browser/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="Give your coding agent eyes: a browser it can drive and assert against" />
+    <meta property="og:description" content="A zero-setup CLI puts hang4r's embedded browser under every agent's control — navigate, click, type, eval, console, screenshot — so 'it works' becomes something the agent proves." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-07-15" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "Give your coding agent eyes: a browser it can drive and assert against",
+        "description": "A zero-setup CLI puts hang4r's embedded browser under every agent's control — navigate, click, type, eval, console, screenshot — so 'it works' becomes something the agent proves.",
+        "datePublished": "2026-07-15",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/agents-that-see-the-browser/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">product</p>
+        <h1 class="post-title">Give your coding agent eyes: a browser it can drive and assert against</h1>
+        <p class="post-meta">July 15, 2026 · 5 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          Every developer who has pointed a coding agent at a web app knows the moment: the agent
+          announces <em>"I've fixed the form validation"</em> — and it hasn't opened a browser.
+          It edited the code, the types check, maybe the tests pass. Whether the button actually
+          does the thing when a human clicks it is, politely, a guess.
+        </p>
+        <p>
+          The fix isn't a smarter model. It's giving the agent the same feedback loop you have:
+          <strong>a browser it can open, drive, and read back from</strong> — sitting right next
+          to its chat, where you can watch it work.
+        </p>
+
+        <h2>A CLI the agent already has</h2>
+        <p>
+          Every process hang4r spawns for a session — the Claude Code, Codex, or Cursor agent
+          itself, every terminal, even worktree setup scripts — gets a <code>hang4r</code> CLI
+          on its PATH, pre-scoped to that session's embedded browser. There is nothing to
+          install and no API key to wire up. Instructing an agent takes one sentence:
+        </p>
+        <p>
+          <em>"Run <code>hang4r browser --help</code> and use it to verify your changes."</em>
+        </p>
+        <p>
+          The help text teaches the whole workflow. The agent navigates, snapshots the DOM,
+          interacts, and asserts:
+        </p>
+        <pre><code>hang4r browser goto http://localhost:3000
+hang4r browser snapshot --compact         # DOM outline with [ref=eN] handles
+hang4r browser click e12
+hang4r browser type e7 "test@example.com"
+hang4r browser wait --text "Saved"
+hang4r browser eval "document.querySelectorAll('.todo-item').length"
+hang4r browser console                    # did the page throw?
+hang4r browser screenshot                 # visual evidence</code></pre>
+
+        <h2>Assertion is the point</h2>
+        <p>
+          Clicking is easy; <strong>proving</strong> is the feature. The command set is built so
+          "it works" becomes a checked claim instead of a vibe:
+        </p>
+        <ul>
+          <li><code>wait</code> — block until the UI actually shows the result (or fail loudly with what it was waiting for).</li>
+          <li><code>eval</code> — run any JavaScript in the page and get JSON back: row counts, computed styles, store state.</li>
+          <li><code>console</code> — the page's captured console log, where the real errors live.</li>
+          <li><code>screenshot</code> — a PNG the agent can attach to its summary, so you review evidence, not prose.</li>
+        </ul>
+        <p>
+          And the classic automation trap is handled at the root: <code>type</code> and
+          <code>select</code> set values through the native prototype setters and dispatch real
+          <code>input</code>/<code>change</code> events — so React- and Vue-controlled forms
+          update the way they would for a human, not silently ignore the robot.
+        </p>
+
+        <h2>Watch it happen</h2>
+        <p>
+          This isn't a headless browser bolted onto the side. The agent drives the same Browser
+          pane you see in the session tile — tabs and all. When an agent opens your dev server,
+          the tab surfaces on screen; when it clicks through a flow, you watch the pages change.
+          Trust comes from visibility, and the whole design keeps the human in the loop:
+          it's your machine, your subscription, your screen.
+        </p>
+        <p>
+          It's session-scoped, too. Five agents in five worktrees each get their own browser and
+          their own control channel (a token-authed local socket, rotated every launch) — one
+          agent can't drive another's tabs, and nothing is exposed off your machine.
+        </p>
+
+        <h2>What this unlocks</h2>
+        <ol>
+          <li>
+            <strong>Self-verifying frontend work.</strong> "Build the settings page, then walk
+            through it in the browser and screenshot each state" is now a single prompt.
+          </li>
+          <li>
+            <strong>Honest bug reproduction.</strong> Ask the agent to reproduce the bug in the
+            browser <em>before</em> fixing it — then re-run the same steps after. The console
+            log and screenshots are the receipt.
+          </li>
+          <li>
+            <strong>Review with evidence.</strong> Combined with hang4r's per-turn checkpoints
+            and diff review, a web change arrives as: the diff, the assertion output, and the
+            screenshot. You approve outcomes, not promises.
+          </li>
+        </ol>
+
+        <h2>The fine print</h2>
+        <p>
+          The session's tile needs to be open (the browser is real, not headless — that's the
+          point), and SSH sessions are excluded because a remote host can't reach your local
+          socket. Both limits are stated in <code>--help</code> rather than discovered the hard
+          way — the same honesty rule the rest of hang4r follows.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Your agents, with eyes.</h3>
+        <p>hang4r is in early access on macOS — bring your Claude Code, Codex, or Cursor subscription.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

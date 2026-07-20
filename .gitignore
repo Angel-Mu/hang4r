@@ -1,0 +1,21 @@
+node_modules
+dist
+out
+.DS_Store
+.eslintcache
+*.log*
+.superpowers/
+
+test-results/
+playwright-report/
+dist/
+
+# hang4r dogfooding: session worktrees created inside this repo
+.hang4r-worktrees/
+dist/
+.worktrees/
+probe_*.mjs
+
+# secrets
+.env
+.env.*

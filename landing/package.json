@@ -1,0 +1,24 @@
+{
+  "name": "hang4r-landing",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "hang4r coming-soon landing page — static site, independent of the Electron app",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && wrangler pages deploy dist --project-name=hang4r --branch=main"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vite": "^6.3.5",
+    "wrangler": "^4.107.0"
+  },
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.2.10",
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "gsap": "^3.13.0",
+    "lenis": "^1.3.4"
+  }
+}

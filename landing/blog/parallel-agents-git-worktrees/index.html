@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Run five coding agents in parallel without them stepping on each other — hang4r blog</title>
+    <meta
+      name="description"
+      content="Git worktrees are the missing primitive for running multiple Claude Code, Codex, or Cursor sessions in parallel. How hang4r isolates every agent session on its own branch and checkpoints every turn."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/parallel-agents-git-worktrees/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/parallel-agents-git-worktrees/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="Run five coding agents in parallel without them stepping on each other" />
+    <meta property="og:description" content="Git worktrees are the missing primitive for parallel coding agents. How hang4r isolates every session and checkpoints every turn." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-07-13" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "Run five coding agents in parallel without them stepping on each other",
+        "description": "Git worktrees are the missing primitive for parallel coding agents. How hang4r isolates every session and checkpoints every turn.",
+        "datePublished": "2026-07-13",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/parallel-agents-git-worktrees/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">workflow</p>
+        <h1 class="post-title">Run five coding agents in parallel without them stepping on each other</h1>
+        <p class="post-meta">July 13, 2026 · 6 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          The first time you run two coding agents against the same repository, you learn the
+          hard way why almost nobody does it. Agent one refactors a module while agent two is
+          mid-way through writing tests against the old API. Both finish "successfully." The
+          working tree is a crime scene.
+        </p>
+        <p>
+          The fix isn't a smarter agent. It's an older, less glamorous piece of git that most
+          engineers have never needed: <strong>worktrees</strong>.
+        </p>
+
+        <h2>Worktrees are the missing primitive</h2>
+        <p>
+          <code>git worktree add</code> gives you a second (third, fifth…) checkout of the same
+          repository in a different directory, each on its own branch, all sharing one object
+          store. No cloning, no duplicated history, near-zero disk cost — and, crucially,
+          <strong>filesystem-level isolation between checkouts</strong>.
+        </p>
+        <p>
+          That maps one-to-one onto what a coding agent actually needs:
+        </p>
+        <ul>
+          <li>Its own directory, so concurrent edits can't collide.</li>
+          <li>Its own branch, so its work has a name, a diff, and a merge path.</li>
+          <li>The shared object store, so branching is instant and cheap.</li>
+        </ul>
+        <p>
+          This is why worktree isolation has quietly become table stakes across the whole
+          agent-manager space in 2026 — Cursor's Agents window does it, Anthropic's and OpenAI's
+          first-party apps do it, and so does every serious open-source manager. The interesting
+          differences are in what happens <em>around</em> the worktree.
+        </p>
+
+        <h2>What hang4r does with it</h2>
+        <p>
+          In <a href="https://hang4r.dev/">hang4r</a>, isolation is a per-session choice: hit
+          <strong>New Agent</strong>, toggle worktree isolation, and the session gets its own
+          checkout under the repo's worktree root with a generated branch. From there, three
+          things compound:
+        </p>
+        <ol>
+          <li>
+            <strong>Per-turn checkpoints.</strong> Every completed turn becomes a checkpoint
+            commit on the session branch. Not "the agent decided to commit" — every turn,
+            mechanically. A bad turn is a <em>rewind</em>, not an archaeology dig.
+          </li>
+          <li>
+            <strong>Review against the branch.</strong> The diff panel always shows the session
+            branch against its base, so "what did this agent actually do" has a precise answer,
+            no matter how many other agents are running.
+          </li>
+          <li>
+            <strong>Best-of-N.</strong> Because sessions are cheap and isolated, you can dispatch
+            the same task to Claude, Codex, and Cursor simultaneously with
+            <code>/best-of-n</code>, then diff the three branches and merge the winner. The
+            losers cost you nothing but tokens.
+          </li>
+        </ol>
+
+        <h2>The practical ceiling isn't the machine</h2>
+        <p>
+          Five agents in parallel is not a compute problem — subprocesses are cheap and worktrees
+          are cheaper. The ceiling is <strong>your attention</strong>. Parallelism only pays if
+          you can answer "who needs me right now?" in one glance. That's the part most setups
+          get wrong: five terminal tabs give you five places to forget about.
+        </p>
+        <p>
+          hang4r's answer is the tiled workspace: every session is a tile with a live status LED,
+          a queued-messages lane so you can type while the agent works, and action-required
+          badges that escalate to the dock when an agent is blocked on a permission. The sidebar
+          groups sessions by project with account-limit gauges underneath — so you also know
+          when to <em>stop</em> dispatching.
+        </p>
+
+        <h2>Try it on your own repo</h2>
+        <p>
+          Even without hang4r, adopt the pattern: one agent, one worktree, one branch, commit
+          every turn. Your merge conflicts drop to near zero and your review workflow starts
+          looking like a PR queue instead of a diff swamp. And if you'd rather have all of that
+          wired up in one window — that's the product.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Run your agents in parallel, safely.</h3>
+        <p>hang4r is in early access on macOS — bring your Claude Code, Codex, or Cursor subscription.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

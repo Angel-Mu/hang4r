@@ -170,13 +170,17 @@ export function CodeEditor({
   path,
   onAddToChat,
   onRegister,
-  onDirtyChange
+  onDirtyChange,
+  onSavedAs
 }: {
   sessionId: string
   path: string
   onAddToChat: (label: string, text: string) => void
   /** register a save handle so the parent can flush unsaved changes on close */
   onRegister?: (path: string, handle: EditorHandle | null) => void
+  /** an untitled buffer was named+saved, or a real file "saved as" → the parent
+   *  swaps this tab's path from `oldPath` to the newly written `newPath` */
+  onSavedAs?: (oldPath: string, newPath: string) => void
   /** notify the parent when the unsaved state changes (tab dirty-dot) */
   onDirtyChange?: (path: string, dirty: boolean) => void
 }): JSX.Element {
@@ -188,6 +192,10 @@ export function CodeEditor({
   const viewStateKeyRef = useRef<string | null>(null)
   const addRef = useRef(onAddToChat)
   addRef.current = onAddToChat
+  // an unsaved buffer with no disk path yet (`untitled:N`) — ⌘S names + writes it
+  const isUntitled = path.startsWith('untitled:')
+  const onSavedAsRef = useRef(onSavedAs)
+  onSavedAsRef.current = onSavedAs
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   // ⌘F unified find bar over the editor (round 13 ①). Monaco routes ⌘F to us
@@ -199,6 +207,11 @@ export function CodeEditor({
     setFindOpen(true)
     setFindToken((t) => t + 1)
   }
+  // save commands are bound once in the create effect; these refs let them call
+  // the latest save fns (defined below — path/onSavedAs change across renders)
+  const doSaveRef = useRef<() => Promise<void>>(async () => {})
+  const doSaveAsRef = useRef<() => Promise<void>>(async () => {})
+  const promptSaveAsRef = useRef<() => Promise<boolean>>(async () => false)
   const [truncated, setTruncated] = useState(false)
   const [hasSel, setHasSel] = useState(false)
   // Preview/Source segmented control (md/html only) — default is source, like
@@ -479,7 +492,11 @@ export function CodeEditor({
       }
     })
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      void doSave()
+      void doSaveRef.current()
+    })
+    // ⌘⇧S — Save As (prompt for a path, write the buffer there, retarget the tab)
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS, () => {
+      void doSaveAsRef.current()
     })
     // ⌘F → open OUR find bar, not Monaco's built-in widget. Registering the
     // command binds ⌘F ahead of the default `actions.find` keybinding; Monaco
@@ -550,6 +567,14 @@ export function CodeEditor({
   // as part of the project (cross-file defs/hover); otherwise fall back to the
   // plain reused model.
   useEffect(() => {
+    // untitled buffer: no disk read — the editor's fresh empty in-memory model
+    // (created at startup, plaintext, editable) IS the buffer. ⌘S names + writes.
+    if (path.startsWith('untitled:')) {
+      viewStateKeyRef.current = `${sessionId}:${path}`
+      setTruncated(false)
+      setDirty(sharedDirty.get(`${sessionId}:${path}`) ?? false)
+      return
+    }
     let cancelled = false
     void window.hang4r.readFile(sessionId, path).then((res) => {
       const editor = editorRef.current
@@ -658,9 +683,36 @@ export function CodeEditor({
     void applyGutter()
   }, [applyGutter, gitNonce])
 
+  // write the current buffer to a NEW relative path (untitled save, or Save As),
+  // then hand this tab off to that path via onSavedAs. Returns false if the user
+  // cancelled the name prompt.
+  const promptSaveAs = async (): Promise<boolean> => {
+    const editor = editorRef.current
+    if (!editor) return false
+    const name = await useHang4r
+      .getState()
+      .showPrompt('Save as (path relative to project root):', isUntitled ? '' : path)
+    if (!name?.trim()) return false
+    const rel = name.trim()
+    try {
+      await window.hang4r.createFile(sessionId, rel) // creates parent dirs + the file
+    } catch {
+      /* already exists → we overwrite with writeFile below */
+    }
+    await window.hang4r.writeFile(sessionId, rel, editor.getValue())
+    setSharedDirty(`${sessionId}:${path}`, false)
+    setDirty(false)
+    useHang4r.getState().bumpGit()
+    onSavedAsRef.current?.(path, rel)
+    return true
+  }
   const doSave = async (): Promise<void> => {
     const editor = editorRef.current
     if (!editor || truncated) return
+    if (isUntitled) {
+      await promptSaveAs()
+      return
+    }
     setSaving(true)
     try {
       await window.hang4r.writeFile(sessionId, path, editor.getValue())
@@ -672,12 +724,23 @@ export function CodeEditor({
       setSaving(false)
     }
   }
+  const doSaveAs = async (): Promise<void> => {
+    await promptSaveAs()
+  }
+  doSaveRef.current = doSave
+  doSaveAsRef.current = doSaveAs
+  promptSaveAsRef.current = promptSaveAs
 
   // expose a save handle so the parent can auto-flush unsaved changes on close
   useEffect(() => {
     onRegister?.(path, {
       isDirty: () => dirtyRef.current,
       save: async () => {
+        // untitled buffer: name + write (never writeFile to the `untitled:` path)
+        if (path.startsWith('untitled:')) {
+          await promptSaveAsRef.current()
+          return
+        }
         const editor = editorRef.current
         if (editor && !truncated) {
           await window.hang4r.writeFile(sessionId, path, editor.getValue())
@@ -719,7 +782,7 @@ export function CodeEditor({
       )}
       <div className="code-editor-bar">
         <span className="code-editor-path">
-          {path}
+          {isUntitled ? 'Untitled-' + path.slice('untitled:'.length) : path}
           {dirty && <span className="code-editor-dot" title="Unsaved changes">●</span>}
         </span>
         {truncated && <span className="files-truncated">large file — read-only</span>}

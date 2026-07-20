@@ -505,6 +505,10 @@ interface Hang4rState {
   /** the focused tile's active panel registers a "close top scope" fn for ⌘W */
   scopedClose: (() => boolean) | null
   setScopedClose(fn: (() => boolean) | null): void
+  /** the Files panel registers a "new untitled file" fn for ⌘N (returns true if
+   *  it handled the key, so App skips the global new-session dialog) */
+  scopedNewFile: (() => boolean) | null
+  setScopedNewFile(fn: (() => boolean) | null): void
   theme: Theme
   setTheme(theme: Theme): void
   /** Monaco font size (Settings → General) */
@@ -1210,6 +1214,10 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   scopedClose: null,
   setScopedClose(fn) {
     set({ scopedClose: fn })
+  },
+  scopedNewFile: null,
+  setScopedNewFile(fn) {
+    set({ scopedNewFile: fn })
   },
   theme: 'system',
   setTheme(theme) {

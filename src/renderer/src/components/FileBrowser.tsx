@@ -15,6 +15,14 @@ import { MediaViewer, mediaKind } from './MediaViewer'
  *  reloads from disk and killed unsaved edits (QA round 4 P1). */
 type EditorGroup = { id: number; openFiles: string[]; active: string | null }
 
+/** An unsaved buffer with no disk path yet is tracked in `openFiles` as the
+ *  pseudo-path `untitled:N` (N monotonic, so React keys never collide) and shown
+ *  as `Untitled-N`. ⌘N in the Files panel makes one; ⌘S names + writes it. */
+const isUntitledPath = (p: string): boolean => p.startsWith('untitled:')
+const tabDisplayName = (p: string): string =>
+  isUntitledPath(p) ? 'Untitled-' + p.slice('untitled:'.length) : (p.split('/').pop() ?? p)
+let untitledSeq = 0
+
 /** the editor area is a TREE of splits (VS Code's nested split model): a leaf
  *  holds one EditorGroup; a split arranges children horizontally ('h', side by
  *  side) or vertically ('v', stacked). Any leaf can itself be split, so e.g.
@@ -272,6 +280,12 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     [focusGroup, updateGroups]
   )
 
+  // ⌘N (Files panel): open a fresh untitled buffer in the focused leaf — no disk
+  // file yet; ⌘S in the editor names + writes it (VS Code untitled UX).
+  const newUntitledFile = useCallback((): void => {
+    openInto(focusedGroupIdRef.current, `untitled:${++untitledSeq}`)
+  }, [openInto])
+
   // ⌘P requested a file for this session → open it here
   const fileToOpen = useHang4r((s) => s.fileToOpen)
   useEffect(() => {
@@ -466,6 +480,17 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     return () => useHang4r.getState().setScopedClose(null)
   }, [isFocused, closeFile])
 
+  // ⌘N scoped new-file: while the Files panel is the focused tile's live panel,
+  // ⌘N opens an untitled buffer instead of the new-session dialog
+  useEffect(() => {
+    if (!isFocused) return
+    useHang4r.getState().setScopedNewFile(() => {
+      newUntitledFile()
+      return true
+    })
+    return () => useHang4r.getState().setScopedNewFile(null)
+  }, [isFocused, newUntitledFile])
+
   // ⌘\ splits the focused leaf to the right (only while this tile is focused)
   useEffect(() => {
     if (!isFocused) return
@@ -483,6 +508,22 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
   // is lifted here, so a refresh preserves which folders are open)
   const [treeKey, setTreeKey] = useState(0)
   const refreshTree = useCallback(() => setTreeKey((k) => k + 1), [])
+
+  // an untitled tab was saved (⌘S/⌘⇧S) or a real file "saved as" → swap its tab
+  // path from the pseudo-path (or old path) to the real one and refresh the tree.
+  const rebindTab = useCallback(
+    (id: number, oldPath: string, newPath: string): void => {
+      updateGroups((g) => {
+        if (g.id !== id) return g
+        const openFiles = g.openFiles.includes(newPath)
+          ? g.openFiles.filter((p) => p !== oldPath) // target already open here → drop the source
+          : g.openFiles.map((p) => (p === oldPath ? newPath : p))
+        return { ...g, openFiles, active: newPath }
+      })
+      refreshTree()
+    },
+    [updateGroups, refreshTree]
+  )
   // which folders are expanded — owned here so Refresh keeps them open and
   // Collapse-all is a distinct action that clears them
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -574,7 +615,7 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
               title={path}
             >
               <FileGlyph fi={fileIcon(path)} />
-              <span className="editor-tab-name">{path.split('/').pop()}</span>
+              <span className="editor-tab-name">{tabDisplayName(path)}</span>
               <button
                 className="editor-tab-x"
                 onClick={(e) => {
@@ -632,6 +673,7 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
                   onAddToChat={(label, text) => addAttachment(sessionId, { label, text })}
                   onRegister={(p, h) => registerHandle(g.id, p, h)}
                   onDirtyChange={onDirtyChange}
+                  onSavedAs={(oldP, newP) => rebindTab(g.id, oldP, newP)}
                 />
               )}
             </div>

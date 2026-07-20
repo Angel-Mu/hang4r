@@ -601,6 +601,54 @@ test.describe('agent session flow', () => {
     await expect(page.locator('.lightbox-backdrop')).toHaveCount(0)
   })
 
+  test('⌘N in the Files panel opens an untitled buffer; ⌘S names it and writes to disk', async () => {
+    launched = await launchApp()
+    const { page } = launched
+    const repo = makeScratchRepo()
+    await createProject(page, repo)
+    await page.reload()
+    await page.waitForSelector('.app')
+    await page.locator('.project-row .ghost-btn').first().click()
+    await page.locator('.dialog-prompt').fill('untitled test')
+    await page.getByRole('button', { name: /Start agent/ }).click()
+    const tile = page.locator('.tile').first()
+    await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+    await tile.getByRole('button', { name: 'Files' }).click()
+    await expect(tile.locator('.files-tree')).toBeVisible()
+
+    // ⌘N opens a NEW untitled editor tab (not the new-session dialog)
+    await page.keyboard.press('Meta+KeyN')
+    await expect(tile.locator('.editor-tab', { hasText: 'Untitled-' })).toBeVisible({ timeout: 10_000 })
+    // ⌘N did NOT fall through to the global new-session dialog
+    await expect(page.locator('.dialog-prompt')).toHaveCount(0)
+
+    // type into the blank buffer, then ⌘S → name prompt → written to disk
+    await tile.locator('.editor-slot:visible .monaco-editor').click()
+    await page.keyboard.type('hello from an untitled buffer')
+    await page.keyboard.press('Meta+KeyS')
+    await expect(page.locator('.input-dialog')).toBeVisible({ timeout: 10_000 })
+    await page.locator('.input-dialog .field').fill('scratch-untitled.txt')
+    await page.locator('.input-dialog .field').press('Enter')
+
+    // the tab is now the real file (Untitled gone), and it's on disk (read via
+    // the bridge from the session's real cwd — worktree or repo) with our text
+    await expect(tile.locator('.editor-tab', { hasText: 'scratch-untitled.txt' })).toBeVisible({ timeout: 10_000 })
+    await expect(tile.locator('.editor-tab', { hasText: 'Untitled-' })).toHaveCount(0)
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const store = (window as unknown as { __hang4r_store: { getState(): { focusedSessionId: string } } })
+              .__hang4r_store
+            const sid = store.getState().focusedSessionId
+            const res = await window.hang4r.readFile(sid, 'scratch-untitled.txt')
+            return res.content
+          }),
+        { timeout: 10_000 }
+      )
+      .toContain('hello from an untitled buffer')
+  })
+
   test('per-workspace config: custom worktree dir + setup script', async () => {
     launched = await launchApp()
     const { page } = launched

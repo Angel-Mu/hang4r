@@ -168,6 +168,12 @@ export default function App(): JSX.Element {
           void s.interrupt(s.focusedSessionId)
         }
       } else if (k === 'n') {
+        // in the Files panel, ⌘N makes a new untitled file (VS Code); otherwise
+        // it opens the new-session dialog
+        if (s.scopedNewFile?.()) {
+          e.preventDefault()
+          return
+        }
         const projectId =
           s.sessions.find((x) => x.id === s.focusedSessionId)?.projectId ?? s.projects[0]?.id
         if (projectId) {

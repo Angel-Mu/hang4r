@@ -961,6 +961,40 @@ test.describe('agent session flow', () => {
     await expect(panel.locator('.search-group-name', { hasText: 'docs.md' })).toBeVisible({ timeout: 8_000 })
   })
 
+  test('Files panel keeps its tree/search mode across a panel switch (⌘⇧F then Esc must not re-open search)', async () => {
+    launched = await launchApp()
+    const { page } = launched
+    const repo = makeScratchRepo()
+    await createProject(page, repo)
+    await page.reload()
+    await page.waitForSelector('.app')
+    await page.locator('.project-row .ghost-btn').first().click()
+    await page.locator('.dialog-prompt').fill('files-mode test')
+    await page.getByRole('button', { name: /Start agent/ }).click()
+    const tile = page.locator('.tile').first()
+    await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+    await tile.getByRole('button', { name: 'Files' }).click()
+
+    // ⌘⇧F opens search-in-files; Esc returns to the tree
+    await page.keyboard.press('Meta+Shift+KeyF')
+    await expect(tile.locator('.search-panel')).toBeVisible({ timeout: 5_000 })
+    await page.keyboard.press('Escape')
+    await expect(tile.locator('.search-panel')).toHaveCount(0)
+
+    // switch to Diff and back — the LAST state (tree) must persist; the ⌘⇧F
+    // signal must NOT replay and force search open again (Angel's bug)
+    await tile.getByRole('button', { name: 'Diff' }).click()
+    await tile.getByRole('button', { name: 'Files' }).click()
+    await expect(tile.locator('.search-panel')).toHaveCount(0)
+
+    // reverse: LEAVE it in search → switch away + back → still search
+    await page.keyboard.press('Meta+Shift+KeyF')
+    await expect(tile.locator('.search-panel')).toBeVisible()
+    await tile.getByRole('button', { name: 'Diff' }).click()
+    await tile.getByRole('button', { name: 'Files' }).click()
+    await expect(tile.locator('.search-panel')).toBeVisible()
+  })
+
   test('monaco changed-line gutter shows git dirty-diff', async () => {
     launched = await launchApp()
     const { page } = launched

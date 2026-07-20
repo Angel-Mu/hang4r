@@ -44,11 +44,20 @@ const MAX_LEAVES = 6
 const layoutMemo = new Map<string, LayoutNode>()
 /** which leaf was focused (target for tree-clicks/⌘P) — same rationale */
 const focusedGroupIdMemo = new Map<string, number>()
+/** explorer 'tree' vs 'search' mode — must survive a panel-switch remount so
+ *  returning to Files shows the LAST state, not a reset (Angel: it kept snapping
+ *  back to search-in-files) */
+const filesModeMemo = new Map<string, 'tree' | 'search'>()
+/** the last ⌘⇧F nonce this session already acted on — so the searchToOpen signal
+ *  opens search exactly ONCE (when pressed), not again on every remount */
+const searchNonceMemo = new Map<string, number>()
 
 // archiving a session removes its worktree — its remembered layout is dead
 onForgetSession((sessionId) => {
   layoutMemo.delete(sessionId)
   focusedGroupIdMemo.delete(sessionId)
+  filesModeMemo.delete(sessionId)
+  searchNonceMemo.delete(sessionId)
 })
 
 // seed the layout from the persisted snapshot (before the tile mounts) so open
@@ -551,12 +560,27 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
   // Cursor-style sidebar modes: the panel area swaps between the file tree
   // and the search-in-files view (⌘⇧F / the magnifier icon) — search is NOT
   // a separate pane, per Angel's explicit ask.
-  const [mode, setMode] = useState<'tree' | 'search'>('tree')
+  // seed from the memo so a panel-switch remount restores the LAST mode (tree or
+  // search), not a reset back to tree/search
+  const [mode, setMode] = useState<'tree' | 'search'>(() => filesModeMemo.get(sessionId) ?? 'tree')
+  // write-through so the next remount restores it
+  useEffect(() => {
+    filesModeMemo.set(sessionId, mode)
+  }, [mode, sessionId])
   // the whole tree column can hide (slim rail remains) and is resizable
   const [treeCollapsed, setTreeCollapsed] = useState(false)
   const searchToOpen = useHang4r((s) => s.searchToOpen)
   useEffect(() => {
-    if (searchToOpen && searchToOpen.sessionId === sessionId) {
+    // Only OPEN search when ⌘⇧F is freshly pressed (a new nonce) — NOT on every
+    // remount. searchToOpen is a persistent store signal; without this guard it
+    // replayed on each panel-switch back to Files and forced search mode even
+    // after the user had Esc'd back to the tree (Angel).
+    if (
+      searchToOpen &&
+      searchToOpen.sessionId === sessionId &&
+      searchNonceMemo.get(sessionId) !== searchToOpen.nonce
+    ) {
+      searchNonceMemo.set(sessionId, searchToOpen.nonce)
       setMode('search')
       setTreeCollapsed(false)
     }

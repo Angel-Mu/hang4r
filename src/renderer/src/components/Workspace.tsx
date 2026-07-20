@@ -2,6 +2,7 @@ import { useEffect, useState, type DragEvent, type HTMLAttributes, type JSX } fr
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { useHang4r } from '../state/store'
 import { SessionTile } from './SessionTile'
+import { ErrorBoundary } from './ErrorBoundary'
 
 type DropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
 
@@ -72,7 +73,12 @@ export function Workspace(): JSX.Element {
 
   const pane = (id: string, i: number): JSX.Element => (
     <div className="pane" {...paneProps(i)}>
-      <SessionTile sessionId={id} />
+      {/* per-tile boundary: a render error in ONE session shows a contained
+          fallback instead of white-screening the whole app (Angel: an
+          error_during_execution once forced a full app restart) */}
+      <ErrorBoundary variant="tile" resetKey={id}>
+        <SessionTile sessionId={id} />
+      </ErrorBoundary>
       {dropTarget?.index === i && (
         <div className={'pane-drop-overlay pane-drop-' + dropTarget.zone} />
       )}

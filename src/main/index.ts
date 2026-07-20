@@ -12,6 +12,16 @@ import type { SessionManager } from './services/sessionManager'
 /** e2e/probe runs set this to keep automation from stealing focus */
 const QUIET_TEST_MODE = process.env.HANG4R_QUIET_TEST === '1'
 
+// A stray rejection/exception in a background service (an agent stream, a git
+// shell-out, a resync) must not take the whole main process down silently —
+// log a breadcrumb and keep the app alive so the user never loses a session to it.
+process.on('unhandledRejection', (reason) => {
+  console.error('[hang4r] unhandledRejection:', reason)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[hang4r] uncaughtException:', err)
+})
+
 let sessionManager: SessionManager | null = null
 let store: Store | null = null
 /** set once the user confirms "Quit" on the live-work dialog, so the re-fired app.quit() skips the guard */

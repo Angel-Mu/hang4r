@@ -5086,6 +5086,75 @@ button:disabled {
   background: rgba(255, 255, 255, 0.22);
 }
 
+/* error-boundary fallbacks — a render crash is now recoverable, not a dead app */
+.app-error {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg, #0e0f13);
+  padding: 40px;
+}
+.app-error-box {
+  max-width: 480px;
+  text-align: center;
+  background: var(--panel, #14141a);
+  border: 1px solid var(--border-strong, #2a2a33);
+  border-radius: 12px;
+  padding: 28px 26px;
+}
+.app-error-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.app-error-msg,
+.tile-error-msg {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+  max-height: 160px;
+  overflow: auto;
+  word-break: break-word;
+}
+.app-error-reload {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 22px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.app-error-hint,
+.tile-error-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 14px;
+}
+.tile-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  height: 100%;
+  padding: 24px;
+  overflow: auto;
+}
+.tile-error-title {
+  font-weight: 600;
+  color: var(--amber, #f1c40f);
+}
+.tile-error-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* === diff media + comments === */
 
 /* toolbar "comment on file" button */

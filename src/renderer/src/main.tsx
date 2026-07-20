@@ -3,6 +3,7 @@ import './assets/main.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { useHang4r } from './state/store'
 
 // e2e reaches store actions that have no IPC/DOM path (e.g. requestOpenUrl,
@@ -11,6 +12,8 @@ import { useHang4r } from './state/store'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary variant="app">
+      <App />
+    </ErrorBoundary>
   </StrictMode>
 )

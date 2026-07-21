@@ -4738,10 +4738,14 @@ button:disabled {
    several share it; min-heights keep cards usable and let the panel scroll. */
 .proc-list { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
 .proc-item { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; flex-shrink: 0; }
-.proc-item:has(.proc-term) { flex: 1 1 0; min-height: 180px; }
-.proc-item-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface); }
-.proc-caret { color: var(--text-muted); font-size: 10px; line-height: 1; padding: 2px; cursor: pointer; flex-shrink: 0; }
-.proc-caret:hover { color: var(--text); }
+/* an expanded box gets a READABLE fixed height and does NOT shrink — so with
+   several dev servers running the boxes don't cram + clip; the PANEL scrolls to
+   show them all (Angel: the logs were getting cut off). A lone process grows to
+   fill. Collapsed boxes fall back to header-height (no .proc-term). */
+.proc-item:has(.proc-term) { flex: 1 0 320px; }
+.proc-item-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface); cursor: pointer; user-select: none; }
+.proc-item-head:hover { background: var(--surface-2); }
+.proc-caret { color: var(--text-muted); font-size: 10px; line-height: 1; flex-shrink: 0; }
 .proc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .proc-on { background: var(--green); animation: pulse 1.4s ease-in-out infinite; }
 .proc-off { background: var(--text-faint); }
@@ -4759,7 +4763,16 @@ button:disabled {
 }
 .proc-start { color: var(--green); }
 .proc-stop { color: var(--red); }
-.proc-term { flex: 1; min-height: 130px; background: var(--bg); }
+.proc-term { flex: 1; min-height: 0; background: var(--bg); }
+/* make the process terminal's scroll obvious — xterm's own viewport scrollbar
+   was thin/vanishing in the cramped box (Angel). A visible, stable thumb. */
+.proc-term .xterm-viewport::-webkit-scrollbar { width: 11px; }
+.proc-term .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 6px;
+  border: 2px solid var(--bg);
+}
+.proc-term .xterm-viewport::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
 .proc-edit-list { display: flex; flex-direction: column; gap: 8px; }
 .proc-edit-row { display: flex; gap: 8px; align-items: center; }
 .proc-edit-row .proc-cmd { flex: 1; }

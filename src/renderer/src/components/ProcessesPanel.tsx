@@ -231,15 +231,16 @@ export function ProcessesPanel({ sessionId }: { sessionId: string }): JSX.Elemen
           const id = `dev:${sessionId}:${i}`
           const on = running.has(i)
           return (
-            <div key={i} className="proc-item">
-              <div className="proc-item-head">
-                <button
-                  className="proc-caret"
-                  title={collapsed.has(i) ? 'Expand output' : 'Collapse output'}
-                  onClick={() => toggleCollapsed(i)}
-                >
-                  {collapsed.has(i) ? '▸' : '▾'}
-                </button>
+            <div key={i} className={'proc-item' + (collapsed.has(i) ? ' proc-collapsed' : '')}>
+              {/* whole header toggles collapse (the tiny caret alone was easy to
+                  miss — Angel: "we still cannot collapse/expand"); action buttons
+                  stopPropagation so Start/Stop/Restart don't toggle it */}
+              <div
+                className="proc-item-head"
+                title={collapsed.has(i) ? 'Expand output' : 'Collapse output'}
+                onClick={() => toggleCollapsed(i)}
+              >
+                <span className="proc-caret">{collapsed.has(i) ? '▸' : '▾'}</span>
                 <span
                   className={
                     'proc-dot ' +
@@ -253,7 +254,7 @@ export function ProcessesPanel({ sessionId }: { sessionId: string }): JSX.Elemen
                     {exitLabel(exits[i])}
                   </span>
                 )}
-                <span className="proc-actions">
+                <span className="proc-actions" onClick={(e) => e.stopPropagation()}>
                   {on ? (
                     <>
                       <button className="ghost-btn" title="Restart" onClick={() => { stop(i); setTimeout(() => start(i), 60) }}>

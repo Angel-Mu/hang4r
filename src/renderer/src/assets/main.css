@@ -4763,7 +4763,10 @@ button:disabled {
 }
 .proc-start { color: var(--green); }
 .proc-stop { color: var(--red); }
-.proc-term { flex: 1; min-height: 0; background: var(--bg); }
+/* MUST be a flex column: the child .terminal-view uses flex:1 to fill, so
+   without this the terminal collapsed to content height (~half the box) and
+   left the bottom empty (Angel). display:flex restores the stretch. */
+.proc-term { flex: 1; min-height: 0; background: var(--bg); display: flex; flex-direction: column; }
 /* make the process terminal's scroll obvious — xterm's own viewport scrollbar
    was thin/vanishing in the cramped box (Angel). A visible, stable thumb. */
 .proc-term .xterm-viewport::-webkit-scrollbar { width: 11px; }

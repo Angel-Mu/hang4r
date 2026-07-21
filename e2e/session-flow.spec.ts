@@ -1025,6 +1025,57 @@ test.describe('agent session flow', () => {
     await expect(run().locator('.subagent-run-body')).toHaveCount(0)
   })
 
+  test('panels are scoped per session: starting a process in one session does NOT start it in another (same workspace)', async () => {
+    launched = await launchApp()
+    const { page } = launched
+    const repo = makeScratchRepo()
+    const project = await createProject(page, repo)
+    await page.evaluate(
+      ({ pid }) =>
+        window.hang4r.setSetting(
+          `devProcesses:${pid}`,
+          JSON.stringify([{ name: 'server', command: 'sleep 30' }])
+        ),
+      { pid: project.id }
+    )
+    // two local sessions in the SAME workspace (they share the same process config)
+    const ids = await page.evaluate(async ({ pid }) => {
+      const mk = (title: string) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'claude',
+          environment: 'local',
+          permissionMode: 'default',
+          title,
+          firstPrompt: 'hi'
+        })
+      const a = await mk('sess-A')
+      const b = await mk('sess-B')
+      return { a: a.id, b: b.id }
+    }, { pid: project.id })
+    await page.reload()
+    await page.waitForSelector('.app')
+
+    // open A, start its process
+    await page.locator('.session-row', { hasText: 'sess-A' }).click()
+    let tile = page.locator('.tile').first()
+    await expect(tile.locator('.status-dot.status-idle').first()).toBeVisible({ timeout: 20_000 })
+    await tile.getByRole('button', { name: 'Processes' }).click()
+    await tile.locator('.proc-start').first().click()
+    await expect
+      .poll(() => page.evaluate((id) => window.hang4r.processRunning(`dev:${id}:0`), ids.a), { timeout: 5_000 })
+      .toBe(true)
+
+    // switch the pane to B — before the fix, the reused tile carried A's running
+    // set and STARTED B's copy of the process. Give that leak time to fire.
+    await page.locator('.session-row', { hasText: 'sess-B' }).click()
+    await expect(page.locator('.tile .status-dot.status-idle').first()).toBeVisible({ timeout: 20_000 })
+    await page.waitForTimeout(900)
+    expect(await page.evaluate((id) => window.hang4r.processRunning(`dev:${id}:0`), ids.b)).toBe(false)
+    // and A's is still running independently
+    expect(await page.evaluate((id) => window.hang4r.processRunning(`dev:${id}:0`), ids.a)).toBe(true)
+  })
+
   test('monaco changed-line gutter shows git dirty-diff', async () => {
     launched = await launchApp()
     const { page } = launched

@@ -76,8 +76,14 @@ export function Workspace(): JSX.Element {
       {/* per-tile boundary: a render error in ONE session shows a contained
           fallback instead of white-screening the whole app (Angel: an
           error_during_execution once forced a full app restart) */}
-      <ErrorBoundary variant="tile" resetKey={id}>
-        <SessionTile sessionId={id} />
+      {/* key by sessionId: without it, switching a pane to a DIFFERENT session
+          reused this tile instance (React reconciles by position), so every
+          child panel kept the previous session's useState — the Processes panel
+          carried its `running` set across and started the new session's servers
+          (Angel, CRITICAL). Keying forces a remount → fresh per-session state;
+          the sessionId-keyed memos restore the intended persistent bits. */}
+      <ErrorBoundary key={id} variant="tile" resetKey={id}>
+        <SessionTile key={id} sessionId={id} />
       </ErrorBoundary>
       {dropTarget?.index === i && (
         <div className={'pane-drop-overlay pane-drop-' + dropTarget.zone} />

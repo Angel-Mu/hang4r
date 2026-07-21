@@ -3,6 +3,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { mdComponents } from './MarkdownBlocks'
 import { useHang4r, type TranscriptItem } from '../state/store'
+import { onSeedSessionUi, onForgetSession, persistSessionUi } from '../sessionUiMemos'
 
 type BlockItem = Extract<TranscriptItem, { type: 'block' }>
 type PermissionItem = Extract<TranscriptItem, { type: 'permission' }>
@@ -78,9 +79,30 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
 
 /**
  * Collapse state must SURVIVE tab switches (the panel unmounts when you leave
- * the Subagents tab) — kept module-scope per `${sessionId}:${toolUseId}`.
+ * the Subagents tab) — kept module-scope per `${sessionId}:${toolUseId}`. It
+ * also persists to disk (sessionUi) so a manual collapse is remembered across
+ * an app RESTART, not just a remount (Angel: everything re-expanded on restart).
  */
 const collapsedRuns = new Map<string, boolean>()
+
+/** on startup, seed the collapsed set for a session from its persisted snapshot */
+onSeedSessionUi((sessionId, snap) => {
+  for (const toolUseId of snap.collapsedSubagents ?? []) {
+    collapsedRuns.set(`${sessionId}:${toolUseId}`, true)
+  }
+})
+/** archiving a session clears its remembered collapse state */
+onForgetSession((sessionId) => {
+  const prefix = `${sessionId}:`
+  for (const k of [...collapsedRuns.keys()]) if (k.startsWith(prefix)) collapsedRuns.delete(k)
+})
+/** write the session's currently-collapsed toolUseIds to disk (best-effort) */
+function persistCollapsed(sessionId: string): void {
+  const prefix = `${sessionId}:`
+  const collapsed: string[] = []
+  for (const [k, v] of collapsedRuns) if (v && k.startsWith(prefix)) collapsed.push(k.slice(prefix.length))
+  void persistSessionUi(sessionId, { collapsedSubagents: collapsed })
+}
 
 function SubagentThread({ run, sessionId }: { run: SubagentRun; sessionId: string }): JSX.Element {
   const collapseKey = `${sessionId}:${run.toolUseId}`
@@ -88,6 +110,7 @@ function SubagentThread({ run, sessionId }: { run: SubagentRun; sessionId: strin
   const setOpen = (o: boolean): void => {
     collapsedRuns.set(collapseKey, !o)
     setOpenState(o)
+    persistCollapsed(sessionId)
   }
   const bodyRef = useRef<HTMLDivElement>(null)
   const live = run.status === 'running' || run.status === 'waiting' || run.status === 'background'

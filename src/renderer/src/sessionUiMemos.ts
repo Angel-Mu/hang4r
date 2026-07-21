@@ -29,6 +29,8 @@ export interface SessionUiSnapshot {
   layout?: unknown
   /** which context panel was active (Files / Diff / Terminal / Browser / …) */
   contextTab?: string | null
+  /** toolUseIds of subagent runs the user COLLAPSED in the Subagents panel */
+  collapsedSubagents?: string[]
 }
 
 type Seed = (sessionId: string, snap: SessionUiSnapshot) => void

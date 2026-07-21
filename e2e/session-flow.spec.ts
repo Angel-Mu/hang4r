@@ -995,6 +995,36 @@ test.describe('agent session flow', () => {
     await expect(tile.locator('.search-panel')).toBeVisible()
   })
 
+  test('subagent collapse state survives an app reload (persisted to disk, not just remount)', async () => {
+    launched = await launchApp()
+    const { page } = launched
+    const repo = makeScratchRepo()
+    await createProject(page, repo)
+    await page.reload()
+    await page.waitForSelector('.app')
+    await page.locator('.project-row .ghost-btn').first().click()
+    await page.locator('.dialog-prompt').fill('subagent collapse test')
+    await page.getByRole('button', { name: /Start agent/ }).click()
+    let tile = page.locator('.tile').first()
+    await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+    await tile.getByRole('button', { name: 'Subagents' }).click()
+
+    const run = () => page.locator('.tile').first().locator('.subagent-run').first()
+    await expect(run().locator('.subagent-run-body')).toBeVisible() // expanded by default
+    // collapse it
+    await run().locator('.subagent-run-header').click()
+    await expect(run().locator('.subagent-run-body')).toHaveCount(0)
+
+    // reload (store re-inits + seeds sessionUi from disk — simulates an app restart)
+    await page.reload()
+    await page.waitForSelector('.app')
+    await page.locator('.session-row').first().click()
+    tile = page.locator('.tile').first()
+    await tile.getByRole('button', { name: 'Subagents' }).click()
+    // the collapse must survive the reload
+    await expect(run().locator('.subagent-run-body')).toHaveCount(0)
+  })
+
   test('monaco changed-line gutter shows git dirty-diff', async () => {
     launched = await launchApp()
     const { page } = launched

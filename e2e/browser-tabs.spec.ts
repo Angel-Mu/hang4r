@@ -150,6 +150,30 @@ test('a clicked link opens a NEW tab; only a pristine tab is reused (Angel lost 
   await expect(page.locator('.browser-tab-active')).toContainText('localhost:5992')
 })
 
+test('the browser <webview> survives a context-panel switch — kept MOUNTED, never reloaded (Angel: the page kept getting wiped)', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await openBrowserTab(page)
+
+  // navigate so an actual <webview> element exists for the tab
+  await page.locator('.browser-url').fill('localhost:5990')
+  await page.locator('.browser-url').press('Enter')
+  await expect(page.locator('.browser-webview')).toHaveCount(1)
+
+  const tile = page.locator('.tile').first()
+  // switch to another context panel — before the fix this UNMOUNTED the pane
+  // and the webview reloaded its src, wiping the page. Now it stays in the DOM.
+  await tile.locator('.tile-tabs button', { hasText: 'Files' }).click()
+  await expect(page.locator('.files-tree, .files-code, .file-row').first()).toBeVisible({ timeout: 5_000 })
+  // the SAME webview element is still mounted (hidden), not destroyed
+  await expect(page.locator('.browser-webview')).toHaveCount(1)
+
+  // back to Browser: the webview is shown again, same tab/url
+  await tile.locator('.tile-tabs button', { hasText: 'Browser' }).click()
+  await expect(page.locator('.browser-webview')).toBeVisible()
+  await expect(page.locator('.browser-tab')).toHaveCount(1)
+})
+
 test('a link-opened tab is NOT duplicated when you leave the Browser panel and return (Angel: tabs kept multiplying)', async () => {
   launched = await launchApp()
   const { page } = launched

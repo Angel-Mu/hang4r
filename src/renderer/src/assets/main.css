@@ -2359,6 +2359,12 @@ button:disabled {
   flex: 1;
   min-height: 0;
 }
+/* persistent Browser wrapper: a flex column when shown (display set inline) so
+   the kept-alive webview fills the panel; display:none when another tab is
+   active keeps it mounted (no src reload) but out of view */
+.context-persist {
+  flex-direction: column;
+}
 
 /* collapsed panel rail (Cursor-style) — shown at the tile's right edge only
    while no context panel is open; replaced by .context-panel once one is */
@@ -4734,6 +4740,8 @@ button:disabled {
 .proc-item { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; flex-shrink: 0; }
 .proc-item:has(.proc-term) { flex: 1 1 0; min-height: 180px; }
 .proc-item-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface); }
+.proc-caret { color: var(--text-muted); font-size: 10px; line-height: 1; padding: 2px; cursor: pointer; flex-shrink: 0; }
+.proc-caret:hover { color: var(--text); }
 .proc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .proc-on { background: var(--green); animation: pulse 1.4s ease-in-out infinite; }
 .proc-off { background: var(--text-faint); }

@@ -11,6 +11,11 @@ interface Proc {
   autoStart?: boolean
 }
 
+/** which process boxes the user collapsed, per session — module-scope so it
+ *  survives the panel unmounting on a context-tab switch (Angel: collapse them
+ *  to see the running ones individually) */
+const procCollapsedMemo = new Map<string, Set<number>>()
+
 /**
  * Per-workspace dev/service processes (Cursor's environment.json idea): declare
  * commands, see their live output + status, start/stop. Config persists per
@@ -24,6 +29,18 @@ export function ProcessesPanel({ sessionId }: { sessionId: string }): JSX.Elemen
   const [running, setRunning] = useState<Set<number>>(new Set())
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<Proc[]>([])
+  const [collapsed, setCollapsed] = useState<Set<number>>(
+    () => procCollapsedMemo.get(sessionId) ?? new Set()
+  )
+  const toggleCollapsed = (i: number): void => {
+    setCollapsed((s) => {
+      const n = new Set(s)
+      if (n.has(i)) n.delete(i)
+      else n.add(i)
+      procCollapsedMemo.set(sessionId, n)
+      return n
+    })
+  }
 
   const load = useCallback(() => {
     if (!projectId) return
@@ -216,6 +233,13 @@ export function ProcessesPanel({ sessionId }: { sessionId: string }): JSX.Elemen
           return (
             <div key={i} className="proc-item">
               <div className="proc-item-head">
+                <button
+                  className="proc-caret"
+                  title={collapsed.has(i) ? 'Expand output' : 'Collapse output'}
+                  onClick={() => toggleCollapsed(i)}
+                >
+                  {collapsed.has(i) ? '▸' : '▾'}
+                </button>
                 <span
                   className={
                     'proc-dot ' +
@@ -246,7 +270,7 @@ export function ProcessesPanel({ sessionId }: { sessionId: string }): JSX.Elemen
                   )}
                 </span>
               </div>
-              {on && (
+              {on && !collapsed.has(i) && (
                 <div className="proc-term">
                   <TerminalView sessionId={sessionId} id={id} command={p.command} />
                 </div>

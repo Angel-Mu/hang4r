@@ -358,15 +358,51 @@ export class SessionManager {
       // Re-spawn (e.g. after app restart): recreate the worktree if it was
       // cleaned, otherwise spawn() ENOENTs on the missing cwd.
       await this.ensureWorkdir(sessionId)
-      const fresh = this.spawnAdapter(
-        this.store.getSession(sessionId)!,
-        session.backendSessionId ?? undefined
-      )
+      // RECOVERY: if the previous turn aborted (Claude's error_during_execution
+      // — common when a turn crashes mid-subagent), a plain --resume of the tip
+      // FAILS: the final turn ends in tool_use blocks with no tool_result (the
+      // killed subagents), which is an invalid conversation the CLI refuses to
+      // load, so every follow-up re-errors (Angel: "we get that error a lot").
+      // Fork-truncate PAST the poisoned turn (at the last message before it) so
+      // the CLI gets a VALID conversation to continue from — the errored turn
+      // had no useful completion, so dropping it is safe. Reuses the same
+      // --resume-session-at machinery the edit-message rewind uses.
+      const recoverAt =
+        session.status === 'error' ? this.recoveryAnchor(session) : null
+      const fresh = recoverAt
+        ? this.spawnAdapter(session, session.backendSessionId!, true, recoverAt)
+        : this.spawnAdapter(session, session.backendSessionId ?? undefined)
       this.adapters.set(sessionId, fresh)
       adapter = fresh
     }
     adapter.prompt(text, images)
     this.updateSession(sessionId, { status: 'running', lastError: null })
+  }
+
+  /**
+   * The parentUuid to `--resume-session-at` so a fork drops the LAST (aborted)
+   * turn: find the last user message in our transcript, then its parent in the
+   * jsonl. null if we can't locate it (→ caller falls back to a plain resume,
+   * no worse than before). Claude-only; other backends resume differently.
+   */
+  private recoveryAnchor(session: SessionMeta): string | null {
+    if (session.backend !== 'claude' || !session.backendSessionId) return null
+    const events = this.store.getEvents(session.id)
+    let lastUserText: string | null = null
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i].event
+      if (ev.kind === 'user-text') {
+        lastUserText = ev.text
+        break
+      }
+    }
+    if (!lastUserText) return null
+    try {
+      const anchor = ClaudeImport.findRewindAnchor(session.backendSessionId, lastUserText, 0)
+      return anchor?.parentUuid ?? null
+    } catch {
+      return null
+    }
   }
 
   /**

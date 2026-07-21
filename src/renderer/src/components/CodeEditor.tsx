@@ -503,6 +503,31 @@ export function CodeEditor({
     // eats the key before any window-level handler, so this IS the routing.
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, () => openFindRef.current())
 
+    // ---- macOS IDE navigation/editing keys ----
+    // Monaco's standalone build binds line/doc navigation to Home/End/Fn — keys a
+    // MacBook keyboard doesn't have — so ⌘←/⌘→ (line start/end) and ⌘↑/⌘↓ (file
+    // top/bottom) silently did nothing for Angel while alt+arrow word-jump still
+    // worked. Bind them explicitly (plus ⇧ select variants, ⌘D multicursor, and
+    // ⌃⌘↑/↓ move-line) so the editor matches Cursor/VS Code. addCommand overrides
+    // any default and only fires while THIS editor has focus; it also beats window
+    // handlers since Monaco eats the key first. alt+↑/↓ move-line stays as-is.
+    const { CtrlCmd, Shift, WinCtrl } = monaco.KeyMod
+    const KC = monaco.KeyCode
+    const bindKey = (kb: number, handlerId: string): void => {
+      editor.addCommand(kb, () => editor.trigger('keybinding', handlerId, null))
+    }
+    bindKey(CtrlCmd | KC.LeftArrow, 'cursorHome') // ⌘← line start (smart-home)
+    bindKey(CtrlCmd | KC.RightArrow, 'cursorEnd') // ⌘→ line end
+    bindKey(CtrlCmd | Shift | KC.LeftArrow, 'cursorHomeSelect') // ⌘⇧← select to line start
+    bindKey(CtrlCmd | Shift | KC.RightArrow, 'cursorEndSelect') // ⌘⇧→ select to line end
+    bindKey(CtrlCmd | KC.UpArrow, 'cursorTop') // ⌘↑ file top
+    bindKey(CtrlCmd | KC.DownArrow, 'cursorBottom') // ⌘↓ file bottom
+    bindKey(CtrlCmd | Shift | KC.UpArrow, 'cursorTopSelect') // ⌘⇧↑ select to top
+    bindKey(CtrlCmd | Shift | KC.DownArrow, 'cursorBottomSelect') // ⌘⇧↓ select to bottom
+    bindKey(CtrlCmd | KC.KeyD, 'editor.action.addSelectionToNextFindMatch') // ⌘D multicursor
+    bindKey(CtrlCmd | WinCtrl | KC.UpArrow, 'editor.action.moveLinesUpAction') // ⌃⌘↑ move line up
+    bindKey(CtrlCmd | WinCtrl | KC.DownArrow, 'editor.action.moveLinesDownAction') // ⌃⌘↓ move line down
+
     // Cmd/Ctrl-click: an import/path string → open that file; otherwise treat the
     // identifier under the cursor as a symbol and jump to its definition.
     const goToPos = async (pos: monaco.Position, model: monaco.editor.ITextModel): Promise<void> => {

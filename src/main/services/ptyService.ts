@@ -41,6 +41,12 @@ export class PtyService {
   private ptys = new Map<string, IPty>()
   /** last-N bytes of output per terminal, so a re-mounted xterm shows scrollback */
   private buffers = new Map<string, string>()
+  /** ids started via startCommand (dev/service processes) → their command. These
+   *  are intentionally-running processes, so they count as "busy" for the quit
+   *  guard regardless of pty.process (which reports the wrapping `fish -lc`
+   *  shell, making a live dev server look idle — Angel quit with them running
+   *  and got NO warning). */
+  private commandPtys = new Map<string, string>()
 
   constructor(
     private onData: (id: string, data: string) => void,
@@ -148,6 +154,7 @@ export class PtyService {
       return
     }
     this.appendBuffer(id, `\r\n\x1b[2m$ ${command}\x1b[0m\r\n`)
+    this.commandPtys.set(id, command)
     this.attach(id, pty)
   }
 
@@ -170,7 +177,15 @@ export class PtyService {
   busyCount(): { count: number; names: string[] } {
     const IDLE = new Set(['fish', 'zsh', 'bash', 'sh', 'dash', 'login', 'powershell.exe', ''])
     const names: string[] = []
-    for (const pty of this.ptys.values()) {
+    for (const [id, pty] of this.ptys) {
+      // dev/service processes (Processes tab): always busy while alive — they run
+      // a real command under a `fish -lc` wrapper, so pty.process would report
+      // the idle shell and miss them. Show the command's first word.
+      const cmd = this.commandPtys.get(id)
+      if (cmd) {
+        names.push(cmd.trim().split(/\s+/)[0] || cmd)
+        continue
+      }
       try {
         const name = (pty.process ?? '').split('/').pop() ?? ''
         if (!IDLE.has(name.toLowerCase())) names.push(name)
@@ -189,6 +204,7 @@ export class PtyService {
     pty.onExit(({ exitCode }) => {
       this.onExit(id, exitCode)
       this.ptys.delete(id)
+      this.commandPtys.delete(id)
       this.buffers.delete(id)
     })
     this.ptys.set(id, pty)

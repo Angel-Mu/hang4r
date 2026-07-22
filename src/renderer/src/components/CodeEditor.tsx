@@ -149,6 +149,11 @@ const previewModeMemo = new Map<string, boolean>()
  */
 const viewStateMemo = new Map<string, monaco.editor.ICodeEditorViewState>()
 
+// which `fileToOpen` opens we've already focused the editor for — module-level
+// so a later session-switch REMOUNT (SessionTile is keyed per session) doesn't
+// re-steal focus from wherever the user is. Nonce is monotonic per open.
+const focusedOpenNonces = new Set<number>()
+
 // archiving a session removes its worktree — drop its `${sessionId}:${path}`
 // entries so the maps don't grow forever (QA hunt #9's leak finding)
 onForgetSession((sessionId) => {
@@ -644,19 +649,31 @@ export function CodeEditor({
     }
   }, [sessionId, path, cwd])
 
-  // go-to-definition: reveal + select the target line when this file is opened
-  // with one (fileToOpen.line from findDefinition)
+  // an explicit open (⌘P quick-open, a clicked link, or go-to-definition) must
+  // FOCUS this editor — not only when it carries a line. Without the focus, the
+  // editor stayed inactive after a ⌘P open, so ⌘F routed to the chat find bar
+  // (App.tsx only lets Monaco keep ⌘F when a `.monaco-editor` is focused) and
+  // ⌘-click go-to-definition needed a throwaway focus-click first (Angel). Reveal
+  // the target line too when there is one. Focus fires once per open (nonce-
+  // guarded, module-level) so a session-switch remount doesn't yank focus back.
   const fileToOpen = useHang4r((s) => s.fileToOpen)
   useEffect(() => {
     const editor = editorRef.current
-    if (!editor || !fileToOpen?.line) return
+    if (!editor || !fileToOpen) return
     if (fileToOpen.sessionId !== sessionId || fileToOpen.path !== path) return
-    const line = fileToOpen.line
-    // wait a tick so the model content is loaded before revealing
+    const { line, nonce } = fileToOpen
+    // wait a tick so the model content is loaded before revealing/focusing
     const t = setTimeout(() => {
-      editor.revealLineInCenter(line)
-      editor.setPosition({ lineNumber: line, column: 1 })
-      editor.focus()
+      const ed = editorRef.current
+      if (!ed) return
+      if (line) {
+        ed.revealLineInCenter(line)
+        ed.setPosition({ lineNumber: line, column: 1 })
+      }
+      if (!focusedOpenNonces.has(nonce)) {
+        focusedOpenNonces.add(nonce)
+        ed.focus()
+      }
     }, 60)
     return () => clearTimeout(t)
   }, [fileToOpen, sessionId, path])

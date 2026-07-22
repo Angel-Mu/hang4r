@@ -1,7 +1,7 @@
 {
   "name": "hang4r",
   "productName": "hang4r",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "description": "Agents window for Claude Code, Codex & Cursor — a multi-project agent session manager",
   "main": "./out/main/index.js",
   "author": "Angel Malavar",

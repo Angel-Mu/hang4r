@@ -704,6 +704,9 @@ export interface Hang4rApi {
   writeTerminal(id: string, data: string): Promise<void>
   resizeTerminal(id: string, cols: number, rows: number): Promise<void>
   disposeTerminal(id: string): Promise<void>
+  /** ⌘K clear: also drop the main-process scrollback so a tab-switch re-attach
+   *  doesn't replay the old output back into the cleared terminal */
+  clearTerminal(id: string): Promise<void>
   onTerminalData(cb: (id: string, data: string) => void): () => void
   onTerminalExit(cb: (id: string, code: number) => void): () => void
   // events

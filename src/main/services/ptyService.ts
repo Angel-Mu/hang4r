@@ -235,6 +235,13 @@ export class PtyService {
     }
   }
 
+  /** ⌘K clear: drop the retained scrollback so a later re-attach (tab switch)
+   *  replays nothing — otherwise the cleared terminal looked polluted again the
+   *  moment you came back to it (Angel). The live shell keeps running. */
+  clearBuffer(id: string): void {
+    this.buffers.set(id, '')
+  }
+
   dispose(id: string): void {
     const pty = this.ptys.get(id)
     if (pty) {

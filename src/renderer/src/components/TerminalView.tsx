@@ -65,12 +65,16 @@ function registerLinks(term: Terminal, sessionId: string): void {
 export function TerminalView({
   sessionId,
   id,
-  command
+  command,
+  active
 }: {
   sessionId: string
   id: string
   /** when set, run this command as a dev/service process instead of a shell */
   command?: string
+  /** this pane is the active one — focus its xterm when it becomes active
+   *  (⌘[ / ⌘] pane nav, list click) so typing lands here without a mouse click */
+  active?: boolean
 }): JSX.Element {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
@@ -81,6 +85,14 @@ export function TerminalView({
   const [findOpen, setFindOpen] = useState(false)
   const [findToken, setFindToken] = useState(0)
   const termRef = useRef<Terminal | null>(null)
+  // focus the xterm on a false→true active transition only (not on mount, which
+  // would steal focus when the panel first opens) — makes ⌘[ / ⌘] pane nav and
+  // terminal-list clicks land the cursor in the pane without a mouse click
+  const wasActiveRef = useRef(!!active)
+  useEffect(() => {
+    if (active && !wasActiveRef.current) termRef.current?.focus()
+    wasActiveRef.current = !!active
+  }, [active])
 
   useEffect(() => {
     const wrapper = wrapperRef.current
@@ -92,7 +104,10 @@ export function TerminalView({
       // No dedicated terminal-font setting exists, so track the app-wide "Chat
       // font size" (Settings → General) — read once at mount, so it applies to
       // NEW terminals; existing ones keep the size they opened with.
-      fontSize: useHang4r.getState().chatFontSize || 12,
+      // the terminal is a code/CLI surface — size it with the EDITOR font, not
+      // the chat font (which users bump for chat readability, making the terminal
+      // look oversized — Angel)
+      fontSize: useHang4r.getState().editorFontSize || 12,
       // follow the ACTIVE app theme's tokens (read at mount) instead of a
       // baked-in palette — under nord/light the old hexes matched nothing,
       // and the near-white-on-black default was an eye-strain hotspot
@@ -153,7 +168,10 @@ export function TerminalView({
     // ⌘K clear (iTerm2-style) and ⌘F find — both dispatched by the app-level
     // key handler onto this terminal's WRAPPER (`.terminal-view`, what its
     // focused textarea resolves to via .closest).
-    const onClear = (): void => term.clear()
+    const onClear = (): void => {
+      term.clear()
+      void window.hang4r.clearTerminal(id) // drop the replay buffer too — stays clear across tab switches
+    }
     wrapper.addEventListener('hang4r-clear', onClear)
     const onFind = (): void => {
       setFindOpen(true)
@@ -193,6 +211,7 @@ export function TerminalView({
         e.preventDefault()
         if (b.action === 'clear-screen') {
           term.clear()
+          void window.hang4r.clearTerminal(id) // drop the replay buffer too
           return false
         }
         const bytes = resolveActionBytes(b)

@@ -191,19 +191,36 @@ export function TerminalPanel({ sessionId }: { sessionId: string }): JSX.Element
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFocused, active, terms.length])
 
-  // ⌘D new side pane · ⌘⇧D new bottom pane (when this terminal panel is focused)
+  // ⌘D new side pane · ⌘⇧D new bottom pane · ⌘[ / ⌘] move between panes/terminals
+  // (iTerm), all when this terminal panel is focused
   useEffect(() => {
     if (!isFocused) return
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault()
         splitWithNew(e.shiftKey ? 'bottom' : 'side')
+        return
+      }
+      // ⌘[ prev · ⌘] next — meta only (⌃[ is ESC in the shell, never claim it).
+      // When split, toggle the two halves; otherwise cycle the terminal list.
+      if (e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === '[' || e.key === ']')) {
+        const dir = e.key === ']' ? 1 : -1
+        if (split) {
+          e.preventDefault()
+          setActive((a) => (a === split.primary ? split.secondary : split.primary))
+        } else if (terms.length > 1) {
+          e.preventDefault()
+          setActive((a) => {
+            const i = terms.indexOf(a)
+            return i < 0 ? a : terms[(i + dir + terms.length) % terms.length]
+          })
+        }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isFocused, active, nextN])
+  }, [isFocused, active, nextN, split, terms])
 
   const rowMenu = (e: React.MouseEvent, id: string, i: number): void => {
     e.preventDefault()
@@ -263,7 +280,7 @@ export function TerminalPanel({ sessionId }: { sessionId: string }): JSX.Element
 
   const renderSlot = (id: string, visible: boolean): JSX.Element => (
     <div key={id} className="terminal-slot" style={{ display: visible ? 'flex' : 'none' }}>
-      <TerminalView sessionId={sessionId} id={id} />
+      <TerminalView sessionId={sessionId} id={id} active={id === active} />
     </div>
   )
 

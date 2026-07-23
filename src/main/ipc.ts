@@ -727,6 +727,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     ptyService!.resize(id, cols, rows)
   )
   ipcMain.handle('pty:dispose', (_e, id: string) => ptyService!.dispose(id))
+  ipcMain.handle('pty:clear', (_e, id: string) => ptyService!.clearBuffer(id))
 
   return sessions
 }

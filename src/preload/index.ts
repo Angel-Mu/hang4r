@@ -192,6 +192,7 @@ const api: Hang4rApi = {
   resizeTerminal: (id: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:resize', id, cols, rows),
   disposeTerminal: (id: string) => ipcRenderer.invoke('pty:dispose', id),
+  clearTerminal: (id: string) => ipcRenderer.invoke('pty:clear', id),
   onTerminalData: (cb: (id: string, data: string) => void) => {
     const handler = (_e: unknown, id: string, data: string): void => cb(id, data)
     ipcRenderer.on('pty:data', handler)

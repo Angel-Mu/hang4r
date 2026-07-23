@@ -318,7 +318,10 @@ export const FileService = {
     const src = all
       .filter((p) => /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(p))
       .filter((p) => !p.includes('node_modules/'))
-      .slice(0, 1500)
+      // cap the eager project load: each file becomes a Monaco model synced to
+      // the single TS worker. 1500 real monorepo files crushed it (Angel); cross-
+      // file navigation to files past the cap falls back to git-grep, which scales
+      .slice(0, 500)
     const out: { path: string; content: string }[] = []
     for (const rel of src) {
       try {

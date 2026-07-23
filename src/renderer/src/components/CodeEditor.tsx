@@ -52,15 +52,22 @@ function ensureDiagnostics(): void {
   ts.javascriptDefaults.setCompilerOptions(compiler)
   // TS: full syntax + semantic. JS: syntax only (semantic needs the whole
   // project graph, which a single in-memory model doesn't have → false errors).
+  // Syntax squiggles only — NOT project-wide semantic validation. Full semantic
+  // diagnostics make the single in-browser TS worker eagerly type-check the whole
+  // synced model graph; in a big monorepo (~hundreds+ of files) that saturates
+  // the one worker, so hover / autocomplete / go-to-definition all queue behind
+  // it and go dead (Angel: "neither hover nor autocomplete works, only in big
+  // projects"). The language service (hover/defs/completions) still answers
+  // on-query without the proactive whole-project check.
   ts.typescriptDefaults.setDiagnosticsOptions({
     noSyntaxValidation: false,
-    noSemanticValidation: false,
-    noSuggestionDiagnostics: false
+    noSemanticValidation: true,
+    noSuggestionDiagnostics: true
   })
   ts.javascriptDefaults.setDiagnosticsOptions({
     noSyntaxValidation: false,
     noSemanticValidation: true,
-    noSuggestionDiagnostics: false
+    noSuggestionDiagnostics: true
   })
   ts.typescriptDefaults.setEagerModelSync(true)
   ts.javascriptDefaults.setEagerModelSync(true)
@@ -138,6 +145,12 @@ export interface EditorHandle {
 const sharedDirty = new Map<string, boolean>()
 const dirtyWatchers = new Set<(key: string, dirty: boolean) => void>()
 
+// The model's `alternativeVersionId` at the last SAVED state, per doc. A content
+// change is "dirty" only if the current id differs — so ⌘Z back to the saved text
+// clears the dot (Monaco returns the SAME id when undo/redo lands on a prior
+// content state) instead of leaving the tab falsely unsaved + un-closeable (Angel).
+const savedVersionMemo = new Map<string, number>()
+
 /** Preview/Source choice per `${sessionId}:${path}` — survives tab switches */
 const previewModeMemo = new Map<string, boolean>()
 
@@ -158,7 +171,7 @@ const focusedOpenNonces = new Set<number>()
 // entries so the maps don't grow forever (QA hunt #9's leak finding)
 onForgetSession((sessionId) => {
   const prefix = `${sessionId}:`
-  for (const map of [sharedDirty, previewModeMemo, viewStateMemo]) {
+  for (const map of [sharedDirty, previewModeMemo, viewStateMemo, savedVersionMemo]) {
     for (const key of map.keys()) {
       if (key.startsWith(prefix)) map.delete(key)
     }
@@ -474,8 +487,14 @@ export function CodeEditor({
       }
     })
     editor.onDidChangeModelContent(() => {
-      setDirty(true)
-      setSharedDirty(dirtyKeyRef.current, true)
+      const key = dirtyKeyRef.current
+      const m = editor.getModel()
+      // dirty only if we've moved OFF the saved version — ⌘Z back to it is clean.
+      // If we have no saved baseline yet (untitled), any content is dirty.
+      const saved = savedVersionMemo.get(key)
+      const clean = saved !== undefined && !!m && m.getAlternativeVersionId() === saved
+      setDirty(!clean)
+      setSharedDirty(key, !clean)
       setPreviewText(editor.getValue())
     })
     editor.onDidChangeCursorSelection((e) => setHasSel(!e.selection.isEmpty()))
@@ -540,20 +559,36 @@ export function CodeEditor({
       const spec = quotedStringAt(model.getLineContent(pos.lineNumber), pos.column)
       if (spec) {
         const resolved = await window.hang4r.resolveImport(sid, pth, spec)
-        if (resolved) useHang4r.getState().requestOpenFile(sid, resolved)
+        if (resolved) {
+          useHang4r.getState().requestOpenFile(sid, resolved)
+          return
+        }
+        // an alias/package import (@app/*, nx package) doesn't resolve to a path —
+        // don't dead-end; best-effort git-grep on the last path segment
+        const seg = spec.split('/').pop()?.replace(/\.[a-z]+$/i, '')
+        if (seg) {
+          const d = await window.hang4r.findDefinition(sid, seg)
+          if (d) useHang4r.getState().requestOpenFile(sid, d.path, d.line)
+        }
         return
       }
       const word = model.getWordAtPosition(pos)
       if (!word) return
-      // semantic definition via the TS language service (cross-file, type-aware)
+      // Semantic definition via the TS worker (relative/loaded files, type-aware),
+      // BOUNDED so a busy/indexing worker never hangs the click — then git-grep,
+      // which needs no worker and scales to any repo (the monorepo's alias/library
+      // symbols never resolve in the in-browser worker anyway — Angel).
       if (root && model.uri.scheme === 'file') {
-        const def = await tsDefinition(model.uri, model.getOffsetAt(pos), root)
+        const def = await Promise.race([
+          tsDefinition(model.uri, model.getOffsetAt(pos), root),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200))
+        ])
         if (def) {
           useHang4r.getState().requestOpenFile(sid, def.rel, def.line)
           return
         }
       }
-      // fallback: git-grep declaration finder (non-project files / service not ready)
+      // fallback: git-grep declaration finder (alias/library symbols, worker busy)
       const def = await window.hang4r.findDefinition(sid, word.word)
       if (def) useHang4r.getState().requestOpenFile(sid, def.path, def.line)
     }
@@ -640,6 +675,12 @@ export function CodeEditor({
       const savedViewState = viewStateMemo.get(key)
       if (savedViewState) editor.restoreViewState(savedViewState)
       setTruncated(res.truncated)
+      // a clean load == the model now holds disk content: capture it as the saved
+      // baseline so a later edit-then-⌘Z reads as clean (bug fix — Angel)
+      if (!docDirty) {
+        const v = editor.getModel()?.getAlternativeVersionId()
+        if (v !== undefined) savedVersionMemo.set(key, v)
+      }
       setDirty(docDirty)
       setPreviewText(docDirty ? (editor.getModel()?.getValue() ?? res.content) : res.content)
       void applyGutter()
@@ -760,6 +801,8 @@ export function CodeEditor({
       await window.hang4r.writeFile(sessionId, path, editor.getValue())
       setDirty(false)
       setSharedDirty(dirtyKeyRef.current, false)
+      const v = editor.getModel()?.getAlternativeVersionId()
+      if (v !== undefined) savedVersionMemo.set(dirtyKeyRef.current, v) // new saved baseline
       void applyGutter()
       useHang4r.getState().bumpGit()
     } finally {
@@ -787,11 +830,16 @@ export function CodeEditor({
         if (editor && !truncated) {
           await window.hang4r.writeFile(sessionId, path, editor.getValue())
           setSharedDirty(`${sessionId}:${path}`, false)
+          const v = editor.getModel()?.getAlternativeVersionId()
+          if (v !== undefined) savedVersionMemo.set(`${sessionId}:${path}`, v)
         }
       },
       discard: () => {
         setSharedDirty(`${sessionId}:${path}`, false)
         setDirty(false)
+        // discard reverts to disk content elsewhere; treat current as the baseline
+        const v = editorRef.current?.getModel()?.getAlternativeVersionId()
+        if (v !== undefined) savedVersionMemo.set(`${sessionId}:${path}`, v)
       }
     })
     return () => onRegister?.(path, null)

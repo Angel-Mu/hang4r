@@ -31,16 +31,31 @@ export function ensureModel(
 /** load every source file in the workspace as a model, once per cwd (background) */
 export async function loadProject(sessionId: string, cwd: string): Promise<void> {
   if (!cwd || loadedCwds.has(cwd)) return
-  loadedCwds.add(cwd)
+  loadedCwds.add(cwd) // mark FIRST so a failure mid-load never re-storms the worker
+  let files: { path: string; content: string }[]
   try {
-    const files = await window.hang4r.readSources(sessionId)
-    for (const f of files) {
+    files = await window.hang4r.readSources(sessionId)
+  } catch {
+    loadedCwds.delete(cwd) // readSources itself failed → allow one later retry
+    return
+  }
+  // Create models in small batches, yielding to the event loop between them, so
+  // a few hundred createModel calls don't freeze the renderer in a single tick
+  // (a big monorepo used to jank hard here — Angel).
+  const BATCH = 40
+  for (let i = 0; i < files.length; i += BATCH) {
+    for (const f of files.slice(i, i + BATCH)) {
       if (!SRC.test(f.path)) continue
       const uri = fileUri(cwd, f.path)
-      if (!monaco.editor.getModel(uri)) monaco.editor.createModel(f.content, undefined, uri)
+      if (!monaco.editor.getModel(uri)) {
+        try {
+          monaco.editor.createModel(f.content, undefined, uri)
+        } catch {
+          /* duplicate/invalid uri — skip */
+        }
+      }
     }
-  } catch {
-    loadedCwds.delete(cwd) // allow a later retry
+    if (i + BATCH < files.length) await new Promise((r) => setTimeout(r, 0))
   }
 }
 

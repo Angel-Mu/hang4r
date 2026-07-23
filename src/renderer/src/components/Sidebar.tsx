@@ -96,6 +96,22 @@ export function Sidebar(): JSX.Element {
 
   const sessionMenu = (e: React.MouseEvent, id: string): void => {
     e.preventDefault()
+    const sess = sessions.find((x) => x.id === id)
+    const isWorktree = sess?.environment === 'worktree'
+    // Worktree cleanup that KEEPS the session + its conversation (unlike Archive,
+    // which hides it): Drop frees the worktree on disk and stops hang4r rebuilding
+    // it on open; Recreate re-provisions it to continue working (Angel).
+    const worktreeItems = isWorktree
+      ? [
+          { separator: true, label: '' },
+          sess?.worktreeDropped
+            ? { label: 'Recreate worktree', onClick: () => void window.hang4r.recreateWorktree(id) }
+            : {
+                label: 'Drop worktree (keep conversation)',
+                onClick: () => void window.hang4r.dropWorktree(id)
+              }
+        ]
+      : []
     openContextMenu(e.clientX, e.clientY, [
       { label: 'Open', onClick: () => void openSession(id) },
       { label: 'Open in Split', onClick: () => void openSession(id, { split: true }) },
@@ -114,6 +130,7 @@ export function Sidebar(): JSX.Element {
       { label: isPinned(id) ? 'Unpin' : 'Pin to top', onClick: () => togglePin(id) },
       { label: 'Duplicate / Fork', onClick: () => void duplicateSession(id) },
       { label: 'Retry Last Message', onClick: () => void retrySession(id) },
+      ...worktreeItems,
       { separator: true, label: '' },
       { label: 'Archive', danger: true, onClick: () => void archiveSession(id) }
     ])

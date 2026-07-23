@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { promisify } from 'node:util'
 import type { ChangedFile, DiffScope, MediaSide, ScopedFiles, ScopeSummary } from '../../shared/protocol'
 import { LocalExec, shellQuote, type Exec } from './remoteService'
@@ -77,6 +77,26 @@ export const GitService = {
     } catch {
       // worktree may already be gone; ignore
     }
+  },
+
+  /**
+   * Re-attach the SAME branch at the SAME path — used to Recreate a worktree that
+   * was Dropped (removeWorktree leaves the branch behind). This restores the
+   * session's commits, unlike a fresh createWorktree which would branch from HEAD
+   * (and dodge the leftover branch by suffixing -2). Returns false if the branch
+   * is truly gone, so the caller can fall back to a fresh worktree.
+   */
+  async reattachWorktree(repoDir: string, worktreePath: string, branch: string): Promise<boolean> {
+    try {
+      await git(repoDir, ['show-ref', '--verify', `refs/heads/${branch}`])
+    } catch {
+      return false // branch is gone too → caller makes a fresh one
+    }
+    if (existsSync(worktreePath)) return true // already attached
+    const container = dirname(worktreePath)
+    if (!existsSync(container)) mkdirSync(container, { recursive: true })
+    await git(repoDir, ['worktree', 'add', worktreePath, branch])
+    return true
   },
 
   /**

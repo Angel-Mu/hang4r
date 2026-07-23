@@ -22,6 +22,7 @@ import type { AgentAdapter } from './adapters/types'
 /** E2E/loop verification mode: use a deterministic in-process agent. */
 const FAKE_AGENT = process.env.HANG4R_FAKE_AGENT === '1'
 import { existsSync } from 'node:fs'
+import { basename } from 'node:path'
 import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
@@ -355,9 +356,10 @@ export class SessionManager {
 
     let adapter = this.adapters.get(sessionId)
     if (!adapter) {
-      // Re-spawn (e.g. after app restart): recreate the worktree if it was
-      // cleaned, otherwise spawn() ENOENTs on the missing cwd.
-      await this.ensureWorkdir(sessionId)
+      // Re-spawn (e.g. after app restart): a PROMPT is an explicit "continue
+      // here", so recreate the worktree if it was cleaned (recreate=true) —
+      // passive access leaves it dropped, but working in it rebuilds it.
+      await this.ensureWorkdir(sessionId, true)
       // RECOVERY: if the previous turn aborted (Claude's error_during_execution
       // — common when a turn crashes mid-subagent), a plain --resume of the tip
       // FAILS: the final turn ends in tool_use blocks with no tool_result (the
@@ -781,7 +783,7 @@ export class SessionManager {
     // parentUuid means the edited message was the very first — start fresh.
     this.adapters.get(session.id)?.dispose()
     this.adapters.delete(session.id)
-    await this.ensureWorkdir(session.id)
+    await this.ensureWorkdir(session.id, true) // editing+re-running = continue here → rebuild if dropped
     const adapter = anchor.parentUuid
       ? this.spawnAdapter(session, session.backendSessionId, true, anchor.parentUuid)
       : this.spawnAdapter(session)
@@ -794,7 +796,7 @@ export class SessionManager {
   private async ensureAdapter(sessionId: string): Promise<AgentAdapter> {
     let adapter = this.adapters.get(sessionId)
     if (!adapter) {
-      await this.ensureWorkdir(sessionId)
+      await this.ensureWorkdir(sessionId, true) // spawning to run = continue here → rebuild if dropped
       const session = this.requireSession(sessionId)
       adapter = this.spawnAdapter(session, session.backendSessionId ?? undefined)
       this.adapters.set(sessionId, adapter)
@@ -888,13 +890,42 @@ export class SessionManager {
     }
   }
 
-  async ensureWorkdir(sessionId: string): Promise<string> {
+  async ensureWorkdir(sessionId: string, recreate = false): Promise<string> {
     const session = this.requireSession(sessionId)
     if (session.environment === 'ssh') return session.cwd // remote path — not ours to create
     if (existsSync(session.cwd)) return session.cwd
     if (session.environment !== 'worktree') return session.cwd
+    // The worktree is gone. Do NOT silently resurrect it on PASSIVE access (file
+    // tree, terminal, git, focus) — the user may have cleaned it (via "Drop
+    // worktree" or their own tooling) and just wants to READ the conversation
+    // (Angel). Those panels degrade gracefully on a missing dir. Rebuild ONLY on
+    // an explicit request: a prompt to continue, or the Recreate action.
+    if (!recreate) {
+      if (!session.worktreeDropped) {
+        const s = this.store.updateSession(sessionId, { worktreeDropped: true })
+        if (s) this.broadcast.sessionUpdated(s)
+      }
+      return session.cwd
+    }
     const project = this.store.getProject(session.projectId)
     if (!project || !(await GitService.isRepo(project.path))) return session.cwd
+    // Prefer RE-ATTACHING the original branch at the original path — Drop/remove
+    // left the branch behind, so this restores the session's commits instead of
+    // branching fresh from HEAD (which would also dodge the leftover branch by
+    // suffixing -2). Fall back to a fresh worktree only if the branch is gone.
+    const origBranch = `${this.branchPrefix(project.id)}${basename(session.cwd)}`
+    const reattached = await GitService.reattachWorktree(
+      project.path,
+      session.cwd,
+      origBranch
+    ).catch(() => false)
+    if (reattached) {
+      this.store.updateSession(sessionId, { worktreeDropped: false })
+      void this.runSetup(sessionId, session.cwd, project.path, project.id)
+      const back = this.store.getSession(sessionId)
+      if (back) this.broadcast.sessionUpdated(back)
+      return session.cwd
+    }
     const wt = await GitService.createWorktree(
       project.path,
       worktreeNameFor(session.title),
@@ -902,12 +933,40 @@ export class SessionManager {
       this.branchPrefix(project.id)
     )
     this.store.setSessionWorkdir(sessionId, wt.worktreePath, wt.baseBranch)
+    this.store.updateSession(sessionId, { worktreeDropped: false }) // rebuilt → no longer dropped
     // background: a prompt that triggered this recreate must not hang for the
     // length of an npm install (Angel hit exactly that wait)
     void this.runSetup(sessionId, wt.worktreePath, project.path, project.id)
     const updated = this.store.getSession(sessionId)
     if (updated) this.broadcast.sessionUpdated(updated)
     return wt.worktreePath
+  }
+
+  /**
+   * Remove a worktree session's worktree from disk but keep the session LIVE and
+   * its conversation intact/searchable (unlike archive, which hides it). Marks it
+   * dropped so ensureWorkdir won't rebuild it on open (Angel: manual cleanup kept
+   * getting resurrected). Recreate re-provisions it when you want to continue.
+   */
+  async dropWorktree(sessionId: string): Promise<SessionMeta | undefined> {
+    const session = this.store.getSession(sessionId)
+    if (!session) return undefined
+    if (session.environment !== 'worktree') return session // no-op for local/ssh
+    this.adapters.get(sessionId)?.dispose() // release the dir before removing it
+    this.adapters.delete(sessionId)
+    const project = this.store.getProject(session.projectId)
+    if (project) void GitService.removeWorktree(project.path, session.cwd) // bg (tolerates already-gone)
+    const updated = this.store.updateSession(sessionId, { worktreeDropped: true, status: 'idle' })
+    if (updated) this.broadcast.sessionUpdated(updated)
+    return updated
+  }
+
+  /** rebuild a dropped worktree (+ re-run setup) so the user can continue */
+  async recreateWorktree(sessionId: string): Promise<SessionMeta | undefined> {
+    await this.ensureWorkdir(sessionId, true)
+    const updated = this.store.getSession(sessionId)
+    if (updated) this.broadcast.sessionUpdated(updated)
+    return updated
   }
 
   /**

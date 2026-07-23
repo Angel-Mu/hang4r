@@ -49,7 +49,8 @@ export class Store {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         total_cost_usd REAL NOT NULL DEFAULT 0,
-        last_error TEXT
+        last_error TEXT,
+        worktree_dropped INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS session_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +79,9 @@ export class Store {
     }
     if (!cols.has('remote_host_id')) {
       this.db.exec('ALTER TABLE sessions ADD COLUMN remote_host_id TEXT')
+    }
+    if (!cols.has('worktree_dropped')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN worktree_dropped INTEGER NOT NULL DEFAULT 0')
     }
   }
 
@@ -193,6 +197,7 @@ export class Store {
         | 'totalCostUsd'
         | 'lastError'
         | 'permissionMode'
+        | 'worktreeDropped'
       >
     >
   ): SessionMeta | undefined {
@@ -204,7 +209,7 @@ export class Store {
     this.db
       .prepare(
         `UPDATE sessions SET status=?, backend_session_id=?, model=?, title=?,
-         total_cost_usd=?, last_error=?, permission_mode=?, updated_at=? WHERE id=?`
+         total_cost_usd=?, last_error=?, permission_mode=?, worktree_dropped=?, updated_at=? WHERE id=?`
       )
       .run(
         merged.status,
@@ -214,6 +219,7 @@ export class Store {
         merged.totalCostUsd,
         merged.lastError,
         merged.permissionMode,
+        merged.worktreeDropped ? 1 : 0,
         merged.updatedAt,
         id
       )
@@ -327,6 +333,7 @@ interface SessionRow {
   updated_at: number
   total_cost_usd: number
   last_error: string | null
+  worktree_dropped: number
 }
 
 function rowToProject(r: ProjectRow): Project {
@@ -350,6 +357,7 @@ function rowToSession(r: SessionRow): SessionMeta {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     totalCostUsd: r.total_cost_usd,
-    lastError: r.last_error
+    lastError: r.last_error,
+    worktreeDropped: !!r.worktree_dropped
   }
 }

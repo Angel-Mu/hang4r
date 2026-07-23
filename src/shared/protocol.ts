@@ -85,6 +85,11 @@ export interface SessionMeta {
   updatedAt: number
   totalCostUsd: number
   lastError: string | null
+  /** worktree sessions only: the user removed the worktree (via "Drop worktree"
+   *  or externally) and doesn't want it silently rebuilt — the session stays
+   *  live + its conversation searchable; opening it no longer resurrects the
+   *  worktree. Cleared when the worktree is recreated. */
+  worktreeDropped?: boolean
 }
 
 /* ---------------- Diff & review ---------------- */
@@ -484,6 +489,11 @@ export interface Hang4rApi {
   pickAttachments(): Promise<Attachment[]>
   interrupt(sessionId: string): Promise<void>
   archiveSession(sessionId: string): Promise<void>
+  /** worktree sessions: remove the worktree from disk but KEEP the session live
+   *  and its conversation searchable; hang4r won't rebuild it on open. */
+  dropWorktree(sessionId: string): Promise<SessionMeta | undefined>
+  /** rebuild a dropped worktree (+ re-run setup) so you can continue working */
+  recreateWorktree(sessionId: string): Promise<SessionMeta | undefined>
   listArchivedSessions(): Promise<SessionMeta[]>
   cursorAvailable(): Promise<boolean>
   listCursorSessions(roots?: string[]): Promise<

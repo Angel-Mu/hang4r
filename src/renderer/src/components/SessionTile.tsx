@@ -43,9 +43,34 @@ type ContextTab = (typeof CONTEXT_TABS)[number]
  *  outside component state, same precedent as FileBrowser's layoutMemo. */
 const contextTabMemo = new Map<string, ContextTab | null>()
 const lastContextTabMemo = new Map<string, ContextTab>()
+
+// The "open panel X" store signals (⌘P→Files, diff→Diff, ⤷→Subagents, ⌃`→
+// Terminal…) carry a monotonic nonce but are never cleared. When a session
+// switch REMOUNTS the tile (it's keyed per session), each auto-open effect
+// re-ran with the last stale signal and clobbered the tab the user actually had
+// open — e.g. return to a session that showed Terminal and it snapped to
+// Subagents (Angel). Track the last nonce we've ACTED ON per session+signal
+// (module-level, survives remounts) and only act on a genuinely new one.
+const handledSignalNonce = new Map<string, number>()
+function freshSignal(
+  name: string,
+  sessionId: string,
+  sig: { sessionId: string; nonce: number } | null
+): boolean {
+  if (!sig || sig.sessionId !== sessionId) return false
+  const key = `${sessionId}:${name}`
+  if (handledSignalNonce.get(key) === sig.nonce) return false
+  handledSignalNonce.set(key, sig.nonce)
+  return true
+}
+
 onForgetSession((sessionId) => {
   contextTabMemo.delete(sessionId)
   lastContextTabMemo.delete(sessionId)
+  const prefix = `${sessionId}:`
+  for (const key of handledSignalNonce.keys()) {
+    if (key.startsWith(prefix)) handledSignalNonce.delete(key)
+  }
 })
 // seed which panel was active from the persisted snapshot at startup, so a
 // session reopens on its Files/Diff/Terminal/… panel after an app restart
@@ -419,45 +444,71 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     }
   }, [sessionId, statusForCount, commitMenuOpen, gitNonce])
 
-  // ⌘P: when a file is requested for this session, make sure Files is open
+  // On (re)mount, treat every already-pending open-signal as handled — so a
+  // signal that fired while THIS session was unmounted (e.g. a subagent appeared
+  // while you were in another session) doesn't yank the tab you're returning to.
+  // Runs before the per-signal effects below, which then only act on signals
+  // that arrive AFTER you're back. (Angel: came back to a session and it snapped
+  // off Terminal onto Subagents.)
+  useEffect(() => {
+    const s = useHang4r.getState()
+    const pending: [string, { sessionId: string; nonce: number } | null][] = [
+      ['diff', s.diffToOpen],
+      ['file', s.fileToOpen],
+      ['search', s.searchToOpen],
+      ['url', s.urlToOpen],
+      ['browser', s.browserToShow],
+      ['terminal', s.terminalToToggle],
+      ['subagents', s.subagentsToOpen],
+      ['panel', s.panelToToggle]
+    ]
+    for (const [name, sig] of pending) {
+      if (sig && sig.sessionId === sessionId) handledSignalNonce.set(`${sessionId}:${name}`, sig.nonce)
+    }
+  }, [sessionId])
+
+  // ⌘P: when a file is requested for this session, make sure Files is open.
+  // Each of these effects re-runs on a session-switch remount — the freshSignal
+  // nonce guard makes it act only on a genuinely NEW signal, never on a stale
+  // replay (which used to clobber the restored tab — Angel).
   const diffToOpen = useHang4r((s) => s.diffToOpen)
   useEffect(() => {
-    if (diffToOpen && diffToOpen.sessionId === sessionId) setContextTab('Diff')
+    if (freshSignal('diff', sessionId, diffToOpen)) setContextTab('Diff')
   }, [diffToOpen, sessionId])
   const fileToOpen = useHang4r((s) => s.fileToOpen)
   useEffect(() => {
-    if (fileToOpen && fileToOpen.sessionId === sessionId) setContextTab('Files')
+    if (freshSignal('file', sessionId, fileToOpen)) setContextTab('Files')
   }, [fileToOpen, sessionId])
   // ⌘⇧F: surface the Files panel — FileBrowser flips itself into search mode
   const searchToOpen = useHang4r((s) => s.searchToOpen)
   useEffect(() => {
-    if (searchToOpen && searchToOpen.sessionId === sessionId) setContextTab('Files')
+    if (freshSignal('search', sessionId, searchToOpen)) setContextTab('Files')
   }, [searchToOpen, sessionId])
   // ⌘-clicked URL (terminal/chat) → surface the Browser panel
   const urlToOpen = useHang4r((s) => s.urlToOpen)
   useEffect(() => {
-    if (urlToOpen && urlToOpen.sessionId === sessionId) setContextTab('Browser')
+    if (freshSignal('url', sessionId, urlToOpen)) setContextTab('Browser')
   }, [urlToOpen, sessionId])
   // agent-driven `hang4r browser goto` (no live tab) → surface the Browser panel
   const browserToShow = useHang4r((s) => s.browserToShow)
   useEffect(() => {
-    if (browserToShow && browserToShow.sessionId === sessionId) setContextTab('Browser')
+    if (freshSignal('browser', sessionId, browserToShow)) setContextTab('Browser')
   }, [browserToShow, sessionId])
   // ⌃`: toggle the Terminal panel (VS Code muscle memory)
   const terminalToToggle = useHang4r((s) => s.terminalToToggle)
   useEffect(() => {
-    if (terminalToToggle && terminalToToggle.sessionId === sessionId)
+    if (freshSignal('terminal', sessionId, terminalToToggle))
       setContextTab((cur) => (cur === 'Terminal' ? null : 'Terminal'))
   }, [terminalToToggle, sessionId])
   // ⤷ button on an agent row in chat → jump to the Subagents panel
   const subagentsToOpen = useHang4r((s) => s.subagentsToOpen)
   useEffect(() => {
-    if (subagentsToOpen && subagentsToOpen.sessionId === sessionId) setContextTab('Subagents')
+    if (freshSignal('subagents', sessionId, subagentsToOpen)) setContextTab('Subagents')
   }, [subagentsToOpen, sessionId])
   // ⌥⌘B: open → close (remembering the tab); closed → reopen the remembered tab
   const panelToToggle = useHang4r((s) => s.panelToToggle)
   useEffect(() => {
-    if (panelToToggle && panelToToggle.sessionId === sessionId) {
+    if (freshSignal('panel', sessionId, panelToToggle)) {
       setContextTab((cur) => (cur ? null : lastContextTabRef.current))
     }
   }, [panelToToggle, sessionId])

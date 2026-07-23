@@ -96,4 +96,34 @@ test.describe('context panel toggle', () => {
       page.locator('.pane').first().locator('.context-header')
     ).toContainText('Terminal', { timeout: 10_000 })
   })
+
+  test('a session switch does not replay a stale open-signal onto the restored tab', async () => {
+    launched = await launchApp()
+    const { page } = launched
+    const repo = makeScratchRepo()
+    await createProject(page, repo)
+    await page.reload()
+    await page.waitForSelector('.app')
+
+    // session A: open Terminal via ⌃` — this leaves a `terminalToToggle` signal
+    // pending in the store (unlike clicking the tab, which sets state directly)
+    await page.locator('.project-row .ghost-btn').first().click()
+    await page.locator('.dialog-prompt').fill('replay A')
+    await page.getByRole('button', { name: /Start agent/ }).click()
+    const tileA = page.locator('.tile').first()
+    await expect(tileA.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+    await page.keyboard.press('Control+Backquote')
+    await expect(tileA.locator('.context-header')).toContainText('Terminal')
+
+    // session B replaces A in the single pane, then switch back to A. Without the
+    // nonce guard, A's remount replayed the stale ⌃` signal and toggled Terminal
+    // back OFF (Angel: returned to a session and the panel had changed/closed).
+    await page.locator('.project-row .ghost-btn').first().click()
+    await page.locator('.dialog-prompt').fill('replay B')
+    await page.getByRole('button', { name: /Start agent/ }).click()
+    await expect(page.locator('.pane')).toHaveCount(1)
+    await page.locator('.session-row', { hasText: 'replay A' }).click()
+    // A's Terminal panel is still open — the stale signal did NOT re-fire
+    await expect(page.locator('.tile').first().locator('.context-header')).toContainText('Terminal')
+  })
 })

@@ -41,6 +41,11 @@ export class PtyService {
   private ptys = new Map<string, IPty>()
   /** last-N bytes of output per terminal, so a re-mounted xterm shows scrollback */
   private buffers = new Map<string, string>()
+  /** last size we actually sent to each pty — a re-attach (tab switch) refits the
+   *  fresh xterm to the SAME size and resends it; forwarding that no-op resize
+   *  fired a SIGWINCH that made the shell reprint its prompt on every switch,
+   *  piling duplicate prompts/worktree-status into the scrollback (Angel). */
+  private sizes = new Map<string, { cols: number; rows: number }>()
   /** ids started via startCommand (dev/service processes) → their command. These
    *  are intentionally-running processes, so they count as "busy" for the quit
    *  guard regardless of pty.process (which reports the wrapping `fish -lc`
@@ -206,6 +211,7 @@ export class PtyService {
       this.ptys.delete(id)
       this.commandPtys.delete(id)
       this.buffers.delete(id)
+      this.sizes.delete(id)
     })
     this.ptys.set(id, pty)
   }
@@ -215,8 +221,15 @@ export class PtyService {
   }
 
   resize(id: string, cols: number, rows: number): void {
+    const c = Math.max(cols, 1)
+    const r = Math.max(rows, 1)
+    // skip a no-op resize: an unchanged SIGWINCH still makes the shell reprint
+    // its prompt, which duplicated the scrollback on every tab switch (Angel)
+    const prev = this.sizes.get(id)
+    if (prev && prev.cols === c && prev.rows === r) return
+    this.sizes.set(id, { cols: c, rows: r })
     try {
-      this.ptys.get(id)?.resize(Math.max(cols, 1), Math.max(rows, 1))
+      this.ptys.get(id)?.resize(c, r)
     } catch {
       // resize can throw if the pty just exited; ignore
     }
@@ -232,6 +245,7 @@ export class PtyService {
       }
       this.ptys.delete(id)
       this.buffers.delete(id)
+      this.sizes.delete(id)
     }
   }
 

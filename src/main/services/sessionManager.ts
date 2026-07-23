@@ -367,8 +367,17 @@ export class SessionManager {
       // the CLI gets a VALID conversation to continue from — the errored turn
       // had no useful completion, so dropping it is safe. Reuses the same
       // --resume-session-at machinery the edit-message rewind uses.
-      const recoverAt =
-        session.status === 'error' ? this.recoveryAnchor(session) : null
+      //
+      // We can't rely on our OWN status==='error': a turn that aborted in an
+      // EXTERNAL interactive CLI (/remote-control) is adopted into
+      // backendSessionId by resyncExternal WITHOUT ever flipping our status, so
+      // the poison slips straight into a plain --resume → error_during_execution
+      // on every follow-up (Angel: "it happens after an Interactive CLI event").
+      // So ALSO check the actual jsonl tail for a dangling tool_use.
+      const needsRecovery =
+        session.status === 'error' ||
+        (!!session.backendSessionId && ClaudeImport.tailIsPoisoned(session.backendSessionId))
+      const recoverAt = needsRecovery ? this.recoveryAnchor(session) : null
       const fresh = recoverAt
         ? this.spawnAdapter(session, session.backendSessionId!, true, recoverAt)
         : this.spawnAdapter(session, session.backendSessionId ?? undefined)
@@ -391,7 +400,10 @@ export class SessionManager {
     let lastUserText: string | null = null
     for (let i = events.length - 1; i >= 0; i--) {
       const ev = events[i].event
-      if (ev.kind === 'user-text') {
+      // include external-turn USER messages: when the poison came from an
+      // interactive CLI, the last prompt is an external-turn, not a user-text —
+      // anchoring only on user-text would truncate to a stale older prompt
+      if (ev.kind === 'user-text' || (ev.kind === 'external-turn' && ev.role === 'user')) {
         lastUserText = ev.text
         break
       }

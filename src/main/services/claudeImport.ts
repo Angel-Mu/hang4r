@@ -104,6 +104,38 @@ export function parseRewindAnchor(
   return { parentUuid: parents[idx] }
 }
 
+/**
+ * True if the conversation ends mid-tool: an assistant `tool_use` block with no
+ * matching `tool_result`. Claude REFUSES to --resume such a jsonl (it's an
+ * incomplete turn), so every follow-up re-errors with error_during_execution.
+ * This is exactly what an aborted turn leaves behind — including a turn that
+ * aborted in an EXTERNAL interactive CLI, whose fork we adopt without ever
+ * flipping our own status to 'error' (so status alone can't catch it).
+ */
+export function hasDanglingToolUse(raw: string): boolean {
+  const toolUse = new Set<string>()
+  const toolResult = new Set<string>()
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    let ev: { message?: { content?: unknown } }
+    try {
+      ev = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const content = ev.message?.content
+    if (!Array.isArray(content)) continue
+    for (const block of content) {
+      if (!block || typeof block !== 'object') continue
+      const b = block as { type?: string; id?: string; tool_use_id?: string }
+      if (b.type === 'tool_use' && b.id) toolUse.add(b.id)
+      else if (b.type === 'tool_result' && b.tool_use_id) toolResult.add(b.tool_use_id)
+    }
+  }
+  for (const id of toolUse) if (!toolResult.has(id)) return true
+  return false
+}
+
 export const ClaudeImport = {
   available(): boolean {
     return existsSync(ROOT)
@@ -301,6 +333,18 @@ export const ClaudeImport = {
    * records a watermark (tail uuid) after each of its own turns; a newer file
    * containing that uuid is a continuation to import + adopt.
    */
+
+  /** true if this session's jsonl ends mid-tool (aborted turn) — Claude can't
+   *  --resume it, so we must fork-truncate past the poison before resuming */
+  tailIsPoisoned(id: string): boolean {
+    const path = this.sessionFile(id)
+    if (!path) return false
+    try {
+      return hasDanglingToolUse(readFileSync(path, 'utf8'))
+    } catch {
+      return false
+    }
+  },
 
   /** uuid of the last line in a session's jsonl (the sync watermark) */
   tailUuid(id: string): string | null {

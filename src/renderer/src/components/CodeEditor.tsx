@@ -384,7 +384,11 @@ export function CodeEditor({
       minimap: { enabled: true, maxColumn: 80, renderCharacters: false },
       scrollBeyondLastLine: false,
       glyphMargin: true,
-      tabSize: 2
+      tabSize: 2,
+      // ⌘+click adds a cursor; that frees ⌥ (alt) for go-to-definition — Angel's
+      // preferred gesture. Without this, ⌥+click is Monaco's multi-cursor and
+      // fights our go-to-def handler.
+      multiCursorModifier: 'ctrlCmd'
     })
     editorRef.current = editor
 
@@ -636,11 +640,35 @@ export function CodeEditor({
       const def = await window.hang4r.findDefinition(sid, word.word)
       if (def) useHang4r.getState().requestOpenFile(sid, def.path, def.line)
     }
+    // ⌥ (alt) + click → go to definition (Angel's chosen gesture; ⌘+click is
+    // multi-cursor). ⌥+hover underlines the symbol so you know it's navigable.
     editor.onMouseDown((e) => {
-      if (!(e.event.metaKey || e.event.ctrlKey)) return
+      if (!e.event.altKey) return
       const pos = e.target.position
       const model = editor.getModel()
       if (pos && model) void goToPos(pos, model)
+    })
+    let gotoDeco: string[] = []
+    const clearGotoDeco = (): void => {
+      if (gotoDeco.length) gotoDeco = editor.deltaDecorations(gotoDeco, [])
+    }
+    editor.onMouseMove((e) => {
+      if (!e.event.altKey) return clearGotoDeco()
+      const pos = e.target.position
+      const model = editor.getModel()
+      const word = pos && model ? model.getWordAtPosition(pos) : null
+      if (!pos || !word) return clearGotoDeco()
+      gotoDeco = editor.deltaDecorations(gotoDeco, [
+        {
+          range: new monaco.Range(pos.lineNumber, word.startColumn, pos.lineNumber, word.endColumn),
+          options: { inlineClassName: 'hang4r-goto-link' }
+        }
+      ])
+    })
+    editor.onMouseLeave(() => clearGotoDeco())
+    // clear the underline the instant ⌥ is released (without needing a mouse move)
+    editor.onKeyUp((e) => {
+      if (e.keyCode === monaco.KeyCode.Alt) clearGotoDeco()
     })
     // F12 — Go to Definition
     editor.addCommand(monaco.KeyCode.F12, () => {

@@ -2727,6 +2727,14 @@ button:disabled {
 .monaco-editor .hang4r-find-match {
   background-color: var(--accent-dim);
 }
+/* ⌥-hover over a symbol → underline + pointer, signaling "⌥+click goes to the
+   definition" (Cursor/VS Code feel — Angel) */
+.monaco-editor .hang4r-goto-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  color: var(--accent);
+}
 .monaco-editor .hang4r-find-match-current {
   background-color: var(--accent);
   color: var(--bg);

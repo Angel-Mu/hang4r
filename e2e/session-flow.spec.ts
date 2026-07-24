@@ -182,13 +182,13 @@ test.describe('agent session flow', () => {
     // back to Files for the remaining steps
     await tile.getByRole('button', { name: 'Files' }).click()
 
-    // Cmd-click a relative import → opens the target file in a new tab.
+    // ⌥-click a relative import → opens the target file in a new tab.
     // (the Refresh above remounts+collapses the tree, so re-expand src)
     await tile.locator('.file-row', { hasText: 'src' }).click()
     await tile.locator('.file-row', { hasText: 'app.js' }).click()
     await expect(tile.locator('.editor-slot:visible .code-editor-path')).toContainText('app.js')
     const importTok = tile.locator('.editor-slot:visible .view-line', { hasText: './index.js' }).first()
-    await importTok.getByText('index', { exact: false }).first().click({ modifiers: ['Meta'] })
+    await importTok.getByText('index', { exact: false }).first().click({ modifiers: ['Alt'] })
     await expect(tile.locator('.editor-tab', { hasText: 'index.js' })).toBeVisible({ timeout: 10_000 })
 
     // Browser tab renders its toolbar (webview loads only on user-entered URL).
@@ -1547,7 +1547,7 @@ test.describe('agent session flow', () => {
     expect(proj.path).not.toBe(decoy)
   })
 
-  test('go to definition jumps cross-file via cmd-click', async () => {
+  test('go to definition jumps cross-file via alt-click', async () => {
     launched = await launchApp()
     const { page } = launched
     const repo = makeScratchRepo()
@@ -1573,7 +1573,7 @@ test.describe('agent session flow', () => {
       .filter({ hasText: 'computeThing()' })
       .first()
     await line.waitFor({ timeout: 8_000 })
-    await line.click({ modifiers: ['Meta'], position: { x: 45, y: 8 } })
+    await line.click({ modifiers: ['Alt'], position: { x: 45, y: 8 } })
     await expect(tile.locator('.editor-tab', { hasText: 'helper.js' })).toBeVisible({ timeout: 8_000 })
   })
 

@@ -86,9 +86,9 @@ test.describe('editor — ⌘P open focuses the editor', () => {
     await expect(editor).toBeVisible()
     await expect(editor).toContainText('pingpong()')
 
-    // ⌘-click the `pingpong` usage (line 2, the LAST occurrence) → go-to-def.
-    // Resolves via the TS worker, or the git-grep fallback if it isn't ready yet.
-    await editor.getByText('pingpong', { exact: true }).last().click({ modifiers: ['Meta'] })
+    // ⌥-click the `pingpong` usage (line 2, the LAST occurrence) → go-to-def
+    // (Angel's chosen gesture). Resolves via the TS worker, or git-grep fallback.
+    await editor.getByText('pingpong', { exact: true }).last().click({ modifiers: ['Alt'] })
 
     // navigated into lib.ts — the visible editor now shows its body
     await expect(editor).toContainText('return 42', { timeout: 15_000 })

@@ -72,6 +72,23 @@ function ensureDiagnostics(): void {
   ts.typescriptDefaults.setEagerModelSync(true)
   ts.javascriptDefaults.setEagerModelSync(true)
   diagnosticsConfigured = true
+  // one-time self-test, surfaced in DevTools (⌥⇧⌘I → Console): does the TS worker
+  // actually START in THIS build? A blocked/crashed worker is otherwise invisible
+  // — hover/completions/defs just silently die. This is how we find out WHY
+  // IntelliSense is dead in the packaged app instead of guessing (Angel).
+  void (async () => {
+    try {
+      const getWorker = ts.getTypeScriptWorker
+      if (typeof getWorker !== 'function') {
+        console.warn('[hang4r] IntelliSense self-test: getTypeScriptWorker unavailable')
+        return
+      }
+      await getWorker()
+      console.info('[hang4r] IntelliSense self-test: TS worker started OK')
+    } catch (err) {
+      console.error('[hang4r] IntelliSense self-test: TS worker FAILED to start —', err)
+    }
+  })()
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -189,7 +206,8 @@ export function CodeEditor({
   onAddToChat,
   onRegister,
   onDirtyChange,
-  onSavedAs
+  onSavedAs,
+  active
 }: {
   sessionId: string
   path: string
@@ -201,9 +219,23 @@ export function CodeEditor({
   onSavedAs?: (oldPath: string, newPath: string) => void
   /** notify the parent when the unsaved state changes (tab dirty-dot) */
   onDirtyChange?: (path: string, dirty: boolean) => void
+  /** this file is the visible tab in its group — focus the editor when it becomes
+   *  active so keyboard focus follows the file you switch to (otherwise the
+   *  previous file kept focus and ⌘F opened ITS find bar, hidden — Angel) */
+  active?: boolean
 }): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  // focus the editor when its file becomes the ACTIVE tab (false→true only, not
+  // on mount — that would steal focus when the panel first opens). This moves
+  // keyboard focus off the previously-viewed file so ⌘F, typing, and shortcuts
+  // land on the file you're actually looking at (Angel).
+  const wasActiveRef = useRef(!!active)
+  useEffect(() => {
+    if (active && !wasActiveRef.current) editorRef.current?.focus()
+    wasActiveRef.current = !!active
+  }, [active])
   // key (`${sessionId}:${path}`) of the file currently loaded into the editor's
   // model — lets the load-file effect know whose view state to save before it
   // swaps to a new file, and the unmount cleanup know whose to save on dispose.
@@ -225,6 +257,18 @@ export function CodeEditor({
     setFindOpen(true)
     setFindToken((t) => t + 1)
   }
+  // ⌘F routed here by App.tsx when this editor is the VISIBLE one in the focused
+  // tile but its input isn't the exact activeElement (switched files, focus on
+  // another file's find box, …). Monaco's own ⌘F command still handles the
+  // focused case; this covers the rest so ⌘F never "does nothing" on a file
+  // you're looking at (Angel).
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    const onFind = (): void => openFindRef.current()
+    el.addEventListener('hang4r-editor-find', onFind)
+    return () => el.removeEventListener('hang4r-editor-find', onFind)
+  }, [])
   // save commands are bound once in the create effect; these refs let them call
   // the latest save fns (defined below — path/onSavedAs change across renders)
   const doSaveRef = useRef<() => Promise<void>>(async () => {})
@@ -859,7 +903,7 @@ export function CodeEditor({
   }
 
   return (
-    <div className="code-editor">
+    <div className="code-editor" ref={rootRef}>
       {findOpen && editorRef.current && (
         <EditorFindBar
           editor={editorRef.current}

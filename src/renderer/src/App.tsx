@@ -122,6 +122,20 @@ export default function App(): JSX.Element {
           browser.dispatchEvent(new CustomEvent('hang4r-find-toggle'))
           return
         }
+        // the editor VISIBLE in the focused tile owns ⌘F even when its input isn't
+        // the exact activeElement (focus on another file's find box, a tab button,
+        // etc.) — so ⌘F opens the find bar of the file you're LOOKING at, not a
+        // hidden one, and not the chat (Angel: ⌘F opened on the wrong file / did
+        // nothing after switching files). offsetParent==null ⇒ display:none tab.
+        const editors = Array.from(
+          document.querySelectorAll<HTMLElement>('.tile-focused .code-editor')
+        )
+        const visibleEditor = editors.find((el) => el.offsetParent !== null)
+        if (visibleEditor) {
+          e.preventDefault()
+          visibleEditor.dispatchEvent(new CustomEvent('hang4r-editor-find'))
+          return
+        }
         const scroll = document.querySelector('.tile-focused .chat-scroll')
         if (scroll) {
           e.preventDefault()

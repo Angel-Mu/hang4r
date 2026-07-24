@@ -694,6 +694,7 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
                 <CodeEditor
                   sessionId={sessionId}
                   path={path}
+                  active={path === g.active}
                   onAddToChat={(label, text) => addAttachment(sessionId, { label, text })}
                   onRegister={(p, h) => registerHandle(g.id, p, h)}
                   onDirtyChange={onDirtyChange}

@@ -216,6 +216,14 @@ app.whenReady().then(() => {
               accelerator: 'Alt+Shift+Cmd+R',
               click: () => BrowserWindow.getFocusedWindow()?.webContents.reloadIgnoringCache()
             },
+            {
+              // DevTools on a NON-conflicting accelerator (plain ⌥⌘I belongs to
+              // the browser pane's page inspector) so the renderer console is
+              // reachable in the packaged app for diagnosing issues.
+              label: 'Toggle Developer Tools',
+              accelerator: 'Alt+Shift+Cmd+I',
+              click: () => BrowserWindow.getFocusedWindow()?.webContents.toggleDevTools()
+            },
             { type: 'separator' },
             { role: 'togglefullscreen' }
           ]

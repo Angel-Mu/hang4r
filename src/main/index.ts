@@ -235,6 +235,22 @@ app.whenReady().then(() => {
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
+    // Reliable DevTools toggle for the packaged app. The ⌥⇧⌘I menu accelerator
+    // didn't fire for Angel because Option turns "I" into a dead key (ˆ), so it
+    // never matched. Match the PHYSICAL key (input.code === 'KeyI'), which Option
+    // can't mangle. (No F12 — the browser pane owns that for the webview.)
+    window.webContents.on('before-input-event', (_e, input) => {
+      if (
+        input.type === 'keyDown' &&
+        input.meta &&
+        input.shift &&
+        input.alt &&
+        !input.control &&
+        input.code === 'KeyI'
+      ) {
+        window.webContents.toggleDevTools()
+      }
+    })
   })
 
   store = new Store(join(app.getPath('userData'), 'hang4r.db'))

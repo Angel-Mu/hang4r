@@ -245,7 +245,10 @@ function ComposerContext({
           fill="none"
           stroke="currentColor"
           strokeWidth="2.2"
-          strokeLinecap="round"
+          // butt (not round) caps: round caps add ~half the stroke width at each
+          // end, so the arc read visibly fuller than the % number (64% looked ~75%
+          // — Angel). Butt makes the fill match the number exactly.
+          strokeLinecap="butt"
           strokeDasharray={circ}
           strokeDashoffset={circ * (1 - pct / 100)}
           transform="rotate(-90 8 8)"

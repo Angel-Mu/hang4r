@@ -122,20 +122,9 @@ export default function App(): JSX.Element {
           browser.dispatchEvent(new CustomEvent('hang4r-find-toggle'))
           return
         }
-        // the editor VISIBLE in the focused tile owns ⌘F even when its input isn't
-        // the exact activeElement (focus on another file's find box, a tab button,
-        // etc.) — so ⌘F opens the find bar of the file you're LOOKING at, not a
-        // hidden one, and not the chat (Angel: ⌘F opened on the wrong file / did
-        // nothing after switching files). offsetParent==null ⇒ display:none tab.
-        const editors = Array.from(
-          document.querySelectorAll<HTMLElement>('.tile-focused .code-editor')
-        )
-        const visibleEditor = editors.find((el) => el.offsetParent !== null)
-        if (visibleEditor) {
-          e.preventDefault()
-          visibleEditor.dispatchEvent(new CustomEvent('hang4r-editor-find'))
-          return
-        }
+        // NOTE: the EDITOR case is handled earlier by a CAPTURE-phase listener
+        // (see below) that beats Monaco's own ⌘F — so if we reach here, no editor
+        // owns it; fall through to the conversation find.
         const scroll = document.querySelector('.tile-focused .chat-scroll')
         if (scroll) {
           e.preventDefault()
@@ -198,6 +187,41 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // ⌘F for the EDITOR, handled in CAPTURE so it beats Monaco's own per-editor ⌘F
+  // command. That command fires for whichever editor has FOCUS — which, with
+  // several files open, can be a HIDDEN one that kept focus, so ⌘F opened its
+  // find bar buried behind the file you're looking at (Angel, repeatedly). Here
+  // we route ⌘F to the editor actually VISIBLE in the focused tile, regardless of
+  // focus, and stop the event so Monaco never sees it. Only claim ⌘F when focus
+  // is inside an editor or nowhere specific — terminal/browser/composer/chat keep
+  // their own ⌘F.
+  useEffect(() => {
+    const onFindCapture = (e: KeyboardEvent): void => {
+      if (!(e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey)) return
+      if (e.key !== 'f' && e.key !== 'F') return
+      const active = document.activeElement as HTMLElement | null
+      // terminal/browser own their own ⌘F
+      if (active?.closest('.terminal-view') || active?.closest('.browser-pane')) return
+      // Route to the editor when focus is in the files/context area (the editor,
+      // the file tree/tabs, anywhere in the context panel) OR nowhere specific.
+      // If focus is in the chat composer/conversation instead, bail so the bubble
+      // handler does a CHAT find. Only fires when a visible editor actually exists.
+      const inEditorCtx =
+        !!active?.closest('.code-editor') || !!active?.closest('.context-panel')
+      const nowhere = !active || active === document.body
+      if (!inEditorCtx && !nowhere) return
+      const visible = Array.from(
+        document.querySelectorAll<HTMLElement>('.tile-focused .context-panel .code-editor')
+      ).find((el) => el.offsetParent !== null)
+      if (!visible) return
+      e.preventDefault()
+      e.stopImmediatePropagation() // beat Monaco's per-editor ⌘F + our bubble handler
+      visible.dispatchEvent(new CustomEvent('hang4r-editor-find'))
+    }
+    window.addEventListener('keydown', onFindCapture, true)
+    return () => window.removeEventListener('keydown', onFindCapture, true)
   }, [])
 
   return (

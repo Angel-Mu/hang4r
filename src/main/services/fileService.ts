@@ -25,6 +25,23 @@ function safeRel(relPath: string): string {
 
 /** Directories the flat ⌘P list / search never DESCEND into — huge or noisy. */
 const SKIP = new Set(['.git', 'node_modules', '.hang4r-worktrees', '.worktrees', '.DS_Store'])
+/** heavy build/dep dirs kept OUT of the ⌘P finder even when it includes ignored
+ *  files, so the quick-open list stays useful (source + docs) not flooded */
+const FINDER_SKIP_DIRS = [
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  '.next',
+  '.nx',
+  '.turbo',
+  '.venv',
+  '.cache',
+  '.hang4r-worktrees',
+  '.worktrees'
+]
 /**
  * Entries hidden from the BROWSE tree — internals only. node_modules stays
  * VISIBLE here (hiding it made "did my install actually run?" unanswerable
@@ -335,15 +352,20 @@ export const FileService = {
     return out
   },
 
-  async listAllFiles(root: string, remote?: Remote): Promise<string[]> {
+  async listAllFiles(root: string, remote?: Remote, includeIgnored = false): Promise<string[]> {
     if (remote) return listAllFilesRemote(root, remote)
     if (!existsSync(root)) return []
     try {
-      const { stdout } = await exec(
-        'git',
-        ['ls-files', '--cached', '--others', '--exclude-standard'],
-        { cwd: root, maxBuffer: 32 * 1024 * 1024 }
-      )
+      // includeIgnored (⌘P quick-open): show gitignored files too — a file the
+      // agent created this session can sit in a gitignored docs dir yet be right
+      // there in the tree, and ⌘P "No files match" was maddening (Angel). We drop
+      // --exclude-standard but pass our own --exclude for the heavy build/dep dirs
+      // so the finder isn't flooded with node_modules/dist. Callers that feed the
+      // TS worker (readSources) keep the default (respect .gitignore).
+      const args = ['ls-files', '--cached', '--others']
+      if (includeIgnored) for (const d of FINDER_SKIP_DIRS) args.push('--exclude', d)
+      else args.push('--exclude-standard')
+      const { stdout } = await exec('git', args, { cwd: root, maxBuffer: 32 * 1024 * 1024 })
       const files = stdout.split('\n').filter(Boolean)
       if (files.length > 0) return files.slice(0, 20000)
     } catch {

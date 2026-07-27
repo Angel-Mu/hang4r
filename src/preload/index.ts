@@ -151,7 +151,8 @@ const api: Hang4rApi = {
     ipcRenderer.invoke('files:read', sessionId, relPath),
   writeFile: (sessionId: string, relPath: string, content: string) =>
     ipcRenderer.invoke('files:write', sessionId, relPath, content),
-  listAllFiles: (sessionId: string) => ipcRenderer.invoke('files:all', sessionId),
+  listAllFiles: (sessionId: string, includeIgnored?: boolean) =>
+    ipcRenderer.invoke('files:all', sessionId, includeIgnored),
   readSources: (sessionId: string) =>
     ipcRenderer.invoke('files:sources', sessionId) as Promise<{ path: string; content: string }[]>,
   searchFiles: (sessionId: string, query: string) =>

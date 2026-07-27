@@ -21,7 +21,7 @@ export function FileFinder(): JSX.Element | null {
     if (!open || !focused) return
     setQuery('')
     setActive(0)
-    void window.hang4r.listAllFiles(focused).then(setFiles)
+    void window.hang4r.listAllFiles(focused, true).then(setFiles) // include gitignored user files
     setTimeout(() => inputRef.current?.focus(), 0)
   }, [open, focused])
 

@@ -622,7 +622,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       remoteFor(sessionId)
     )
   })
-  ipcMain.handle('files:all', async (_e, sessionId: string) => {
+  ipcMain.handle('files:all', async (_e, sessionId: string, includeIgnored?: boolean) => {
     const remote = remoteFor(sessionId)
     if (remote) {
       const hit = remoteListCache.get(sessionId)
@@ -631,7 +631,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       remoteListCache.set(sessionId, { at: Date.now(), files })
       return files
     }
-    return FileService.listAllFiles(await sessions.ensureWorkdir(sessionId))
+    return FileService.listAllFiles(await sessions.ensureWorkdir(sessionId), undefined, includeIgnored)
   })
   ipcMain.handle('files:sources', async (_e, sessionId: string) =>
     remoteFor(sessionId)

@@ -664,7 +664,9 @@ export interface Hang4rApi {
   listDir(sessionId: string, relPath: string): Promise<DirEntry[]>
   readFile(sessionId: string, relPath: string): Promise<{ content: string; truncated: boolean }>
   writeFile(sessionId: string, relPath: string, content: string): Promise<void>
-  listAllFiles(sessionId: string): Promise<string[]>
+  /** includeIgnored: for ⌘P quick-open — surface gitignored files (session-created
+   *  docs) too, minus the heavy build/dep dirs. Default respects .gitignore. */
+  listAllFiles(sessionId: string, includeIgnored?: boolean): Promise<string[]>
   readSources(sessionId: string): Promise<{ path: string; content: string }[]>
   searchFiles(
     sessionId: string,

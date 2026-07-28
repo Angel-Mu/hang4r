@@ -8,6 +8,7 @@ import type {
   BrowserHotkeyAction,
   PermissionMode,
   Project,
+  PromptFile,
   QuestionAnswer,
   ReviewComment,
   SessionEvent,
@@ -44,26 +45,45 @@ export interface QueuedMessage {
   attachments: Attachment[]
 }
 
-/** Compose a prompt + its attachments into the (text, images) the agent sees. */
+/**
+ * Compose a prompt + its attachments. `full` is what the AGENT sees (every
+ * attachment's text fenced in). `displayText` + `files` are what the transcript
+ * RENDERS: file attachments become cards (their bytes never shown), while inline
+ * snippets (a quoted selection with no file) stay in the text.
+ */
 function composeMessage(
   text: string,
   atts: Attachment[]
-): { full: string; images: { base64: string; mediaType: string }[] } {
-  let full = text
-  const textAtts = atts.filter((a) => a.text)
+): {
+  full: string
+  images: { base64: string; mediaType: string }[]
+  files: PromptFile[]
+  displayText: string
+} {
   const images = atts
     .filter((a) => a.image)
     .map((a) => ({ base64: a.image!.base64, mediaType: a.image!.mediaType }))
-  if (textAtts.length > 0) {
-    const blocks = textAtts.map((a) => `${a.label}:\n\`\`\`\n${a.text}\n\`\`\``).join('\n\n')
-    full = `${blocks}\n\n${text}`
-  }
-  return { full, images }
+  const fence = (a: Attachment): string => `${a.label}:\n\`\`\`\n${a.text}\n\`\`\``
+  const fileAtts = atts.filter((a) => a.text && a.file) // → cards
+  const snippetAtts = atts.filter((a) => a.text && !a.file) // → inline (selection quotes)
+  const files = fileAtts.map((a) => a.file!)
+
+  const fileBlocks = fileAtts.map(fence).join('\n\n')
+  const snippetBlocks = snippetAtts.map(fence).join('\n\n')
+  // agent gets everything; display omits the file bytes (they're cards)
+  const full = [fileBlocks, snippetBlocks, text].filter(Boolean).join('\n\n')
+  const displayText = [snippetBlocks, text].filter(Boolean).join('\n\n')
+  return { full, images, files, displayText }
 }
 
 /** A renderable transcript item, reduced from the agent event stream */
 export type TranscriptItem =
-  | { type: 'user'; text: string; images?: { base64: string; mediaType: string }[] }
+  | {
+      type: 'user'
+      text: string
+      images?: { base64: string; mediaType: string }[]
+      files?: PromptFile[]
+    }
   | {
       type: 'block'
       key: string
@@ -215,7 +235,7 @@ async function loadTranscriptData(sessionId: string): Promise<LoadedTranscript> 
 export function applyEvent(t: Transcript, ev: AgentEvent): void {
   switch (ev.kind) {
     case 'user-text':
-      t.items.push({ type: 'user', text: ev.text, images: ev.images })
+      t.items.push({ type: 'user', text: ev.text, images: ev.images, files: ev.files })
       break
     case 'external-turn':
       t.items.push({ type: 'external-turn', role: ev.role, text: ev.text })
@@ -444,10 +464,18 @@ interface Hang4rState {
   settingsCategory: string | null
   sidebarVisible: boolean
   contextMenu: { x: number; y: number; items: ContextMenuItem[] } | null
-  /** click-to-enlarge overlay for a rendered attachment (image now, pdf-capable) */
-  lightbox: { src: string; alt?: string; kind: 'image' | 'pdf' } | null
+  /** click-to-enlarge overlay for a rendered attachment: image/pdf render `src`
+   *  (a data/URL), markdown/text render `text`. */
+  lightbox: {
+    src?: string
+    text?: string
+    alt?: string
+    kind: 'image' | 'pdf' | 'markdown' | 'text'
+  } | null
   openLightbox(src: string, kind: 'image' | 'pdf', alt?: string): void
   closeLightbox(): void
+  /** re-read an attached file and open its preview (card click in the chat) */
+  openFilePreview(sessionId: string, file: PromptFile): Promise<void>
   /** promise-based prompt/confirm/save (Electron has no window.prompt/confirm) */
   dialog:
     | { kind: 'prompt'; title: string; initial: string; resolve: (v: string | null) => void }
@@ -1066,9 +1094,15 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     // text chips → prepended into the prompt; image chips → sent as image
     // content blocks the agent actually sees. Clear all after send.
     const atts = get().attachments[sessionId] ?? []
-    const { full, images } = composeMessage(text, atts)
+    const { full, images, files, displayText } = composeMessage(text, atts)
     if (atts.length > 0) set((s) => ({ attachments: { ...s.attachments, [sessionId]: [] } }))
-    await window.hang4r.prompt(sessionId, full, images.length ? images : undefined)
+    await window.hang4r.prompt(
+      sessionId,
+      full,
+      images.length ? images : undefined,
+      files.length ? files : undefined,
+      files.length ? displayText : undefined
+    )
   },
 
   queueMessage(sessionId, text) {
@@ -1128,8 +1162,14 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     if (q.length === 0) return
     const [next, ...rest] = q
     set((s) => ({ messageQueue: { ...s.messageQueue, [sessionId]: rest } }))
-    const { full, images } = composeMessage(next.text, next.attachments)
-    await window.hang4r.prompt(sessionId, full, images.length ? images : undefined)
+    const { full, images, files, displayText } = composeMessage(next.text, next.attachments)
+    await window.hang4r.prompt(
+      sessionId,
+      full,
+      images.length ? images : undefined,
+      files.length ? files : undefined,
+      files.length ? displayText : undefined
+    )
   },
 
   addAttachment(sessionId, att) {
@@ -1266,6 +1306,22 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
   closeLightbox() {
     set({ lightbox: null })
+  },
+  async openFilePreview(sessionId, file) {
+    if (!file.path) return // nothing to re-read (rare drop with no resolvable path)
+    const res = await window.hang4r
+      .previewAttachment(sessionId, file.path, file.external)
+      .catch(() => null)
+    if (!res) {
+      set({ lightbox: { text: `Couldn't open ${file.name} for preview.`, kind: 'text', alt: file.name } })
+      return
+    }
+    if (res.dataUrl && (res.kind === 'image' || res.kind === 'pdf')) {
+      set({ lightbox: { src: res.dataUrl, kind: res.kind, alt: file.name } })
+    } else {
+      const kind = res.kind === 'markdown' ? 'markdown' : 'text'
+      set({ lightbox: { text: res.text ?? '', kind, alt: file.name } })
+    }
   },
   togglePin(sessionId) {
     set((s) => {

@@ -2,9 +2,20 @@ import type {
   AgentEvent,
   BackendId,
   PermissionMode,
+  PromptFile,
   PromptImage,
   QuestionAnswer
 } from '../../../shared/protocol'
+
+/**
+ * Overrides for the `user-text` ECHO only (never sent to the CLI): show the typed
+ * message + file cards instead of the agent-facing prompt (which has the file
+ * contents fenced in). Omitted → the echo mirrors the prompt text, as before.
+ */
+export interface PromptEcho {
+  displayText?: string
+  files?: PromptFile[]
+}
 
 export interface AdapterStartOptions {
   binaryPath: string
@@ -36,8 +47,9 @@ export interface AdapterStartOptions {
 export interface AgentAdapter {
   readonly backend: BackendId
   start(opts: AdapterStartOptions): void
-  /** Send a user turn to the running process */
-  prompt(text: string, images?: PromptImage[]): void
+  /** Send a user turn to the running process. `echo` overrides the transcript
+   *  echo only (file cards + typed text) — the CLI still gets the full `text`. */
+  prompt(text: string, images?: PromptImage[], echo?: PromptEcho): void
   /** Best-effort interrupt of the current turn */
   interrupt(): void
   /** Kill process and release resources */

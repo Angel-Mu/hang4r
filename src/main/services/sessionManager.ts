@@ -4,6 +4,7 @@ import type {
   DiffScope,
   NewSessionRequest,
   PermissionMode,
+  PromptFile,
   PromptImage,
   QuestionAnswer,
   ReviewComment,
@@ -342,7 +343,13 @@ export class SessionManager {
     return this.store.getSession(session.id)!
   }
 
-  async prompt(sessionId: string, text: string, images?: PromptImage[]): Promise<void> {
+  async prompt(
+    sessionId: string,
+    text: string,
+    images?: PromptImage[],
+    files?: PromptFile[],
+    displayText?: string
+  ): Promise<void> {
     // pull in any turns taken in an external interactive CLI (/remote-control)
     // BEFORE resuming — adoption switches backendSessionId to the fork's tip,
     // so this turn continues from the conversation INCLUDING those turns
@@ -386,7 +393,11 @@ export class SessionManager {
       this.adapters.set(sessionId, fresh)
       adapter = fresh
     }
-    adapter.prompt(text, images)
+    adapter.prompt(
+      text,
+      images,
+      files?.length || displayText !== undefined ? { files, displayText } : undefined
+    )
     this.updateSession(sessionId, { status: 'running', lastError: null })
   }
 

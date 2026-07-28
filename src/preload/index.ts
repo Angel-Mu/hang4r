@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   BackendId,
   BrowserEnsureTab,
@@ -8,6 +8,7 @@ import type {
   Hang4rApi,
   NewSessionRequest,
   PermissionMode,
+  PromptFile,
   PromptImage,
   QuestionAnswer,
   ReplaceRequest,
@@ -26,8 +27,13 @@ const api: Hang4rApi = {
   removeProject: (projectId: string) => ipcRenderer.invoke('projects:remove', projectId),
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   createSession: (req: NewSessionRequest) => ipcRenderer.invoke('sessions:create', req),
-  prompt: (sessionId: string, text: string, images?: PromptImage[]) =>
-    ipcRenderer.invoke('sessions:prompt', sessionId, text, images),
+  prompt: (
+    sessionId: string,
+    text: string,
+    images?: PromptImage[],
+    files?: PromptFile[],
+    displayText?: string
+  ) => ipcRenderer.invoke('sessions:prompt', sessionId, text, images, files, displayText),
   pickAttachments: () => ipcRenderer.invoke('dialog:pick-attachments'),
   interrupt: (sessionId: string) => ipcRenderer.invoke('sessions:interrupt', sessionId),
   archiveSession: (sessionId: string) => ipcRenderer.invoke('sessions:archive', sessionId),
@@ -177,6 +183,11 @@ const api: Hang4rApi = {
   tailFile: (absPath: string) => ipcRenderer.invoke('files:tail', absPath),
   readFileDataUrl: (sessionId: string, relPath: string) =>
     ipcRenderer.invoke('files:data-url', sessionId, relPath),
+  previewAttachment: (sessionId: string, path: string, external?: boolean) =>
+    ipcRenderer.invoke('files:preview-attachment', sessionId, path, external),
+  /** absolute path of an OS drag-drop / <input> File (Electron webUtils) — for
+   *  attaching a file card that can re-open the real file in preview */
+  filePathForFile: (file: File): string => webUtils.getPathForFile(file),
   setPreviewDoc: (sessionId: string, relPath: string, html: string) =>
     ipcRenderer.invoke('preview:set', sessionId, relPath, html),
   resyncSession: (sessionId: string) => ipcRenderer.invoke('sessions:resync', sessionId),

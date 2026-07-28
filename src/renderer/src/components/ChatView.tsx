@@ -104,10 +104,34 @@ export function ChatView({
   const internalScrollRef = useRef<HTMLDivElement>(null)
   const scrollRef = externalScrollRef ?? internalScrollRef
   const pinnedToBottom = useRef(true)
+  // suppress the button toggle while WE animate the scroll, so it doesn't flicker
+  // back on the intermediate onScroll events until the smooth scroll arrives
+  const programmaticScroll = useRef(false)
+  // show a "jump to latest" button once the user has scrolled up far enough that
+  // the newest messages are off-screen (Angel: scrolling back down in a long
+  // conversation is a chore — and new messages arriving while you're up there)
+  const [showJump, setShowJump] = useState(false)
+
+  const refreshJump = (el: HTMLDivElement): void => {
+    if (programmaticScroll.current) return
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    setShowJump((prev) => (prev === fromBottom > 240 ? prev : fromBottom > 240))
+  }
+
+  const scrollToBottom = (): void => {
+    const el = scrollRef.current
+    if (!el) return
+    pinnedToBottom.current = true
+    programmaticScroll.current = true
+    setShowJump(false)
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
 
   useEffect(() => {
     const el = scrollRef.current
-    if (el && pinnedToBottom.current && !findOpen) el.scrollTop = el.scrollHeight
+    if (!el) return
+    if (pinnedToBottom.current && !findOpen) el.scrollTop = el.scrollHeight
+    refreshJump(el) // new content can push the newest messages off-screen
   }, [items, findOpen, scrollRef])
 
   // subagent-notes are Subagents-thread fuel, not conversation content — and
@@ -145,7 +169,10 @@ export function ChatView({
       ref={scrollRef}
       onScroll={(e) => {
         const el = e.currentTarget
-        pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+        const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+        pinnedToBottom.current = fromBottom < 80
+        if (programmaticScroll.current && fromBottom < 80) programmaticScroll.current = false
+        refreshJump(el)
       }}
     >
       <div className="chat-col">
@@ -176,6 +203,25 @@ export function ChatView({
         })}
         {running && <div className="chat-working">Working…</div>}
       </div>
+      {showJump && (
+        <button
+          className="chat-jump-bottom"
+          title="Jump to latest"
+          aria-label="Jump to latest messages"
+          onClick={scrollToBottom}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              d="M8 3v9M4.5 8.5L8 12l3.5-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }
@@ -428,6 +474,7 @@ function UserMessageCard({
   const [error, setError] = useState<string | null>(null)
   const backend = useHang4r((s) => s.sessions.find((x) => x.id === sessionId)?.backend)
   const openLightbox = useHang4r((s) => s.openLightbox)
+  const openFilePreview = useHang4r((s) => s.openFilePreview)
   // Cursor can only append; Claude/Codex truly discard the later messages. Keep
   // every string truthful about which one this backend does.
   const appendOnly = backend === 'cursor'
@@ -537,9 +584,31 @@ function UserMessageCard({
           })}
         </div>
       )}
+      {item.files && item.files.length > 0 && (
+        <div className="msg-user-files">
+          {item.files.map((f, i) => (
+            <button
+              key={i}
+              className="msg-user-file"
+              title={f.path ? `Open preview — ${f.name}` : f.name}
+              disabled={!f.path}
+              onClick={() => void openFilePreview(sessionId, f)}
+            >
+              <span className="msg-user-file-badge">{fileBadge(f.name)}</span>
+              <span className="msg-user-file-name">{f.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {item.text}
     </div>
   )
+}
+
+/** short uppercase extension badge for a file card (PDF, XLSX, MD, …) */
+function fileBadge(name: string): string {
+  const ext = name.slice(name.lastIndexOf('.') + 1).toUpperCase()
+  return ext && ext !== name.toUpperCase() ? ext.slice(0, 4) : 'FILE'
 }
 
 /** One-line tool row, Cursor-style: status · name · summary, expandable. */

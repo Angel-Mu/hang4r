@@ -17,6 +17,7 @@ import type {
   DiffScope,
   NewSessionRequest,
   PermissionMode,
+  PromptFile,
   PromptImage,
   QuestionAnswer,
   ReplaceRequest,
@@ -379,8 +380,16 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     }
     return session
   })
-  ipcMain.handle('sessions:prompt', (_e, sessionId: string, text: string, images?: PromptImage[]) =>
-    sessions.prompt(sessionId, text, images)
+  ipcMain.handle(
+    'sessions:prompt',
+    (
+      _e,
+      sessionId: string,
+      text: string,
+      images?: PromptImage[],
+      files?: PromptFile[],
+      displayText?: string
+    ) => sessions.prompt(sessionId, text, images, files, displayText)
   )
   ipcMain.handle('dialog:pick-attachments', async () => {
     const result = await dialog.showOpenDialog({
@@ -613,6 +622,13 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       relPath,
       remoteFor(sessionId)
     )
+  )
+  ipcMain.handle(
+    'files:preview-attachment',
+    async (_e, sessionId: string, path: string, external?: boolean) =>
+      remoteFor(sessionId) // external attachments are local-only
+        ? null
+        : FileService.previewAttachment(await sessions.ensureWorkdir(sessionId), path, external)
   )
   ipcMain.handle('files:write', async (_e, sessionId: string, relPath: string, content: string) => {
     remoteListCache.delete(sessionId)

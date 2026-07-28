@@ -2042,6 +2042,38 @@ button:disabled {
   line-height: 1.5;
 }
 
+/* "jump to latest" — sticks to the bottom-right of the scroll viewport while the
+   user is scrolled up; hidden once the newest messages are back in view */
+.chat-jump-bottom {
+  position: sticky;
+  bottom: 8px;
+  align-self: flex-end;
+  z-index: 5;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-top: -34px; /* float over content — don't add a gap at the list end */
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease;
+}
+.chat-jump-bottom:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
 .chat-working {
   color: var(--text-faint);
   font-size: 12px;
@@ -5064,6 +5096,89 @@ button:disabled {
   border: 1px solid var(--border);
   object-fit: contain;
   cursor: zoom-in;
+}
+
+/* attached non-image files render as cards (never raw bytes); click → preview */
+.msg-user-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.msg-user-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel, #1c1e27);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.msg-user-file:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.msg-user-file:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.msg-user-file-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 26px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-family: var(--mono, monospace);
+}
+.msg-user-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* text / markdown attachment preview inside the lightbox */
+.lightbox-doc {
+  width: min(860px, 92vw);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 22px 26px;
+  border-radius: 8px;
+  background: var(--panel, #14151c);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.6);
+  cursor: default;
+}
+.lightbox-doc-title {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 12px;
+  font-family: var(--mono, monospace);
+}
+.lightbox-doc-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.55;
 }
 
 /* click-to-enlarge overlay for a rendered attachment (image / pdf) */

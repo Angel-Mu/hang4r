@@ -1,9 +1,9 @@
 import { readdir, readFile, stat, writeFile, mkdir, rename, rm } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
 import { execFile } from 'node:child_process'
-import { join, normalize, relative, sep } from 'node:path'
+import { isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
-import type { DirEntry } from '../../shared/protocol'
+import type { Attachment, DirEntry } from '../../shared/protocol'
 import { shellQuote, type Exec } from './remoteService'
 
 const exec = promisify(execFile)
@@ -212,11 +212,7 @@ export const FileService = {
    * Read an EXTERNAL file (absolute path, outside the workspace) for the native
    * attach dialog — images become base64 attachments, everything else text.
    */
-  async readExternalAttachment(absPath: string, remote?: Remote): Promise<{
-    label: string
-    text?: string
-    image?: { base64: string; mediaType: string }
-  }> {
+  async readExternalAttachment(absPath: string, remote?: Remote): Promise<Attachment> {
     if (remote) throw new Error('Not available on SSH sessions yet.')
     const name = absPath.split(sep).pop() ?? absPath
     const mime = mimeForPath(absPath)
@@ -224,7 +220,13 @@ export const FileService = {
     if (mime && mime.startsWith('image/')) {
       return { label: name, image: { base64: buf.toString('base64'), mediaType: mime } }
     }
-    return { label: name, text: `${absPath}\n${buf.toString('utf8').slice(0, 8000)}` }
+    // non-image: still hand the agent the text, but tag it as a FILE so the chat
+    // renders a card (click → preview) instead of dumping the raw bytes inline.
+    return {
+      label: name,
+      text: `${absPath}\n${buf.toString('utf8').slice(0, 8000)}`,
+      file: { name, path: absPath, mediaType: mime ?? undefined, external: true }
+    }
   },
 
   /** Read a (binary) file as a data: URL for in-app rendering (images/PDF). */
@@ -246,6 +248,34 @@ export const FileService = {
     if (!s || s.size > 12 * 1024 * 1024) return null
     const buf = await readFile(file)
     return `data:${mime};base64,${buf.toString('base64')}`
+  },
+
+  /**
+   * Re-read an attached file for click-to-preview. image/pdf → a data: URL;
+   * everything else → utf-8 text (so the viewer shows real content, not bytes).
+   * `external` reads the absolute path the user explicitly attached; otherwise
+   * the path is resolved (and sandboxed) inside the workspace.
+   */
+  async previewAttachment(
+    root: string,
+    p: string,
+    external?: boolean
+  ): Promise<{ dataUrl?: string; text?: string; kind: string } | null> {
+    const file = external && isAbsolute(p) ? p : safeJoin(root, p)
+    const s = await stat(file).catch(() => null)
+    if (!s) return null
+    const kind = attachmentKind(p)
+    if (s.size > 12 * 1024 * 1024) {
+      return { kind, text: '(file is too large to preview — over 12 MB)' }
+    }
+    if (kind === 'image' || kind === 'pdf') {
+      const mime = mimeForPath(p)
+      if (!mime) return { kind: 'text', text: '(cannot preview this file type)' }
+      const buf = await readFile(file)
+      return { kind, dataUrl: `data:${mime};base64,${buf.toString('base64')}` }
+    }
+    const buf = await readFile(file)
+    return { kind, text: buf.toString('utf8').slice(0, 500_000) }
   },
 
   /** Create an empty file (fails if it exists). */
@@ -458,4 +488,14 @@ function mimeForPath(path: string): string | null {
     pdf: 'application/pdf'
   }
   return map[ext] ?? null
+}
+
+/** classify an attachment path for preview (mirrors the renderer's mediaKind) */
+function attachmentKind(path: string): 'image' | 'pdf' | 'markdown' | 'html' | 'text' {
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg'].includes(ext)) return 'image'
+  if (ext === 'pdf') return 'pdf'
+  if (['md', 'mdx', 'markdown'].includes(ext)) return 'markdown'
+  if (ext === 'html' || ext === 'htm') return 'html'
+  return 'text'
 }

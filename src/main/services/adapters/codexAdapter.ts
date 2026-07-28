@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { AgentEvent, PromptImage } from '../../../shared/protocol'
-import type { AdapterStartOptions, AgentAdapter } from './types'
+import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
 
 /**
  * Drives OpenAI Codex through its NATIVE `codex app-server` JSON-RPC protocol —
@@ -160,10 +160,10 @@ export class CodexAdapter implements AgentAdapter {
     })
   }
 
-  prompt(text: string, images?: PromptImage[]): void {
+  prompt(text: string, images?: PromptImage[], echo?: PromptEcho): void {
     void this.ready
       ?.then(async () => {
-        this.emit({ kind: 'user-text', text, images })
+        this.emit({ kind: 'user-text', text: echo?.displayText ?? text, images, files: echo?.files })
         this.lastTokens = {}
         const input: unknown[] = (images ?? []).map((img) => ({
           type: 'image',

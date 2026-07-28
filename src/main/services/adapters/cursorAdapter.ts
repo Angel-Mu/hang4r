@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { AgentEvent, PromptImage } from '../../../shared/protocol'
-import type { AdapterStartOptions, AgentAdapter } from './types'
+import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
 
 /**
  * Wraps the user's locally installed, subscription-authenticated `cursor-agent`
@@ -138,9 +138,11 @@ export class CursorAdapter implements AgentAdapter {
     // is spawned on the first prompt() (which also yields the init event).
   }
 
-  prompt(text: string, images?: PromptImage[]): void {
+  prompt(text: string, images?: PromptImage[], echo?: PromptEcho): void {
     const opts = this.opts
     if (!opts) return
+    const userEcho = (): void =>
+      this.emit({ kind: 'user-text', text: echo?.displayText ?? text, images, files: echo?.files })
 
     // Decide the outcome BEFORE echoing anything. `user-text` means "this was
     // sent" — echoing it ahead of a reject/error paints a message as sent when
@@ -189,13 +191,13 @@ export class CursorAdapter implements AgentAdapter {
         return
       }
       // genuinely will be sent once the child exits — echo now, it's honest
-      this.emit({ kind: 'user-text', text, images })
+      userEcho()
       this.pending = { text }
       this.armDrainWatchdog()
       return
     }
     // action === 'spawn' — no child, start the turn now
-    this.emit({ kind: 'user-text', text, images })
+    userEcho()
     this.spawnTurn(text)
   }
 

@@ -100,11 +100,26 @@ export interface PromptImage {
   mediaType: string
 }
 
-/** A composer attachment: a text context chip and/or an image. */
+/** A non-image file attached to a prompt. The agent still receives the file's
+ *  text (fenced into the prompt); this metadata drives the chat file-CARD and its
+ *  click-to-preview, so the raw bytes never render inline. */
+export interface PromptFile {
+  name: string
+  /** path used to re-read the file for preview: absolute when `external`, else
+   *  workspace-relative. Absent for a file we couldn't resolve a path for. */
+  path?: string
+  mediaType?: string
+  /** path is absolute / outside the workspace (paperclip dialog, OS drag-drop) */
+  external?: boolean
+}
+
+/** A composer attachment: a text context chip, an image, and/or a file card. */
 export interface Attachment {
   label: string
   text?: string
   image?: { base64: string; mediaType: string }
+  /** set for non-image files → renders as a card, not inlined bytes */
+  file?: PromptFile
 }
 
 export interface ChangedFile {
@@ -298,8 +313,9 @@ export type AgentEvent =
       permissionMode: string
       version: string
     }
-  /** Echo of the user's prompt, so transcripts are self-contained */
-  | { kind: 'user-text'; text: string; images?: PromptImage[] }
+  /** Echo of the user's prompt, so transcripts are self-contained. `text` is the
+   *  DISPLAY text (file contents live in `files` as cards, not inlined here). */
+  | { kind: 'user-text'; text: string; images?: PromptImage[]; files?: PromptFile[] }
   /** harness-injected note (background task/agent completion) — feeds the
    *  Subagents threads, never rendered as a user message */
   | { kind: 'subagent-note'; text: string }
@@ -485,7 +501,15 @@ export interface Hang4rApi {
   removeProject(projectId: string): Promise<void>
   listSessions(): Promise<SessionMeta[]>
   createSession(req: NewSessionRequest): Promise<SessionMeta>
-  prompt(sessionId: string, text: string, images?: PromptImage[]): Promise<void>
+  /** `text` is the agent-facing prompt (file contents fenced in). `files` +
+   *  `displayText` drive the transcript echo: cards + the typed message only. */
+  prompt(
+    sessionId: string,
+    text: string,
+    images?: PromptImage[],
+    files?: PromptFile[],
+    displayText?: string
+  ): Promise<void>
   pickAttachments(): Promise<Attachment[]>
   interrupt(sessionId: string): Promise<void>
   archiveSession(sessionId: string): Promise<void>
@@ -695,6 +719,16 @@ export interface Hang4rApi {
   ): Promise<{ path: string; line: number } | null>
   tailFile(absPath: string): Promise<string>
   readFileDataUrl(sessionId: string, relPath: string): Promise<string | null>
+  /** Read an attached file back for click-to-preview: a data: URL for image/pdf,
+   *  else utf-8 text. `external` reads the absolute path the user attached (they
+   *  explicitly picked it), otherwise the path is resolved inside the workspace. */
+  previewAttachment(
+    sessionId: string,
+    path: string,
+    external?: boolean
+  ): Promise<{ dataUrl?: string; text?: string; kind: string } | null>
+  /** absolute path of a dropped/selected OS File (Electron webUtils), or '' */
+  filePathForFile(file: File): string
   /** HTML preview: publish the live editor buffer for the hang4r-preview:// entry doc */
   setPreviewDoc(sessionId: string, relPath: string, html: string): Promise<void>
   /** import turns taken in an external interactive CLI (returns count imported) */

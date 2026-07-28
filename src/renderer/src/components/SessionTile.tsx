@@ -580,7 +580,14 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
       })
     } else {
       const text = await file.text()
-      addAttachment(sessionId, { label: file.name, text: `${file.name}\n${text.slice(0, 8000)}` })
+      // absolute OS path (Electron webUtils) so the chat card can re-open the real
+      // file for preview; '' when unavailable (card shows, just isn't clickable)
+      const path = window.hang4r.filePathForFile(file) || undefined
+      addAttachment(sessionId, {
+        label: file.name,
+        text: `${file.name}\n${text.slice(0, 8000)}`,
+        file: { name: file.name, path, mediaType: file.type || undefined, external: true }
+      })
     }
   }
 
@@ -601,7 +608,11 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   const attachRepoFile = async (path: string): Promise<void> => {
     const name = path.split('/').pop() ?? path
     const res = await window.hang4r.readFile(sessionId, path)
-    addAttachment(sessionId, { label: name, text: `${path}\n${res.content.slice(0, 8000)}` })
+    addAttachment(sessionId, {
+      label: name,
+      text: `${path}\n${res.content.slice(0, 8000)}`,
+      file: { name, path } // workspace-relative → preview resolves inside the repo
+    })
   }
   const onComposerDrop = (e: ReactDragEvent): void => {
     // a file dragged from the Explorer → attach it as context
@@ -628,7 +639,11 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     const next = draft.slice(0, mention.start) + '@' + name + ' ' + draft.slice(caret)
     setDraft(sessionId, next)
     void window.hang4r.readFile(sessionId, path).then((res) =>
-      addAttachment(sessionId, { label: name, text: `${path}\n${res.content.slice(0, 8000)}` })
+      addAttachment(sessionId, {
+        label: name,
+        text: `${path}\n${res.content.slice(0, 8000)}`,
+        file: { name, path }
+      })
     )
     setMention(null)
     setTimeout(() => el?.focus(), 0)

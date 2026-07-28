@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentEvent, PromptImage, QuestionAnswer } from '../../../shared/protocol'
-import type { AdapterStartOptions, AgentAdapter } from './types'
+import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
 
 /**
  * Deterministic in-process agent for end-to-end tests. Enabled via the
@@ -40,12 +40,12 @@ export class FakeAdapter implements AgentAdapter {
     })
   }
 
-  prompt(text: string, images?: PromptImage[]): void {
+  prompt(text: string, images?: PromptImage[], echo?: PromptEcho): void {
     this.turn += 1
     const turn = this.turn
     // carry images on the user event, exactly like the real adapters — so the
     // chat thumbnail (and its click-to-enlarge lightbox) is exercised in e2e
-    this.emit({ kind: 'user-text', text, images })
+    this.emit({ kind: 'user-text', text: echo?.displayText ?? text, images, files: echo?.files })
 
     // deterministic error turn (mirrors Claude's error_during_execution abort)
     // so the suite can prove error recovery: the session goes to error, the

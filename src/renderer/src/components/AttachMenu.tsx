@@ -45,9 +45,11 @@ export function AttachMenu({
   const attach = async (path?: string): Promise<void> => {
     if (!path) return
     const res = await window.hang4r.readFile(sessionId, path)
+    const name = path.split('/').pop() ?? path
     addAttachment(sessionId, {
-      label: path.split('/').pop() ?? path,
-      text: `${path}\n${res.content.slice(0, 8000)}`
+      label: name,
+      text: `${path}\n${res.content.slice(0, 8000)}`,
+      file: { name, path } // workspace-relative → renders a card, click previews
     })
     setAdded((s) => new Set(s).add(path))
   }

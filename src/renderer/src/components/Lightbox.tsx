@@ -1,4 +1,6 @@
 import { useEffect, type JSX } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useHang4r } from '../state/store'
 
 /**
@@ -39,6 +41,18 @@ export function Lightbox(): JSX.Element | null {
           type="application/pdf"
           onClick={(e) => e.stopPropagation()}
         />
+      ) : box.kind === 'markdown' || box.kind === 'text' ? (
+        // text/markdown attachment → readable document, NOT raw bytes
+        <div className="lightbox-doc" onClick={(e) => e.stopPropagation()}>
+          {box.alt ? <div className="lightbox-doc-title">{box.alt}</div> : null}
+          {box.kind === 'markdown' ? (
+            <div className="markdown-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{box.text ?? ''}</ReactMarkdown>
+            </div>
+          ) : (
+            <pre className="lightbox-doc-pre">{box.text}</pre>
+          )}
+        </div>
       ) : (
         <img
           className="lightbox-img"

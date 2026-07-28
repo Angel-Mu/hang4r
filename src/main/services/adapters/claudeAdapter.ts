@@ -9,7 +9,7 @@ import type {
   PromptImage,
   QuestionAnswer
 } from '../../../shared/protocol'
-import type { AdapterStartOptions, AgentAdapter } from './types'
+import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
 import { shellQuote, sshRunArgv } from '../remoteService'
 
 /** appended to the agent's system prompt for local sessions (see start()) */
@@ -210,10 +210,12 @@ export class ClaudeAdapter implements AgentAdapter {
     this.proc?.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n')
   }
 
-  prompt(text: string, images?: PromptImage[]): void {
+  prompt(text: string, images?: PromptImage[], echo?: PromptEcho): void {
+    const userEcho = (): void =>
+      this.emit({ kind: 'user-text', text: echo?.displayText ?? text, images, files: echo?.files })
     // buffer during the (re)spawn window so an auto-update blip doesn't drop it
     if (this.spawnAttempts > 0 || (!this.proc && this.spawnBinary)) {
-      this.emit({ kind: 'user-text', text, images })
+      userEcho()
       this.pending.push({ text, images })
       return
     }
@@ -225,7 +227,7 @@ export class ClaudeAdapter implements AgentAdapter {
       })
       return
     }
-    this.emit({ kind: 'user-text', text, images })
+    userEcho()
     this.writePrompt(text, images)
   }
 

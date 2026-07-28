@@ -51,6 +51,11 @@ const filesModeMemo = new Map<string, 'tree' | 'search'>()
 /** the last ⌘⇧F nonce this session already acted on — so the searchToOpen signal
  *  opens search exactly ONCE (when pressed), not again on every remount */
 const searchNonceMemo = new Map<string, number>()
+/** which folders are expanded — must survive a panel-switch remount (contextTab
+ *  conditionally renders Files, so leaving and returning unmounts this tree) and
+ *  a tile-level unmount, so returning shows the SAME open folders, not a reset
+ *  (Angel: expanding folders then switching panels collapsed everything) */
+const expandedDirsMemo = new Map<string, Set<string>>()
 
 // archiving a session removes its worktree — its remembered layout is dead
 onForgetSession((sessionId) => {
@@ -58,6 +63,7 @@ onForgetSession((sessionId) => {
   focusedGroupIdMemo.delete(sessionId)
   filesModeMemo.delete(sessionId)
   searchNonceMemo.delete(sessionId)
+  expandedDirsMemo.delete(sessionId)
 })
 
 // seed the layout from the persisted snapshot (before the tile mounts) so open
@@ -534,8 +540,15 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     [updateGroups, refreshTree]
   )
   // which folders are expanded — owned here so Refresh keeps them open and
-  // Collapse-all is a distinct action that clears them
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  // Collapse-all is a distinct action that clears them. Seed from the memo so a
+  // panel-switch (or tile) remount restores the open folders instead of resetting.
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => expandedDirsMemo.get(sessionId) ?? new Set()
+  )
+  // write-through so the next remount restores the same open folders
+  useEffect(() => {
+    expandedDirsMemo.set(sessionId, expanded)
+  }, [expanded, sessionId])
   const toggleExpanded = useCallback((path: string): void => {
     setExpanded((s) => {
       const next = new Set(s)

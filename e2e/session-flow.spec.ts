@@ -183,8 +183,9 @@ test.describe('agent session flow', () => {
     await tile.getByRole('button', { name: 'Files' }).click()
 
     // ⌥-click a relative import → opens the target file in a new tab.
-    // (the Refresh above remounts+collapses the tree, so re-expand src)
-    await tile.locator('.file-row', { hasText: 'src' }).click()
+    // src now stays expanded across the Refresh + panel-switch remounts
+    // (expandedDirsMemo), so app.js is already shown — open it directly.
+    // (re-clicking src here would COLLAPSE it and hide app.js.)
     await tile.locator('.file-row', { hasText: 'app.js' }).click()
     await expect(tile.locator('.editor-slot:visible .code-editor-path')).toContainText('app.js')
     const importTok = tile.locator('.editor-slot:visible .view-line', { hasText: './index.js' }).first()

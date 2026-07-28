@@ -153,6 +153,7 @@ const api: Hang4rApi = {
     ipcRenderer.invoke('files:write', sessionId, relPath, content),
   listAllFiles: (sessionId: string, includeIgnored?: boolean) =>
     ipcRenderer.invoke('files:all', sessionId, includeIgnored),
+  readTsconfig: (sessionId: string) => ipcRenderer.invoke('tsconfig:read', sessionId),
   readSources: (sessionId: string) =>
     ipcRenderer.invoke('files:sources', sessionId) as Promise<{ path: string; content: string }[]>,
   searchFiles: (sessionId: string, query: string) =>

@@ -57,9 +57,31 @@ export async function loadProject(sessionId: string, cwd: string): Promise<void>
     }
     if (i + BATCH < files.length) await new Promise((r) => setTimeout(r, 0))
   }
+  // Feed the TS worker the project's alias map (baseUrl + paths) so imported
+  // symbols resolve to real types instead of `any` (Angel: hover showed
+  // `addressService: any` because @app/* aliases weren't mapped). The source
+  // models now exist, so resolution has targets to land on. No-op / silent on
+  // any failure — never worse than the pre-alias behaviour.
+  try {
+    const tc = await window.hang4r.readTsconfig(sessionId)
+    if (tc?.paths) applyCompilerPaths(tc.baseUrl, tc.paths)
+  } catch {
+    /* leave types as-is */
+  }
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/** merge the project's baseUrl + path aliases into the global TS/JS compiler
+ *  options (kept by ensureDiagnostics, which preserves them on either order) */
+function applyCompilerPaths(baseUrl: string, paths: Record<string, string[]>): void {
+  const ts = (monaco.languages as any).typescript
+  if (!ts?.typescriptDefaults) return
+  for (const d of [ts.typescriptDefaults, ts.javascriptDefaults]) {
+    const cur = d.getCompilerOptions?.() ?? {}
+    d.setCompilerOptions({ ...cur, baseUrl, paths })
+  }
+}
+
 /**
  * Semantic definition for the symbol at `offset` in `uri`, via the TS worker.
  * Returns a workspace-relative target (rel + 1-based line) or null (non-symbol,

@@ -667,6 +667,11 @@ export interface Hang4rApi {
   /** includeIgnored: for ⌘P quick-open — surface gitignored files (session-created
    *  docs) too, minus the heavy build/dep dirs. Default respects .gitignore. */
   listAllFiles(sessionId: string, includeIgnored?: boolean): Promise<string[]>
+  /** project path-aliases (baseUrl ABSOLUTE + paths) fed to the Monaco TS worker so
+   *  alias imports resolve to real types, not `any`; null when unavailable. */
+  readTsconfig(
+    sessionId: string
+  ): Promise<{ baseUrl: string; paths: Record<string, string[]> } | null>
   readSources(sessionId: string): Promise<{ path: string; content: string }[]>
   searchFiles(
     sessionId: string,

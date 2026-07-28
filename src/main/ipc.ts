@@ -37,6 +37,7 @@ import { UsageService } from './services/usageService'
 import { RemoteService, sshExec, openTunnel, type Exec } from './services/remoteService'
 import { PtyService } from './services/ptyService'
 import { FileService } from './services/fileService'
+import { readProjectTsconfig } from './services/tsconfigReader'
 import { SearchService } from './services/searchService'
 import { GitService } from './services/gitService'
 import { CodexModelService } from './services/codexModelService'
@@ -637,6 +638,11 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     remoteFor(sessionId)
       ? [] // TS language service stays local-only on remote sessions
       : FileService.readSources(await sessions.ensureWorkdir(sessionId))
+  )
+  ipcMain.handle('tsconfig:read', async (_e, sessionId: string) =>
+    remoteFor(sessionId) // language service (and its config) stays local-only
+      ? null
+      : readProjectTsconfig(await sessions.ensureWorkdir(sessionId))
   )
   ipcMain.handle('files:search', async (_e, sessionId: string, query: string) =>
     remoteFor(sessionId)

@@ -37,7 +37,7 @@ function ensureDiagnostics(): void {
   if (diagnosticsConfigured) return
   const ts = (monaco.languages as any).typescript
   if (!ts?.typescriptDefaults) return
-  const compiler = {
+  const compiler: Record<string, unknown> = {
     target: ts.ScriptTarget.ESNext,
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.NodeJs,
@@ -48,6 +48,12 @@ function ensureDiagnostics(): void {
     esModuleInterop: true,
     noEmit: true
   }
+  // loadProject feeds the project's baseUrl/paths (so alias imports get real types
+  // instead of `any`) and may run before OR after us — preserve whatever it set so
+  // we never clobber the aliases back to nothing.
+  const prev = ts.typescriptDefaults.getCompilerOptions?.() ?? {}
+  if (prev.baseUrl) compiler.baseUrl = prev.baseUrl
+  if (prev.paths) compiler.paths = prev.paths
   ts.typescriptDefaults.setCompilerOptions(compiler)
   ts.javascriptDefaults.setCompilerOptions(compiler)
   // TS: full syntax + semantic. JS: syntax only (semantic needs the whole

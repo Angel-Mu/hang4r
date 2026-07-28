@@ -6009,6 +6009,43 @@ button:disabled {
   color: var(--red);
   padding: 2px 8px;
 }
+.bgtasks-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bgtasks-header-actions .ghost-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+/* task row = the head toggle + a dismiss (✕), which reveals on hover */
+.bgtask-headrow {
+  display: flex;
+  align-items: center;
+}
+.bgtask-headrow .bgtask-head {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+.bgtask-dismiss {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-faint);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease;
+}
+.bgtask-headrow:hover .bgtask-dismiss {
+  opacity: 1;
+}
+.bgtask-dismiss:hover {
+  color: var(--red);
+}
 
 /* ---------- New agent modal: per-backend identity glyphs ---------- */
 

@@ -463,6 +463,11 @@ interface Hang4rState {
   /** when set, Settings opens focused on this category (e.g. 'settings.json') */
   settingsCategory: string | null
   sidebarVisible: boolean
+  /** background-task cards the user dismissed, per session (keys) — lets them
+   *  clear tasks that are done/dead but that hang4r can't verify are finished
+   *  (detached children whose completion notification only arrives next turn) */
+  dismissedBgTasks: Record<string, string[]>
+  dismissBgTasks(sessionId: string, keys: string[]): void
   contextMenu: { x: number; y: number; items: ContextMenuItem[] } | null
   /** click-to-enlarge overlay for a rendered attachment: image/pdf render `src`
    *  (a data/URL), markdown/text render `text`. */
@@ -668,6 +673,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   settingsOpen: false,
   settingsCategory: null,
   sidebarVisible: true,
+  dismissedBgTasks: {},
   contextMenu: null,
   lightbox: null,
   dialog: null,
@@ -1300,6 +1306,13 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
   closeContextMenu() {
     set({ contextMenu: null })
+  },
+  dismissBgTasks(sessionId, keys) {
+    set((s) => {
+      const cur = s.dismissedBgTasks[sessionId] ?? []
+      const merged = Array.from(new Set([...cur, ...keys]))
+      return { dismissedBgTasks: { ...s.dismissedBgTasks, [sessionId]: merged } }
+    })
   },
   openLightbox(src, kind, alt) {
     set({ lightbox: { src, kind, alt } })

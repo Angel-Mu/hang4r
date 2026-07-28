@@ -168,12 +168,15 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
       alive = false
     }
   }, [sessionId, status, transcript])
+  const dismissed = useHang4r((s) => s.dismissedBgTasks[sessionId])
+  const dismissBgTasks = useHang4r((s) => s.dismissBgTasks)
   const tasks = useMemo(() => {
-    const collected = collectTasks(transcript?.items ?? [])
+    const gone = new Set(dismissed ?? [])
+    const collected = collectTasks(transcript?.items ?? []).filter((t) => !gone.has(t.key))
     return agentAlive
       ? collected
       : collected.map((t) => (t.status === 'running' ? { ...t, status: 'ended' as const } : t))
-  }, [transcript, agentAlive])
+  }, [transcript, agentAlive, dismissed])
 
   const todos = useMemo(() => collectAgentTodos(transcript?.items ?? []), [transcript])
 
@@ -207,25 +210,34 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
       {tasks.length > 0 && (
         <div className="bgtasks-header">
           Background tasks ({tasks.length})
-          {agentAlive && tasks.some((t) => t.status === 'running') && (
+          <span className="bgtasks-header-actions">
+            {agentAlive && tasks.some((t) => t.status === 'running') && (
+              <button
+                className="ghost-btn stop-turn-btn"
+                title="Stops the whole turn — background commands are the agent's children; stopping the turn is the only protocol-supported kill"
+                onClick={() => void useHang4r.getState().interrupt(sessionId)}
+              >
+                ■ Stop turn
+              </button>
+            )}
             <button
-              className="ghost-btn stop-turn-btn"
-              title="Stops the whole turn — background commands are the agent's children; stopping the turn is the only protocol-supported kill"
-              onClick={() => void useHang4r.getState().interrupt(sessionId)}
+              className="ghost-btn"
+              title="Hide these task cards. Doesn't stop anything — a detached background command can't be killed from here; this just clears cards hang4r can't confirm are finished."
+              onClick={() => dismissBgTasks(sessionId, tasks.map((t) => t.key))}
             >
-              ■ Stop turn
+              Clear
             </button>
-          )}
+          </span>
         </div>
       )}
       {tasks.map((t) => (
-        <BgTaskRow key={t.key} task={t} />
+        <BgTaskRow key={t.key} task={t} onDismiss={() => dismissBgTasks(sessionId, [t.key])} />
       ))}
     </div>
   )
 }
 
-function BgTaskRow({ task }: { task: BgTask }): JSX.Element {
+function BgTaskRow({ task, onDismiss }: { task: BgTask; onDismiss: () => void }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [output, setOutput] = useState('')
   useEffect(() => {
@@ -255,16 +267,23 @@ function BgTaskRow({ task }: { task: BgTask }): JSX.Element {
   }
   return (
     <div className={'bgtask' + (task.status !== 'running' ? ' bgtask-ended' : '')}>
-      <button className="bgtask-head" onClick={() => setOpen((o) => !o)}>
-        <span className="bgtask-caret">{open ? '▾' : '▸'}</span>
+      <div className="bgtask-headrow">
+        <button className="bgtask-head" onClick={() => setOpen((o) => !o)}>
+          <span className="bgtask-caret">{open ? '▾' : '▸'}</span>
         <span className={'bgtask-dot dot-' + task.status} />
         <span className="bgtask-kind">{task.kind === 'workflow' ? 'workflow' : 'bash'}</span>
         <span className="bgtask-cmd" title={task.command}>
           {task.description || task.command}
         </span>
-        <span className="bgtask-id">{task.id}</span>
-        <span className={'bgtask-status bgtask-status-' + task.status}>{STATUS_LABEL[task.status]}</span>
-      </button>
+          <span className="bgtask-id">{task.id}</span>
+          <span className={'bgtask-status bgtask-status-' + task.status}>
+            {STATUS_LABEL[task.status]}
+          </span>
+        </button>
+        <button className="bgtask-dismiss" title="Dismiss this task card" onClick={onDismiss}>
+          ✕
+        </button>
+      </div>
       {open && (
         <pre className="bgtask-output">
           {body || (task.outputPath ? '…waiting for output' : 'No output captured.')}

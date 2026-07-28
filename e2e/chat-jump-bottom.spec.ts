@@ -26,6 +26,9 @@ test('a "jump to latest" button appears when scrolled up and returns to the bott
     await tile.locator('.composer-input').fill(long)
     await tile.getByRole('button', { name: 'Send' }).click()
     await expect(tile.locator('.msg-user-card').first()).toBeVisible({ timeout: 5_000 })
+    // wait for the turn to finish — while it streams, the auto-pin keeps snapping
+    // back to the bottom and would fight our scroll-to-top below
+    await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
 
     const scroll = tile.locator('.chat-scroll')
     // at the bottom (auto-pinned after send) → no button

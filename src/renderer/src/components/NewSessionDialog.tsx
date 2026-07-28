@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { BackendId, EnvironmentKind, ModelChoice, PermissionMode } from '../../../shared/protocol'
 import { CLAUDE_MODELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
+import { useClaudeModels } from '../useClaudeModels'
 import { useHang4r } from '../state/store'
 import { Icon, type IconName } from './Icon'
 
@@ -101,6 +102,7 @@ export function NewSessionDialog(): JSX.Element | null {
 
   const [codexModels, setCodexModels] = useState<ModelChoice[]>(FALLBACK_CODEX_MODELS)
   const [cursorModels, setCursorModels] = useState<ModelChoice[]>(FALLBACK_CURSOR_MODELS)
+  const claudeModels = useClaudeModels()
   const [prompt, setPrompt] = useState('')
   const [name, setName] = useState('')
   const [bestOfN, setBestOfN] = useState(false)
@@ -146,7 +148,7 @@ export function NewSessionDialog(): JSX.Element | null {
   if (!storeProjectId || !projectId || !project) return null
 
   const models =
-    backend === 'codex' ? codexModels : backend === 'cursor' ? cursorModels : CLAUDE_MODELS
+    backend === 'codex' ? codexModels : backend === 'cursor' ? cursorModels : claudeModels
   // A model value is backend-specific. A sticky choice made on another backend
   // (e.g. Claude 'sonnet') is kept in state so it re-appears when you switch
   // back, but it must NOT bleed into the current backend: the native <select>

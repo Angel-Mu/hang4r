@@ -30,7 +30,8 @@ import { MentionMenu, useMentionResults } from './MentionMenu'
 import { SlashMenu, slashResults, type SlashItem } from './SlashMenu'
 import { ModelPicker } from './ModelPicker'
 import { Icon } from './Icon'
-import { CLAUDE_MODELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
+import { FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
+import { useClaudeModels } from '../useClaudeModels'
 
 /** Context panel views shown SIDE-BY-SIDE with chat (Cursor's split), not tabs over it. */
 // Search is NOT a tab — it lives inside the Files panel, Cursor-style
@@ -259,9 +260,6 @@ function ComposerContext({
   )
 }
 
-const CLAUDE_PICKER_MODELS = CLAUDE_MODELS.map((m) =>
-  m.value === '' ? { ...m, label: 'Default' } : m
-)
 const CODEX_PICKER_FALLBACK = FALLBACK_CODEX_MODELS.map((m) =>
   m.value === '' ? { ...m, label: 'Default' } : m
 )
@@ -326,6 +324,11 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   const [notice, setNotice] = useState<string | null>(null)
   const [codexModels, setCodexModels] = useState(CODEX_PICKER_FALLBACK)
   const [cursorModels, setCursorModels] = useState(CURSOR_PICKER_FALLBACK)
+  // '' → "Default" for the compact in-session picker; labels track the CLI's
+  // resolved model (e.g. "Opus 5") once a Claude session reports it
+  const claudePickerModels = useClaudeModels().map((m) =>
+    m.value === '' ? { ...m, label: 'Default' } : m
+  )
   const [attachOpen, setAttachOpen] = useState(false)
   const [dropActive, setDropActive] = useState(false)
   const [commitMenuOpen, setCommitMenuOpen] = useState(false)
@@ -656,7 +659,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
       ? codexModels
       : session.backend === 'cursor'
         ? cursorModels
-        : CLAUDE_PICKER_MODELS
+        : claudePickerModels
   const sess = session
 
   const runCommit = async (mode: 'commit' | 'push' | 'branch' | 'pr'): Promise<void> => {

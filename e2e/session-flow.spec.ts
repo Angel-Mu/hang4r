@@ -1477,14 +1477,16 @@ test.describe('agent session flow', () => {
     // the Agent segmented control carries a per-backend glyph on each of the 3 agents
     await expect(page.locator('.dialog .segmented-glyph')).toHaveCount(3)
 
-    // on Claude, the Model select offers the Claude models (e.g. Sonnet 5)
+    // on Claude, the Model select offers the Claude models. Labels are
+    // version-agnostic ("Sonnet") until a session's init reports the resolved
+    // model (then "Sonnet 5") — assert the family name so both forms match.
     await page.locator('.dialog .segmented button', { hasText: 'Claude Code' }).click()
     const modelSelect = page.locator('.field-model-row select')
-    await expect(modelSelect.locator('option', { hasText: 'Sonnet 5' })).toHaveCount(1)
+    await expect(modelSelect.locator('option', { hasText: 'Sonnet' })).toHaveCount(1)
 
-    // switching the backend to Codex changes the model set — Sonnet 5 is gone
+    // switching the backend to Codex changes the model set — Sonnet is gone
     await page.locator('.dialog .segmented button', { hasText: 'Codex' }).click()
-    await expect(modelSelect.locator('option', { hasText: 'Sonnet 5' })).toHaveCount(0)
+    await expect(modelSelect.locator('option', { hasText: 'Sonnet' })).toHaveCount(0)
   })
 
   test('new agent: start with an empty prompt creates an idle, ready session', async () => {

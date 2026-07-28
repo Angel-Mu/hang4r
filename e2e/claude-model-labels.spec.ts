@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { prettifyClaudeModelId, CLAUDE_MODELS } from '../src/renderer/src/modelChoices'
+import {
+  prettifyClaudeModelId,
+  CLAUDE_MODELS,
+  CURRENT_CLAUDE_VERSIONS
+} from '../src/renderer/src/modelChoices'
 
 /**
  * Claude model labels must not hard-code a version that goes stale (Angel: the
@@ -12,6 +16,13 @@ test('base Claude labels are version-agnostic (nothing to go stale)', () => {
   expect(labels).toEqual(['Default model', 'Opus', 'Sonnet', 'Fable', 'Haiku'])
   // no hard-coded version numbers on the alias options
   for (const m of CLAUDE_MODELS) expect(m.label).not.toMatch(/\d/)
+})
+
+test('every named alias has a current-lineup version so the picker is never blank', () => {
+  // Angel: only the running model ("Fable 5") showed a number; the rest didn't.
+  for (const alias of ['opus', 'sonnet', 'fable', 'haiku']) {
+    expect(CURRENT_CLAUDE_VERSIONS[alias]).toMatch(/^[A-Z][a-z]+ \d/) // e.g. "Opus 5"
+  }
 })
 
 test('prettifyClaudeModelId derives the display name from a resolved id', () => {

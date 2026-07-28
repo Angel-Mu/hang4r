@@ -18,6 +18,21 @@ export const CLAUDE_MODELS: ModelChoice[] = [
 ]
 
 /**
+ * Today's Claude lineup — shown so EVERY alias carries a version immediately, not
+ * just the one the current session happens to run (Angel: only "Fable 5" showed a
+ * number). This is a sensible DEFAULT, not a fixed label like the old "Opus 4.8":
+ * the moment a session runs an alias, useClaudeModels swaps in the CLI's ACTUAL
+ * resolved version and it self-corrects (so when opus points at a newer model,
+ * the first run relabels it). Bump when the CLI's lineup changes.
+ */
+export const CURRENT_CLAUDE_VERSIONS: Record<string, string> = {
+  opus: 'Opus 5',
+  sonnet: 'Sonnet 5',
+  fable: 'Fable 5',
+  haiku: 'Haiku 4.5'
+}
+
+/**
  * Turn a resolved Claude model id into a display name:
  * `claude-opus-5-20260115` → "Opus 5", `claude-haiku-4-5-20251001` → "Haiku 4.5".
  * Numeric segments up to the date/suffix become the version; the rest is dropped.

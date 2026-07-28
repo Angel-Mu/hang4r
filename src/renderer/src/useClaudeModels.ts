@@ -1,15 +1,17 @@
 import { useMemo } from 'react'
 import type { ModelChoice } from '../../shared/protocol'
 import { useHang4r } from './state/store'
-import { CLAUDE_MODELS, prettifyClaudeModelId } from './modelChoices'
+import { CLAUDE_MODELS, CURRENT_CLAUDE_VERSIONS, prettifyClaudeModelId } from './modelChoices'
 
 /**
- * Claude model choices with labels enriched from the CLI's ACTUAL resolved model.
- * The base labels are version-agnostic ("Opus"); each Claude session's init event
- * reports the real id it resolved to (e.g. `claude-opus-5-…`), which we learn per
- * alias and swap in as "Opus 5" — so the picker tracks whatever the installed CLI
- * actually runs instead of a hard-coded version that goes stale. Only genuine
- * `claude-*` ids enrich (a fresh install / fake e2e stays on the base labels).
+ * Claude model choices with a version on every label. Priority per alias:
+ *  1. the CLI's ACTUAL resolved model, learned from a session's init event
+ *     (`claude-opus-5-…` → "Opus 5") — authoritative, self-correcting;
+ *  2. else today's known lineup (CURRENT_CLAUDE_VERSIONS) so an alias the current
+ *     session hasn't run still shows its version (Angel: only the running "Fable 5"
+ *     had a number);
+ *  3. else the version-agnostic base label (Default, or an unknown future alias).
+ * (1) overrides (2), so when the CLI ships a newer model the first run relabels it.
  */
 export function useClaudeModels(): ModelChoice[] {
   const sessions = useHang4r((s) => s.sessions)
@@ -23,9 +25,12 @@ export function useClaudeModels(): ModelChoice[] {
     }
     return CLAUDE_MODELS.map((m) => {
       const rid = resolved[m.value]
-      if (!rid || !rid.startsWith('claude-')) return m
-      const pretty = prettifyClaudeModelId(rid)
-      return { ...m, label: m.value === '' ? `Default · ${pretty}` : pretty }
+      if (rid && rid.startsWith('claude-')) {
+        const pretty = prettifyClaudeModelId(rid)
+        return { ...m, label: m.value === '' ? `Default · ${pretty}` : pretty }
+      }
+      const known = CURRENT_CLAUDE_VERSIONS[m.value]
+      return known ? { ...m, label: known } : m
     })
   }, [sessions, sessionInit])
 }

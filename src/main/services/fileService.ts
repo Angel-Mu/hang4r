@@ -57,6 +57,10 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024
  * are relative to the root; we refuse to escape it (no `..` traversal).
  */
 export const FileService = {
+  /** absolute on-disk path for a workspace-relative path (throws if it escapes root) */
+  absPath(root: string, relPath: string): string {
+    return safeJoin(root, relPath)
+  },
   async listDir(root: string, relPath: string, remote?: Remote): Promise<DirEntry[]> {
     if (remote) return listDirRemote(root, relPath, remote)
     const dir = safeJoin(root, relPath)

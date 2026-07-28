@@ -966,6 +966,10 @@ function TreeLevel({
                       })
                   },
                   { label: 'Copy path', onClick: () => void navigator.clipboard.writeText(e.path) },
+                  {
+                    label: 'Reveal in Finder',
+                    onClick: () => void window.hang4r.revealInFinder(sessionId, e.path)
+                  },
                   { separator: true, label: '' },
                   {
                     label: 'Rename…',
@@ -1110,6 +1114,10 @@ function TreeLevel({
                     )
                 },
                 { label: 'Copy path', onClick: () => void navigator.clipboard.writeText(e.path) },
+                {
+                  label: 'Reveal in Finder',
+                  onClick: () => void window.hang4r.revealInFinder(sessionId, e.path)
+                },
                 { separator: true, label: '' },
                 {
                   label: 'Rename…',

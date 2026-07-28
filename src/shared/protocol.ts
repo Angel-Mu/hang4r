@@ -729,6 +729,8 @@ export interface Hang4rApi {
   ): Promise<{ dataUrl?: string; text?: string; kind: string } | null>
   /** absolute path of a dropped/selected OS File (Electron webUtils), or '' */
   filePathForFile(file: File): string
+  /** reveal a workspace file/folder in the OS file manager (Finder). local-only */
+  revealInFinder(sessionId: string, path: string): Promise<void>
   /** HTML preview: publish the live editor buffer for the hang4r-preview:// entry doc */
   setPreviewDoc(sessionId: string, relPath: string, html: string): Promise<void>
   /** import turns taken in an external interactive CLI (returns count imported) */

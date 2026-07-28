@@ -185,6 +185,8 @@ const api: Hang4rApi = {
     ipcRenderer.invoke('files:data-url', sessionId, relPath),
   previewAttachment: (sessionId: string, path: string, external?: boolean) =>
     ipcRenderer.invoke('files:preview-attachment', sessionId, path, external),
+  revealInFinder: (sessionId: string, path: string) =>
+    ipcRenderer.invoke('shell:reveal', sessionId, path),
   /** absolute path of an OS drag-drop / <input> File (Electron webUtils) — for
    *  attaching a file card that can re-open the real file in preview */
   filePathForFile: (file: File): string => webUtils.getPathForFile(file),

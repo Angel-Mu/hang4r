@@ -6,6 +6,7 @@ import {
   net,
   Notification,
   session,
+  shell,
   webContents,
   WebContentsView
 } from 'electron'
@@ -630,6 +631,14 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
         ? null
         : FileService.previewAttachment(await sessions.ensureWorkdir(sessionId), path, external)
   )
+  ipcMain.handle('shell:reveal', async (_e, sessionId: string, relPath: string) => {
+    if (remoteFor(sessionId)) return // remote files aren't on this machine
+    try {
+      shell.showItemInFolder(FileService.absPath(await sessions.ensureWorkdir(sessionId), relPath))
+    } catch {
+      /* path escaped root / not found — nothing to reveal */
+    }
+  })
   ipcMain.handle('files:write', async (_e, sessionId: string, relPath: string, content: string) => {
     remoteListCache.delete(sessionId)
     return FileService.writeFile(

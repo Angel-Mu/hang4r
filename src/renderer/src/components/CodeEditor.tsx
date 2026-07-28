@@ -981,6 +981,15 @@ export function CodeEditor({
             </button>
           </div>
         )}
+        {!isUntitled && (
+          <button
+            className="ghost-btn code-editor-reveal"
+            title="Reveal in Finder"
+            onClick={() => void window.hang4r.revealInFinder(sessionId, path)}
+          >
+            Reveal in Finder
+          </button>
+        )}
         <button
           className="primary-btn code-editor-save"
           disabled={!dirty || saving || truncated}

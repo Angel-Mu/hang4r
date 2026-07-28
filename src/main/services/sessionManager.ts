@@ -361,32 +361,37 @@ export class SessionManager {
     const session = this.store.getSession(sessionId)
     if (!session) throw new Error(`Unknown session: ${sessionId}`)
 
+    // RECOVERY: if the tip is POISONED — the last turn aborted mid-tool, leaving
+    // tool_use blocks with no tool_result (killed subagents, or a turn aborted in
+    // an EXTERNAL interactive CLI adopted via resyncExternal) — a plain --resume
+    // FAILS: the CLI refuses the invalid conversation and every follow-up re-errors
+    // with error_during_execution (Angel: "we get that error a lot", "after an
+    // Interactive CLI event"). We can't rely on our OWN status==='error': the
+    // interactive-CLI abort is adopted WITHOUT flipping our status, so also check
+    // the jsonl tail for a dangling tool_use. Fork-truncate PAST the poisoned turn.
+    //
+    // Computed BEFORE the adapter check: the interactive-CLI case leaves the
+    // adapter ALIVE, so a respawn-only recovery never fired — the live adapter
+    // just --resumed the poison and re-errored. When idle (never a live turn), we
+    // drop the stale adapter so it respawns recovering.
+    const idle = session.status !== 'running' && session.status !== 'starting'
+    const needsRecovery =
+      session.status === 'error' ||
+      (!!session.backendSessionId && ClaudeImport.tailIsPoisoned(session.backendSessionId))
+    const recoverAt = needsRecovery ? this.recoveryAnchor(session) : null
+
     let adapter = this.adapters.get(sessionId)
+    if (adapter && recoverAt && idle) {
+      // a live adapter would --resume the poison — drop it and respawn recovering
+      adapter.dispose()
+      this.adapters.delete(sessionId)
+      adapter = undefined
+    }
     if (!adapter) {
-      // Re-spawn (e.g. after app restart): a PROMPT is an explicit "continue
-      // here", so recreate the worktree if it was cleaned (recreate=true) —
-      // passive access leaves it dropped, but working in it rebuilds it.
+      // Re-spawn (e.g. after app restart, or the recovery drop above): a PROMPT is
+      // an explicit "continue here", so recreate the worktree if it was cleaned
+      // (recreate=true) — passive access leaves it dropped, but working rebuilds it.
       await this.ensureWorkdir(sessionId, true)
-      // RECOVERY: if the previous turn aborted (Claude's error_during_execution
-      // — common when a turn crashes mid-subagent), a plain --resume of the tip
-      // FAILS: the final turn ends in tool_use blocks with no tool_result (the
-      // killed subagents), which is an invalid conversation the CLI refuses to
-      // load, so every follow-up re-errors (Angel: "we get that error a lot").
-      // Fork-truncate PAST the poisoned turn (at the last message before it) so
-      // the CLI gets a VALID conversation to continue from — the errored turn
-      // had no useful completion, so dropping it is safe. Reuses the same
-      // --resume-session-at machinery the edit-message rewind uses.
-      //
-      // We can't rely on our OWN status==='error': a turn that aborted in an
-      // EXTERNAL interactive CLI (/remote-control) is adopted into
-      // backendSessionId by resyncExternal WITHOUT ever flipping our status, so
-      // the poison slips straight into a plain --resume → error_during_execution
-      // on every follow-up (Angel: "it happens after an Interactive CLI event").
-      // So ALSO check the actual jsonl tail for a dangling tool_use.
-      const needsRecovery =
-        session.status === 'error' ||
-        (!!session.backendSessionId && ClaudeImport.tailIsPoisoned(session.backendSessionId))
-      const recoverAt = needsRecovery ? this.recoveryAnchor(session) : null
       const fresh = recoverAt
         ? this.spawnAdapter(session, session.backendSessionId!, true, recoverAt)
         : this.spawnAdapter(session, session.backendSessionId ?? undefined)
@@ -409,6 +414,12 @@ export class SessionManager {
    */
   private recoveryAnchor(session: SessionMeta): string | null {
     if (session.backend !== 'claude' || !session.backendSessionId) return null
+    // Prefer anchoring on the POISON itself: retry prompts ("continue") pile up
+    // after the dangling tool_use, so a last-user-text anchor drifts past it and
+    // the fork keeps the poison. The poison-based anchor targets the aborted turn
+    // directly. Fall back to last-user-text for non-poison errors / unresolvable.
+    const byPoison = ClaudeImport.poisonRewindAnchor(session.backendSessionId)
+    if (byPoison) return byPoison
     const events = this.store.getEvents(session.id)
     let lastUserText: string | null = null
     for (let i = events.length - 1; i >= 0; i--) {

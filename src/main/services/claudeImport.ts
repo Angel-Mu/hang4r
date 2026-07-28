@@ -136,6 +136,82 @@ export function hasDanglingToolUse(raw: string): boolean {
   return false
 }
 
+/**
+ * The parentUuid to `--resume-session-at` so a fork drops the POISONED turn (the
+ * one carrying the dangling tool_use) and everything after it. Unlike the
+ * last-user-text anchor, this targets the poison directly, so retry prompts
+ * ("continue") that pile up after the poison can't drift the anchor past it.
+ *
+ * We find the earliest message with an unmatched tool_use, walk up to that
+ * turn's ROOT user prompt (a real text prompt, not a tool-loop tool_result line),
+ * and return the message BEFORE it. null when there's no poison, or we can't
+ * resolve the turn root (broken parent chain / poison in the very first turn) —
+ * the caller then falls back to the last-user-text anchor.
+ */
+export function parsePoisonAnchor(raw: string): string | null {
+  type Entry = { parentUuid: string | null; type?: string; content: unknown }
+  const byUuid = new Map<string, Entry>()
+  const order: string[] = []
+  const toolResult = new Set<string>()
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    let ev: { uuid?: string; parentUuid?: string; type?: string; message?: { content?: unknown } }
+    try {
+      ev = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const content = ev.message?.content
+    if (ev.uuid) {
+      byUuid.set(ev.uuid, { parentUuid: ev.parentUuid ?? null, type: ev.type, content })
+      order.push(ev.uuid)
+    }
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (!block || typeof block !== 'object') continue
+        const b = block as { type?: string; tool_use_id?: string }
+        if (b.type === 'tool_result' && b.tool_use_id) toolResult.add(b.tool_use_id)
+      }
+    }
+  }
+  const hasDangling = (e: Entry): boolean =>
+    Array.isArray(e.content) &&
+    e.content.some((block) => {
+      if (!block || typeof block !== 'object') return false
+      const b = block as { type?: string; id?: string }
+      return b.type === 'tool_use' && typeof b.id === 'string' && !toolResult.has(b.id)
+    })
+  let poison: string | null = null
+  for (const uuid of order) {
+    if (hasDangling(byUuid.get(uuid)!)) {
+      poison = uuid
+      break
+    }
+  }
+  if (!poison) return null
+
+  // a turn root is a real user prompt — a 'user' entry whose content is text, NOT
+  // the tool_result 'user' lines that carry a tool-loop mid-turn
+  const isTurnRoot = (e: Entry): boolean => {
+    if (e.type !== 'user') return false
+    if (typeof e.content === 'string') return true
+    if (!Array.isArray(e.content)) return false
+    return !e.content.some(
+      (b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result'
+    )
+  }
+  let cur: Entry | undefined = byUuid.get(poison)
+  const seen = new Set<string>()
+  while (cur && !isTurnRoot(cur)) {
+    const p = cur.parentUuid
+    if (!p || seen.has(p)) return null // broken/looping chain → let caller fall back
+    seen.add(p)
+    cur = byUuid.get(p)
+  }
+  if (!cur) return null
+  return cur.parentUuid ?? null // resume-at the message BEFORE the poisoned turn
+}
+
 export const ClaudeImport = {
   available(): boolean {
     return existsSync(ROOT)
@@ -343,6 +419,19 @@ export const ClaudeImport = {
       return hasDanglingToolUse(readFileSync(path, 'utf8'))
     } catch {
       return false
+    }
+  },
+
+  /** parentUuid to fork-truncate the poisoned turn out of this session's jsonl
+   *  (targets the dangling tool_use directly, so retry prompts can't drift it);
+   *  null if there's no poison or it can't be resolved (caller falls back) */
+  poisonRewindAnchor(id: string): string | null {
+    const path = this.sessionFile(id)
+    if (!path) return null
+    try {
+      return parsePoisonAnchor(readFileSync(path, 'utf8'))
+    } catch {
+      return null
     }
   },
 

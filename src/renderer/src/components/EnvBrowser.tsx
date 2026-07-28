@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { useHang4r } from '../state/store'
+import { onForgetSession } from '../sessionUiMemos'
+
+/** the env filter text, per session — so switching panels (which unmounts this
+ *  panel) doesn't clear what you'd typed to filter (Angel). */
+const envQueryMemo = new Map<string, string>()
+onForgetSession((sessionId) => envQueryMemo.delete(sessionId))
 
 type InitInfo = ReturnType<typeof useHang4r.getState>['sessionInit'][string]
 
@@ -46,7 +52,10 @@ export function EnvBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     })
   }, [liveInit, sessionId])
   const init = liveInit ?? cachedInit
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(() => envQueryMemo.get(sessionId) ?? '')
+  useEffect(() => {
+    envQueryMemo.set(sessionId, query)
+  }, [sessionId, query])
 
   const q = query.trim().toLowerCase()
   const match = (s: string): boolean => !q || s.toLowerCase().includes(q)

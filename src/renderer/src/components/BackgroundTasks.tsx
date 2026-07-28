@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { useHang4r } from '../state/store'
+import { onForgetSession } from '../sessionUiMemos'
 import type { TranscriptItem } from '../state/store'
+
+/** which task rows are expanded, per session — so switching panels (which
+ *  unmounts this panel) doesn't collapse every open task row (Angel). */
+const openTasksMemo = new Map<string, Set<string>>()
+onForgetSession((sessionId) => openTasksMemo.delete(sessionId))
 
 type BgStatus = 'running' | 'done' | 'failed' | 'stopped' | 'ended'
 
@@ -231,14 +237,37 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
         </div>
       )}
       {tasks.map((t) => (
-        <BgTaskRow key={t.key} task={t} onDismiss={() => dismissBgTasks(sessionId, [t.key])} />
+        <BgTaskRow
+          key={t.key}
+          task={t}
+          sessionId={sessionId}
+          onDismiss={() => dismissBgTasks(sessionId, [t.key])}
+        />
       ))}
     </div>
   )
 }
 
-function BgTaskRow({ task, onDismiss }: { task: BgTask; onDismiss: () => void }): JSX.Element {
-  const [open, setOpen] = useState(false)
+function BgTaskRow({
+  task,
+  sessionId,
+  onDismiss
+}: {
+  task: BgTask
+  sessionId: string
+  onDismiss: () => void
+}): JSX.Element {
+  // seed + write-through the expanded state so a panel-switch remount keeps rows open
+  const [open, setOpen] = useState(() => openTasksMemo.get(sessionId)?.has(task.key) ?? false)
+  const toggleOpen = (): void =>
+    setOpen((o) => {
+      const next = !o
+      const set = openTasksMemo.get(sessionId) ?? new Set<string>()
+      if (next) set.add(task.key)
+      else set.delete(task.key)
+      openTasksMemo.set(sessionId, set)
+      return next
+    })
   const [output, setOutput] = useState('')
   useEffect(() => {
     if (!open || !task.outputPath) return
@@ -268,7 +297,7 @@ function BgTaskRow({ task, onDismiss }: { task: BgTask; onDismiss: () => void })
   return (
     <div className={'bgtask' + (task.status !== 'running' ? ' bgtask-ended' : '')}>
       <div className="bgtask-headrow">
-        <button className="bgtask-head" onClick={() => setOpen((o) => !o)}>
+        <button className="bgtask-head" onClick={toggleOpen}>
           <span className="bgtask-caret">{open ? '▾' : '▸'}</span>
         <span className={'bgtask-dot dot-' + task.status} />
         <span className="bgtask-kind">{task.kind === 'workflow' ? 'workflow' : 'bash'}</span>

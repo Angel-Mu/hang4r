@@ -9,8 +9,24 @@ import type {
   ScopeSummary
 } from '../../../shared/protocol'
 import { useHang4r } from '../state/store'
+import { onForgetSession } from '../sessionUiMemos'
 import { Icon } from './Icon'
 import { mediaKind } from './MediaViewer'
+
+/** DiffView navigation + view state, kept per session so switching panels (which
+ *  UNMOUNTS the Diff panel — SessionTile conditionally renders it) doesn't reset
+ *  which file you're reviewing, the review scope, or your unified/split + wrap
+ *  toggles (Angel: state-loss on panel switch, same class as the file tree). */
+type DiffUi = {
+  selected: string | null
+  scope: DiffScope
+  layout: 'unified' | 'split'
+  ignoreWs: boolean
+  wordWrap: boolean
+  collapse: boolean
+}
+const diffUiMemo = new Map<string, DiffUi>()
+onForgetSession((sessionId) => diffUiMemo.delete(sessionId))
 
 const STATUS_MARK: Record<ChangedFile['status'], string> = {
   added: 'A',
@@ -76,7 +92,9 @@ export function DiffView({ sessionId }: { sessionId: string }): JSX.Element {
   const sendReview = useHang4r((s) => s.sendReview)
 
   const [files, setFiles] = useState<ChangedFile[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(
+    () => diffUiMemo.get(sessionId)?.selected ?? null
+  )
   const [diffText, setDiffText] = useState('')
   const [comments, setComments] = useState<ReviewComment[]>([])
   const [composing, setComposing] = useState<ComposeTarget | null>(null)
@@ -91,7 +109,9 @@ export function DiffView({ sessionId }: { sessionId: string }): JSX.Element {
   // click away. Local sessions have no branch base, so they default to the
   // working-tree diff.
   const [scope, setScope] = useState<DiffScope>(
-    session?.environment === 'worktree' ? 'branch' : 'uncommitted'
+    () =>
+      diffUiMemo.get(sessionId)?.scope ??
+      (session?.environment === 'worktree' ? 'branch' : 'uncommitted')
   )
   const [scopes, setScopes] = useState<ScopeSummary[]>([])
   const [adds, setAdds] = useState(0)
@@ -100,10 +120,16 @@ export function DiffView({ sessionId }: { sessionId: string }): JSX.Element {
   const [reviewAll, setReviewAll] = useState(false)
 
   // diff-viewer options (Cursor/VS Code diff toolbar — image 41)
-  const [layout, setLayout] = useState<'unified' | 'split'>('unified')
-  const [ignoreWs, setIgnoreWs] = useState(false)
-  const [wordWrap, setWordWrap] = useState(false)
-  const [collapse, setCollapse] = useState(false)
+  const [layout, setLayout] = useState<'unified' | 'split'>(
+    () => diffUiMemo.get(sessionId)?.layout ?? 'unified'
+  )
+  const [ignoreWs, setIgnoreWs] = useState(() => diffUiMemo.get(sessionId)?.ignoreWs ?? false)
+  const [wordWrap, setWordWrap] = useState(() => diffUiMemo.get(sessionId)?.wordWrap ?? false)
+  const [collapse, setCollapse] = useState(() => diffUiMemo.get(sessionId)?.collapse ?? false)
+  // write-through so a panel-switch remount restores the above
+  useEffect(() => {
+    diffUiMemo.set(sessionId, { selected, scope, layout, ignoreWs, wordWrap, collapse })
+  }, [sessionId, selected, scope, layout, ignoreWs, wordWrap, collapse])
   const [find, setFind] = useState('')
   const [findOpen, setFindOpen] = useState(false)
   const [matchCount, setMatchCount] = useState(0)

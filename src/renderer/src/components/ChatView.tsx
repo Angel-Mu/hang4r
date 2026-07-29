@@ -612,6 +612,35 @@ function fileBadge(name: string): string {
 }
 
 /** One-line tool row, Cursor-style: status · name · summary, expandable. */
+/** the file a file-op tool targets (Read/Write/Edit/MultiEdit/NotebookEdit) — for
+ *  the clickable "open this file" affordance. null for non-file tools. */
+function toolFilePath(input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null
+  const p = (input as Record<string, unknown>).file_path ?? (input as Record<string, unknown>).notebook_path
+  return typeof p === 'string' && p.length > 0 ? p : null
+}
+
+/**
+ * Open a path referenced in a tool call. Under the session's worktree → an editor
+ * tab (with :line). Absolute + OUTSIDE the worktree (e.g. /tmp files a run wrote)
+ * → a preview overlay (image/pdf render, text shows) since the editor is
+ * sandboxed to the workspace. Relative → workspace-relative editor tab.
+ */
+function openToolPath(sessionId: string, rawPath: string): void {
+  const store = useHang4r.getState()
+  const lm = /:(\d+)(?::\d+)?$/.exec(rawPath)
+  const path = lm ? rawPath.slice(0, lm.index) : rawPath
+  const line = lm ? Number(lm[1]) : undefined
+  const cwd = store.sessions.find((s) => s.id === sessionId)?.cwd
+  if (cwd && path.startsWith(cwd + '/')) {
+    store.requestOpenFile(sessionId, path.slice(cwd.length + 1), line)
+  } else if (path.startsWith('/')) {
+    void store.openFilePreview(sessionId, { name: path.split('/').pop() || path, path, external: true })
+  } else {
+    store.requestOpenFile(sessionId, path, line)
+  }
+}
+
 function CompactToolRow({
   item,
   sessionId
@@ -650,7 +679,24 @@ function CompactToolRow({
             {status}
           </span>
           <span className="tool-name">{item.toolName ?? 'tool'}</span>
-          <span className="tool-summary">{summarizeInput(item.toolInput)}</span>
+          {(() => {
+            const fp = toolFilePath(item.toolInput)
+            const summary = summarizeInput(item.toolInput)
+            return fp ? (
+              <span
+                className="tool-summary tool-path-link"
+                title={`Open ${fp}`}
+                onClick={(e) => {
+                  e.stopPropagation() // open the file, don't toggle the row
+                  openToolPath(sessionId, fp)
+                }}
+              >
+                {summary}
+              </span>
+            ) : (
+              <span className="tool-summary">{summary}</span>
+            )
+          })()}
           {item.parentToolUseId && <span className="subagent-badge">subagent</span>}
         </button>
         {isAgentRun && (

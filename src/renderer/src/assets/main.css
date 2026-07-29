@@ -597,6 +597,14 @@ button:disabled {
   font-family: var(--mono);
   font-size: 11px;
 }
+/* a file-op tool's path is a link — open it in the editor (or a preview) */
+.tool-path-link {
+  cursor: pointer;
+}
+.tool-path-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
 .subagent-badge {
   font-size: 10px;
   color: var(--amber);

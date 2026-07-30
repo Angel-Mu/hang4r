@@ -600,7 +600,19 @@ function UserMessageCard({
           ))}
         </div>
       )}
-      {item.text}
+      {/* a message with a ``` code fence renders as markdown (fenced block →
+          real code block) instead of showing the literal backticks; plain prose
+          stays verbatim so nothing else gets reinterpreted (Angel). */}
+      {item.text &&
+        (/(^|\n)```/.test(item.text) ? (
+          <div className="msg-user-md markdown-body">
+            <Markdown remarkPlugins={[remarkGfm]} components={chatMdComponents(sessionId)}>
+              {item.text}
+            </Markdown>
+          </div>
+        ) : (
+          item.text
+        ))}
     </div>
   )
 }

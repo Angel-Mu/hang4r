@@ -2049,6 +2049,11 @@ button:disabled {
   white-space: pre-wrap;
   line-height: 1.5;
 }
+/* markdown-rendered user message (has a code fence) — let the markdown lay itself
+   out instead of the card's pre-wrap; its own code blocks keep their whitespace */
+.msg-user-md {
+  white-space: normal;
+}
 
 /* "jump to latest" — sticks to the bottom-right of the scroll viewport while the
    user is scrolled up; hidden once the newest messages are back in view */

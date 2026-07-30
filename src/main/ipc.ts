@@ -12,7 +12,7 @@ import {
 } from 'electron'
 import { join, resolve as pathResolve, sep as pathSep } from 'path'
 import { homedir } from 'os'
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { pathToFileURL } from 'url'
 import type {
   DiffScope,
@@ -595,6 +595,35 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   const previewDocs = new Map<string, string>() // `${sessionId}:${relPath}` → html
   ipcMain.handle('preview:set', (_e, sessionId: string, relPath: string, html: string) => {
     previewDocs.set(`${sessionId}:${relPath.replace(/^\.?\//, '')}`, html)
+  })
+
+  // Downloads from the embedded browser (persist:hang4r-browser). With no
+  // will-download handler the file silently never lands (Angel: "downloadable
+  // file does not do it"). Save it to the OS Downloads folder (de-duped so a
+  // repeat download doesn't clobber), then notify with click-to-reveal.
+  session.fromPartition('persist:hang4r-browser').on('will-download', (_e, item) => {
+    const dir = app.getPath('downloads')
+    const name = item.getFilename() || 'download'
+    let dest = join(dir, name)
+    if (existsSync(dest)) {
+      const dot = name.lastIndexOf('.')
+      const base = dot > 0 ? name.slice(0, dot) : name
+      const ext = dot > 0 ? name.slice(dot) : ''
+      let i = 1
+      do {
+        dest = join(dir, `${base} (${i++})${ext}`)
+      } while (existsSync(dest))
+    }
+    item.setSavePath(dest)
+    item.once('done', (_ev, state) => {
+      const ok = state === 'completed'
+      const n = new Notification({
+        title: ok ? 'Download complete' : 'Download failed',
+        body: name
+      })
+      if (ok) n.on('click', () => shell.showItemInFolder(dest))
+      n.show()
+    })
   })
   session.fromPartition('persist:hang4r-preview').protocol.handle('hang4r-preview', async (req) => {
     try {

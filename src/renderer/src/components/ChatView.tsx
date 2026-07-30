@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type RefObject } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type JSX, type RefObject } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useHang4r, type TranscriptItem } from '../state/store'
@@ -85,8 +85,14 @@ type RenderUnit =
  * Cursor-style conversation: a centered column; user message cards; agent
  * prose; consecutive tool/thinking work collapsed into a "Worked for Ns"
  * activity group with compact one-line tool rows.
+ *
+ * MEMOIZED: the composer's `draft` lives in the store, so every keystroke
+ * re-renders the parent SessionTile. Without memo this re-rendered the ENTIRE
+ * transcript on each keystroke — perceptible typing lag in long conversations
+ * (Angel). Props are referentially stable while typing (items is the store ref,
+ * the rest are primitives/refs), so memo skips those re-renders.
  */
-export function ChatView({
+function ChatViewImpl({
   items,
   sessionId,
   running,
@@ -225,6 +231,10 @@ export function ChatView({
     </div>
   )
 }
+
+/** Memoized so a composer keystroke (store `draft` change → SessionTile re-render)
+ *  doesn't re-render the whole transcript — the typing-lag fix. */
+export const ChatView = memo(ChatViewImpl)
 
 /** Fold consecutive non-text blocks (tools, thinking) into activity groups. */
 function groupActivity(items: TranscriptItem[]): RenderUnit[] {

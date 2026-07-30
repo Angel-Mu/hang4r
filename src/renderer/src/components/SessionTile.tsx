@@ -10,7 +10,7 @@ import {
 import { createPortal } from 'react-dom'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import type { BackendId, ModelChoice, PermissionMode } from '../../../shared/protocol'
-import { useHang4r } from '../state/store'
+import { useHang4r, type TranscriptItem } from '../state/store'
 import { resumeCliCommand } from '../resumeCli'
 import { onForgetSession, onSeedSessionUi, persistSessionUi } from '../sessionUiMemos'
 import { contextWindow } from '../contextWindow'
@@ -86,6 +86,9 @@ onSeedSessionUi((sessionId, snap) => {
 
 /** stable empty ref — returning a fresh [] from a zustand selector loops (React #185) */
 const NO_ATTACHMENTS: { label: string; text: string }[] = []
+/** stable empty-items ref so a session with no transcript yet doesn't hand
+ *  ChatView a fresh [] every keystroke (which would defeat its memo) */
+const NO_ITEMS: TranscriptItem[] = []
 const NO_QUEUE: import('../state/store').QueuedMessage[] = []
 
 /** permission modes in the CLI's own Shift+Tab cycle order, with short labels */
@@ -1069,7 +1072,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
         <Group orientation="horizontal" className="pane-group">
           <Panel minSize="25%" defaultSize="46%" className="chat-panel">
             <ChatView
-              items={transcript?.items ?? []}
+              items={transcript?.items ?? NO_ITEMS}
               sessionId={sessionId}
               running={running}
               scrollRef={chatScrollRef}

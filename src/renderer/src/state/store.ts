@@ -553,6 +553,8 @@ interface Hang4rState {
   /** session ids pinned to the top of the sidebar (persisted) */
   pinnedSessionIds: string[]
   pinnedProjectIds: string[]
+  /** project ids whose workspace group is collapsed in the sidebar (persisted) */
+  collapsedProjectIds: string[]
   projectSort: 'name' | 'recent'
   /** manual workspace order (project ids); overrides sort when set */
   projectOrder: string[]
@@ -627,6 +629,7 @@ interface Hang4rState {
   closeContextMenu(): void
   togglePin(sessionId: string): void
   togglePinProject(projectId: string): void
+  toggleProjectCollapsed(projectId: string): void
   setProjectSort(sort: 'name' | 'recent'): void
   setSessionFilter(text: string): void
   archivedOpen: boolean
@@ -691,6 +694,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   gitNonce: 0,
   pinnedSessionIds: [],
   pinnedProjectIds: [],
+  collapsedProjectIds: [],
   projectSort: 'recent',
   projectOrder: [],
   setProjectOrder(ids) {
@@ -724,6 +728,16 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     if (pinnedProjJson) {
       try {
         set({ pinnedProjectIds: JSON.parse(pinnedProjJson) })
+      } catch {
+        /* ignore */
+      }
+    }
+    // restore collapsed workspaces (folder open/closed state)
+    const collapsedProjJson = await window.hang4r.getSetting('collapsedProjects')
+    if (collapsedProjJson) {
+      try {
+        const ids = JSON.parse(collapsedProjJson)
+        if (Array.isArray(ids)) set({ collapsedProjectIds: ids })
       } catch {
         /* ignore */
       }
@@ -979,6 +993,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       projects,
       sessions,
       pinnedProjectIds: s.pinnedProjectIds.filter((id) => id !== projectId),
+      collapsedProjectIds: s.collapsedProjectIds.filter((id) => id !== projectId),
       newSessionProjectId: s.newSessionProjectId === projectId ? null : s.newSessionProjectId
     }))
   },
@@ -1375,6 +1390,15 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         : [...s.pinnedProjectIds, projectId]
       void window.hang4r.setSetting('pinnedProjects', JSON.stringify(pinned))
       return { pinnedProjectIds: pinned }
+    })
+  },
+  toggleProjectCollapsed(projectId) {
+    set((s) => {
+      const collapsed = s.collapsedProjectIds.includes(projectId)
+        ? s.collapsedProjectIds.filter((id) => id !== projectId)
+        : [...s.collapsedProjectIds, projectId]
+      void window.hang4r.setSetting('collapsedProjects', JSON.stringify(collapsed))
+      return { collapsedProjectIds: collapsed }
     })
   },
   setProjectSort(sort) {

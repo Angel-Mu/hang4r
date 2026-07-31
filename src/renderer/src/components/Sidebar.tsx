@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   BackendId,
   ClaudeUsageSnapshot,
@@ -59,13 +59,10 @@ export function Sidebar(): JSX.Element {
   // per-workspace collapse (open/closed folder), like Cursor
   const projectOrder = useHang4r((s) => s.projectOrder)
   const [dropTarget, setDropTarget] = useState<{ id: string; before: boolean } | null>(null)
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const toggleCollapsed = (id: string): void =>
-    setCollapsed((c) => {
-      const next = new Set(c)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+  // per-workspace collapse is persisted in the store (survives an app restart), keyed by project id
+  const collapsedProjectIds = useHang4r((s) => s.collapsedProjectIds)
+  const toggleCollapsed = useHang4r((s) => s.toggleProjectCollapsed)
+  const collapsed = useMemo(() => new Set(collapsedProjectIds), [collapsedProjectIds])
   useEffect(() => {
     void window.hang4r.cursorAvailable().then(setCursorAvailable)
     void window.hang4r.claudeImportAvailable().then(setClaudeImportAvailable)

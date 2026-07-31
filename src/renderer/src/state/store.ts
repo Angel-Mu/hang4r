@@ -944,6 +944,29 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     window.addEventListener('focus', () => {
       for (const id of get().openSessionIds) void window.hang4r.resyncSession(id).catch(() => {})
     })
+
+    // LIVE remote-control: focus-only sync meant a conversation driven from your
+    // phone (/remote-control) didn't update on the desktop until you next sent a
+    // prompt — the transcript sat stale, then dumped all the missed turns at once
+    // (Angel: "not useful… we want to rely on that"). Poll the open sessions while
+    // hang4r is visible so external turns stream in ~live. resyncSession self-
+    // guards: it's a cheap no-op when the session is mid local-turn or has nothing
+    // new, and imported turns broadcast as external-turn events into the transcript.
+    setInterval(() => {
+      if (document.hidden) return
+      const st = get()
+      for (const id of st.openSessionIds) {
+        const s = st.sessions.find((x) => x.id === id)
+        if (
+          s?.backend === 'claude' &&
+          s.environment !== 'ssh' &&
+          s.status !== 'running' &&
+          s.status !== 'starting'
+        ) {
+          void window.hang4r.resyncSession(id).catch(() => {})
+        }
+      }
+    }, 2500)
   },
 
   async removeProject(projectId) {

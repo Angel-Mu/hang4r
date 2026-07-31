@@ -337,6 +337,16 @@ app.on('before-quit', (event) => {
   sessionManager?.disposeAll()
   getPtyService()?.disposeAll()
   getBrowserControl()?.dispose()
+
+  // node-pty's ThreadSafeFunction can fire during Node's graceful environment
+  // teardown AFTER quit and throw into an already-freed JS context → the SIGABRT
+  // "hang4r quit unexpectedly" crash Angel hit every time on close/reinstall
+  // (stack: pty.node → Napi::ThreadSafeFunction::CallJS in CleanupHandles). The
+  // PTYs are killed above and better-sqlite3 writes synchronously, so terminate
+  // now and skip the teardown that crashes. Squirrel's installer only needs the
+  // process to exit, so in-app updates still apply. (Not under e2e — Playwright
+  // owns the quit there and clean shells don't wedge teardown.)
+  if (!QUIET_TEST_MODE) app.exit(0)
 })
 
 app.on('window-all-closed', () => {

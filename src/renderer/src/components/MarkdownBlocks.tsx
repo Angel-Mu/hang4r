@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import { isDarkTheme, resolveTheme } from '../theme'
 import { useHang4r } from '../state/store'
 
@@ -11,37 +11,53 @@ import { useHang4r } from '../state/store'
 let mermaidSeq = 0
 
 export function MermaidBlock({ code }: { code: string }): JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
+  const [svg, setSvg] = useState<string | null>(null)
   const [err, setErr] = useState(false)
   useEffect(() => {
     let alive = true
-    setErr(false)
-    void import('mermaid').then(async ({ default: mermaid }) => {
-      try {
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          theme: isDarkTheme(resolveTheme(useHang4r.getState().theme)) ? 'dark' : 'default'
+    // DEBOUNCE: while a message streams, `code` arrives in fragments and each
+    // one fired its own mermaid.render — mermaid isn't re-entrant, so the pile
+    // of concurrent renders could leave the FINAL diagram blank (Angel: a
+    // flowchart rendered as an empty box). Wait for the code to settle, render
+    // once. Also fall back to the raw code on throw, empty output, OR timeout —
+    // so a diagram that can't render is never a blank box, always readable code.
+    const timer = setTimeout(() => {
+      void import('mermaid')
+        .then(async ({ default: mermaid }) => {
+          mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: 'strict',
+            theme: isDarkTheme(resolveTheme(useHang4r.getState().theme)) ? 'dark' : 'default'
+          })
+          const renderId = `hang4r-mmd-${++mermaidSeq}`
+          try {
+            const out = await Promise.race([
+              mermaid.render(renderId, code),
+              new Promise<{ svg: string }>((_, reject) =>
+                setTimeout(() => reject(new Error('mermaid render timed out')), 8000)
+              )
+            ])
+            if (!alive) return
+            if (out.svg && out.svg.includes('<svg')) {
+              setSvg(out.svg)
+              setErr(false)
+            } else setErr(true)
+          } finally {
+            // a failed render leaves mermaid's temp element orphaned in <body>
+            document.getElementById(renderId)?.remove()
+            document.getElementById(`d${renderId}`)?.remove()
+          }
         })
-        const renderId = `hang4r-mmd-${++mermaidSeq}`
-        try {
-          const { svg } = await mermaid.render(renderId, code)
-          if (alive && ref.current) ref.current.innerHTML = svg
-        } finally {
-          // a FAILED render leaves mermaid's temp element orphaned in body —
-          // one per mid-stream partial diagram adds up (QA hunt 7)
-          document.getElementById(renderId)?.remove()
-          document.getElementById(`d${renderId}`)?.remove()
-        }
-      } catch {
-        // mid-stream partial diagrams parse-fail constantly — fall back to code
-        if (alive) setErr(true)
-      }
-    })
+        .catch(() => {
+          if (alive) setErr(true)
+        })
+    }, 250)
     return () => {
       alive = false
+      clearTimeout(timer)
     }
   }, [code])
+
   if (err) {
     return (
       <pre className="md-code">
@@ -49,7 +65,10 @@ export function MermaidBlock({ code }: { code: string }): JSX.Element {
       </pre>
     )
   }
-  return <div className="mermaid-block" ref={ref} />
+  // rendered declaratively (not via a ref) so the SVG can't be dropped by an
+  // error→success re-render race. mermaid's strict mode sanitizes the SVG.
+  if (svg) return <div className="mermaid-block" dangerouslySetInnerHTML={{ __html: svg }} />
+  return <div className="mermaid-block mermaid-block-loading">rendering diagram…</div>
 }
 
 /** resolve a relative md link against the previewed file's directory (posix) */

@@ -5838,6 +5838,12 @@ button:disabled {
   max-width: 100%;
   height: auto;
 }
+/* while the diagram renders (debounced during streaming) — not a blank box */
+.mermaid-block-loading {
+  color: var(--text-faint);
+  font-size: 12px;
+  font-style: italic;
+}
 
 /* editor font size also drives the rendered md preview + the file tree */
 .code-editor-preview .markdown-body {

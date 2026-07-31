@@ -300,6 +300,17 @@ test.describe('agent session flow', () => {
     // the sidebar now has one usage pane per backend — target the Claude one
     await expect(page.locator('.usage-scope', { hasText: 'Claude usage' })).toBeVisible()
     await expect(page.locator('.sidebar-usage .usage-stat').first()).toContainText('k')
+    // cost clarity (v1.0.53): the per-turn line reads as the SESSION's running total
+    // ("session $…", not a turn price), and the sidebar dollar is separated from the
+    // rate-limit gauges and marked API-equivalent / not-billed.
+    await expect(tile.locator('.turn-info').last()).toContainText('session $')
+    const claudePane = page.locator('.sidebar-usage', {
+      has: page.locator('.usage-scope', { hasText: 'Claude usage' })
+    })
+    await expect(
+      claudePane.locator('.usage-section-label', { hasText: 'For reference' })
+    ).toBeVisible()
+    await expect(claudePane.locator('.usage-stat', { hasText: 'API-equiv' })).toBeVisible()
     await expect(page.locator('.session-ctx-pill')).toHaveCount(0)
     // Cursor pane: always rendered (same unconditional visibility as Claude/Codex),
     // honest about having no quota windows — expand it and check its own markup.

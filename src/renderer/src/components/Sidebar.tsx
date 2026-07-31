@@ -822,6 +822,14 @@ function BackendUsagePanel<T extends { windows: { label: string; pct: number; re
               showing cached usage — refreshing…
             </div>
           )}
+          {windows.length > 0 && (
+            <div
+              className="usage-section-label"
+              title="How much of your plan's rate limits you've used. This is the number that actually constrains you — it resets on the schedule shown."
+            >
+              Rate limits
+            </div>
+          )}
           {windows.map((w) => {
             const cls = w.pct >= 90 ? 'gauge-bad' : w.pct >= 70 ? 'gauge-warn' : 'gauge-ok'
             return (
@@ -834,12 +842,21 @@ function BackendUsagePanel<T extends { windows: { label: string; pct: number; re
               />
             )
           })}
+          <div
+            className="usage-section-label"
+            title="What this backend's sessions would cost through the pay-per-token API. On your Claude subscription this is covered by your plan — it is NOT billed on top. Can go down when a session is closed/archived or auto-resumes."
+          >
+            For reference · not billed
+          </div>
           <div className="usage-stats">
             <span className="usage-stat" title={`tokens in / out — ${backend} sessions this app run`}>
               ⤓ {fmtTok(stats.inputTokens)} · ⤒ {fmtTok(stats.outputTokens)}
             </span>
-            <span className="usage-stat" title="API-equivalent cost across this backend">
-              ~${stats.totalCost.toFixed(2)}
+            <span
+              className="usage-stat"
+              title="API-equivalent cost across this backend's open sessions — covered by your plan, not billed"
+            >
+              ~${stats.totalCost.toFixed(2)} API-equiv
             </span>
           </div>
           {snapshot && renderExtra(snapshot)}

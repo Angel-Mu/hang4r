@@ -411,12 +411,12 @@ function TranscriptItemView({
           className="turn-info"
           title={
             item.costUsd
-              ? 'API-equivalent cost — informational. On a Claude subscription (Pro/Max) this is covered by your plan, not billed on top.'
+              ? "This session's running total — the API-equivalent cost of just this session (not other open sessions). It's what these turns would cost through the pay-per-token API; on your Claude subscription it's covered by your plan, not billed on top."
               : undefined
           }
         >
           {item.durationMs ? `done · ${(item.durationMs / 1000).toFixed(1)}s` : 'done'}
-          {item.costUsd ? ` · $${item.costUsd.toFixed(4)}` : ''}
+          {item.costUsd ? ` · session $${item.costUsd.toFixed(2)}` : ''}
         </div>
       )
     }

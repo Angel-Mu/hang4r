@@ -100,6 +100,43 @@ function ensureDiagnostics(): void {
 
 const HANG4R_DARK = 'hang4r-dark'
 
+let ideNavKeysRegistered = false
+/**
+ * macOS IDE navigation/editing keys — registered ONCE, globally, not per editor.
+ *
+ * Monaco's standalone build doesn't bind ⌘←/→ (line start/end) or ⌘↑/↓ (file
+ * top/bottom) on a MacBook (its defaults use Home/End/Fn keys a laptop lacks),
+ * so those silently did nothing while ⌥+arrow word-jump worked (Angel's report).
+ *
+ * The previous fix bound them per-editor via `editor.addCommand`, but every
+ * CodeEditor shares Monaco's ONE standalone keybinding service, and each
+ * addCommand closes over its own editor with no focus scoping — so the
+ * last-mounted editor's handler won for everyone, firing cursor moves on the
+ * wrong (often hidden) editor once several files were open → the keys appeared
+ * dead. A global keybinding RULE maps each chord to a core command that Monaco
+ * always dispatches to the FOCUSED editor, so it just works with any number of
+ * editors open. `when: editorTextFocus` keeps it from touching plain inputs.
+ */
+function ensureIdeNavKeybindings(): void {
+  if (ideNavKeysRegistered) return
+  ideNavKeysRegistered = true
+  const { CtrlCmd, Shift, WinCtrl } = monaco.KeyMod
+  const KC = monaco.KeyCode
+  monaco.editor.addKeybindingRules([
+    { keybinding: CtrlCmd | KC.LeftArrow, command: 'cursorHome', when: 'editorTextFocus' }, // ⌘← line start
+    { keybinding: CtrlCmd | KC.RightArrow, command: 'cursorEnd', when: 'editorTextFocus' }, // ⌘→ line end
+    { keybinding: CtrlCmd | Shift | KC.LeftArrow, command: 'cursorHomeSelect', when: 'editorTextFocus' }, // ⌘⇧← select to line start
+    { keybinding: CtrlCmd | Shift | KC.RightArrow, command: 'cursorEndSelect', when: 'editorTextFocus' }, // ⌘⇧→ select to line end
+    { keybinding: CtrlCmd | KC.UpArrow, command: 'cursorTop', when: 'editorTextFocus' }, // ⌘↑ file top
+    { keybinding: CtrlCmd | KC.DownArrow, command: 'cursorBottom', when: 'editorTextFocus' }, // ⌘↓ file bottom
+    { keybinding: CtrlCmd | Shift | KC.UpArrow, command: 'cursorTopSelect', when: 'editorTextFocus' }, // ⌘⇧↑ select to top
+    { keybinding: CtrlCmd | Shift | KC.DownArrow, command: 'cursorBottomSelect', when: 'editorTextFocus' }, // ⌘⇧↓ select to bottom
+    { keybinding: CtrlCmd | KC.KeyD, command: 'editor.action.addSelectionToNextFindMatch', when: 'editorTextFocus' }, // ⌘D multicursor
+    { keybinding: CtrlCmd | WinCtrl | KC.UpArrow, command: 'editor.action.moveLinesUpAction', when: 'editorTextFocus' }, // ⌃⌘↑ move line up
+    { keybinding: CtrlCmd | WinCtrl | KC.DownArrow, command: 'editor.action.moveLinesDownAction', when: 'editorTextFocus' } // ⌃⌘↓ move line down
+  ])
+}
+
 /** (re)define the dark Monaco theme from the ACTIVE theme's tokens — called on
  *  every theme application, so dark and nord each get their own ground instead
  *  of a baked-in hex that matches neither. */
@@ -471,12 +508,17 @@ export function CodeEditor({
       return { newStart, rows }
     }
     let zoneId: string | null = null
+    // true only while a git-peek zone is open — gates the Esc command below so it
+    // doesn't shadow Monaco's built-in Escape (close suggest widget, collapse
+    // multi-cursor, dismiss hover). Angel: couldn't Esc-dismiss the autocomplete.
+    const peekOpenKey = editor.createContextKey<boolean>('hang4rPeekOpen', false)
     const clearZone = (): void => {
       if (zoneId !== null) {
         const z = zoneId
         editor.changeViewZones((a) => a.removeZone(z))
         zoneId = null
       }
+      peekOpenKey.set(false)
     }
     const showPeek = (line: number): void => {
       peekLineRef.current = line
@@ -520,13 +562,16 @@ export function CodeEditor({
             domNode: zone
           })
         })
+        peekOpenKey.set(true)
         editor.revealLineInCenterIfOutsideViewport(line)
       })
     }
     const hidePeek = (): void => clearZone()
     peekControlsRef.current = { show: showPeek, hide: hidePeek }
-    // Esc closes the peek
-    editor.addCommand(monaco.KeyCode.Escape, () => hidePeek())
+    // Esc closes the peek — but ONLY while a peek is open (the 3rd arg is the
+    // when-clause). Without it, this shadowed Monaco's default Escape and broke
+    // dismissing the suggest widget / collapsing multi-cursor / closing hover.
+    editor.addCommand(monaco.KeyCode.Escape, () => hidePeek(), 'hang4rPeekOpen')
     // click a change bar in the gutter → open the inline peek at that line
     editor.onMouseDown((e) => {
       const t = e.target.type
@@ -581,30 +626,10 @@ export function CodeEditor({
     // eats the key before any window-level handler, so this IS the routing.
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, () => openFindRef.current())
 
-    // ---- macOS IDE navigation/editing keys ----
-    // Monaco's standalone build binds line/doc navigation to Home/End/Fn — keys a
-    // MacBook keyboard doesn't have — so ⌘←/⌘→ (line start/end) and ⌘↑/⌘↓ (file
-    // top/bottom) silently did nothing for Angel while alt+arrow word-jump still
-    // worked. Bind them explicitly (plus ⇧ select variants, ⌘D multicursor, and
-    // ⌃⌘↑/↓ move-line) so the editor matches Cursor/VS Code. addCommand overrides
-    // any default and only fires while THIS editor has focus; it also beats window
-    // handlers since Monaco eats the key first. alt+↑/↓ move-line stays as-is.
-    const { CtrlCmd, Shift, WinCtrl } = monaco.KeyMod
-    const KC = monaco.KeyCode
-    const bindKey = (kb: number, handlerId: string): void => {
-      editor.addCommand(kb, () => editor.trigger('keybinding', handlerId, null))
-    }
-    bindKey(CtrlCmd | KC.LeftArrow, 'cursorHome') // ⌘← line start (smart-home)
-    bindKey(CtrlCmd | KC.RightArrow, 'cursorEnd') // ⌘→ line end
-    bindKey(CtrlCmd | Shift | KC.LeftArrow, 'cursorHomeSelect') // ⌘⇧← select to line start
-    bindKey(CtrlCmd | Shift | KC.RightArrow, 'cursorEndSelect') // ⌘⇧→ select to line end
-    bindKey(CtrlCmd | KC.UpArrow, 'cursorTop') // ⌘↑ file top
-    bindKey(CtrlCmd | KC.DownArrow, 'cursorBottom') // ⌘↓ file bottom
-    bindKey(CtrlCmd | Shift | KC.UpArrow, 'cursorTopSelect') // ⌘⇧↑ select to top
-    bindKey(CtrlCmd | Shift | KC.DownArrow, 'cursorBottomSelect') // ⌘⇧↓ select to bottom
-    bindKey(CtrlCmd | KC.KeyD, 'editor.action.addSelectionToNextFindMatch') // ⌘D multicursor
-    bindKey(CtrlCmd | WinCtrl | KC.UpArrow, 'editor.action.moveLinesUpAction') // ⌃⌘↑ move line up
-    bindKey(CtrlCmd | WinCtrl | KC.DownArrow, 'editor.action.moveLinesDownAction') // ⌃⌘↓ move line down
+    // ---- macOS IDE navigation/editing keys (⌘←/→ line, ⌘↑/↓ doc, ⌘D, ⌃⌘↑/↓) ----
+    // Registered ONCE globally (not per-editor) so they dispatch to the FOCUSED
+    // editor regardless of how many files are open — see ensureIdeNavKeybindings.
+    ensureIdeNavKeybindings()
 
     // Cmd/Ctrl-click: an import/path string → open that file; otherwise treat the
     // identifier under the cursor as a symbol and jump to its definition.

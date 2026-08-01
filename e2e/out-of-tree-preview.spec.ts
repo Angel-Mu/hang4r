@@ -27,7 +27,11 @@ test('out-of-tree files (absolute + ~) are previewable, not a blank editor', asy
     await page.getByRole('button', { name: /Start agent/ }).click()
     const tile = page.locator('.tile').first()
     await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
-    const sessionId: string = await page.evaluate(async () => (await window.hang4r.listSessions())[0].id)
+    const session = await page.evaluate(async () => {
+      const s = (await window.hang4r.listSessions())[0]
+      return { id: s.id, cwd: s.cwd }
+    })
+    const sessionId = session.id
 
     // (1) absolute out-of-tree file (the /tmp case) → read verbatim
     mkdirSync(ootDir, { recursive: true })
@@ -51,6 +55,19 @@ test('out-of-tree files (absolute + ~) are previewable, not a blank editor', asy
       { sid: sessionId, p: `~/.hang4r-e2e-${rand}/home.md` }
     )
     expect(tildeRes?.text ?? '').toContain(homeMarker)
+
+    // (3) a bare name that actually lives in a SUBDIR (e.g. clicking
+    // "settings.local.json" that's really at .claude/settings.local.json) →
+    // resolve by unique basename within the project, not a "couldn't open" miss
+    // write into the session's ACTUAL cwd (a worktree by default), not `repo`
+    mkdirSync(join(session.cwd, 'nested-dir'), { recursive: true })
+    const subMarker = `SUBDIR_BASENAME_${rand}_readable_body`
+    writeFileSync(join(session.cwd, 'nested-dir', `deep-${rand}.md`), `# nested\n\n${subMarker}\n`)
+    const subRes = await page.evaluate(
+      (a) => window.hang4r.previewAttachment(a.sid, a.p, true),
+      { sid: sessionId, p: `deep-${rand}.md` } // bare name, not the subdir path
+    )
+    expect(subRes?.text ?? '').toContain(subMarker)
   } finally {
     rmSync(ootDir, { recursive: true, force: true })
     rmSync(homeDir, { recursive: true, force: true })

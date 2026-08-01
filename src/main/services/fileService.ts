@@ -1,7 +1,7 @@
 import { readdir, readFile, stat, writeFile, mkdir, rename, rm } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
 import { execFile } from 'node:child_process'
-import { isAbsolute, join, normalize, relative, sep } from 'node:path'
+import { basename, isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { promisify } from 'node:util'
 import type { Attachment, DirEntry } from '../../shared/protocol'
@@ -269,8 +269,23 @@ export const FileService = {
     // expand a leading ~ (home) so a path like ~/.claude/… the agent wrote
     // outside the worktree resolves to a real absolute path we can preview.
     const expanded = p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p
-    const file = external && isAbsolute(expanded) ? expanded : safeJoin(root, p)
-    const s = await stat(file).catch(() => null)
+    let file = external && isAbsolute(expanded) ? expanded : safeJoin(root, p)
+    let s = await stat(file).catch(() => null)
+    // Not at its literal location? A path referenced by bare/short name in the
+    // conversation (e.g. "settings.local.json") often lives in a subdir like
+    // .claude/. Resolve it by BASENAME within the project — but only when EXACTLY
+    // one file matches, so we never guess wrong. includeIgnored so local files
+    // (a gitignored .claude/settings.local.json) still resolve.
+    if (!s && !isAbsolute(expanded)) {
+      const base = basename(expanded)
+      const matches = (await this.listAllFiles(root, undefined, true).catch(() => [])).filter(
+        (f) => basename(f) === base
+      )
+      if (matches.length === 1) {
+        file = safeJoin(root, matches[0])
+        s = await stat(file).catch(() => null)
+      }
+    }
     if (!s) return null
     const kind = attachmentKind(p)
     if (s.size > 12 * 1024 * 1024) {

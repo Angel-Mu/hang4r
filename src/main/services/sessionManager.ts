@@ -163,7 +163,15 @@ export class SessionManager {
     const adapter = this.spawnAdapter(session)
     this.adapters.set(session.id, adapter)
     if (firstPrompt) {
-      adapter.prompt(firstPrompt)
+      // carry any modal-attached files/images into the first turn — same shape as
+      // SessionManager.prompt: agent-facing text + images + the display/card echo
+      adapter.prompt(
+        firstPrompt,
+        req.firstImages,
+        req.firstFiles?.length || req.firstDisplayText !== undefined
+          ? { files: req.firstFiles, displayText: req.firstDisplayText }
+          : undefined
+      )
       this.updateSession(session.id, { status: 'running' })
     } else {
       // No first turn: the session (worktree, adapter) is live but idle, ready

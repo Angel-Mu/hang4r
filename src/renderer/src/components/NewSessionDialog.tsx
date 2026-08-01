@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import type { BackendId, EnvironmentKind, ModelChoice, PermissionMode } from '../../../shared/protocol'
+import type {
+  Attachment,
+  BackendId,
+  EnvironmentKind,
+  ModelChoice,
+  PermissionMode
+} from '../../../shared/protocol'
 import { CLAUDE_MODELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
 import { useClaudeModels } from '../useClaudeModels'
-import { useHang4r } from '../state/store'
+import { useHang4r, composeMessage } from '../state/store'
 import { Icon, type IconName } from './Icon'
 
 const claudeVariants = CLAUDE_MODELS.filter((m) => m.value !== '').map((m) => ({
@@ -77,6 +83,7 @@ export function NewSessionDialog(): JSX.Element | null {
     // permission are re-resolved from settings on every open below.
     if (storeProjectId) {
       setPrompt('')
+      setAttachments([])
       setName('')
       setError(null)
       setBestOfN(false)
@@ -104,6 +111,7 @@ export function NewSessionDialog(): JSX.Element | null {
   const [cursorModels, setCursorModels] = useState<ModelChoice[]>(FALLBACK_CURSOR_MODELS)
   const claudeModels = useClaudeModels()
   const [prompt, setPrompt] = useState('')
+  const [attachments, setAttachments] = useState<Attachment[]>([])
   const [name, setName] = useState('')
   const [bestOfN, setBestOfN] = useState(false)
   const [variants, setVariants] = useState<Set<number>>(new Set())
@@ -204,9 +212,14 @@ export function NewSessionDialog(): JSX.Element | null {
             model: variantChoices[i].model
           })),
           permissionMode,
-          prompt.trim()
+          prompt.trim(),
+          attachments
         )
       } else {
+        // fold any attached files into the first turn: `full` is agent-facing
+        // (file bytes fenced in), the rest drives the transcript's file cards —
+        // the same shape the composer uses for follow-up messages.
+        const composed = composeMessage(prompt.trim(), attachments)
         await createSession({
           projectId,
           backend,
@@ -216,7 +229,10 @@ export function NewSessionDialog(): JSX.Element | null {
           title: name.trim() || undefined,
           // empty prompt is legal: the session is created idle (worktree +
           // adapter ready), no first turn — start now, prompt from the tile
-          firstPrompt: prompt.trim() || undefined,
+          firstPrompt: composed.full || undefined,
+          firstImages: composed.images.length ? composed.images : undefined,
+          firstFiles: composed.files.length ? composed.files : undefined,
+          firstDisplayText: composed.files.length ? composed.displayText : undefined,
           ...(environment === 'ssh'
             ? {
                 remoteHostId: selectedHost?.id,
@@ -226,6 +242,7 @@ export function NewSessionDialog(): JSX.Element | null {
         })
       }
       setPrompt('')
+      setAttachments([])
       setName('')
     } catch (err) {
       // strip Electron's IPC wrapper so the user sees the actual reason
@@ -452,6 +469,59 @@ export function NewSessionDialog(): JSX.Element | null {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submit()
           }}
         />
+
+        <div className="dialog-attach-row">
+          <button
+            type="button"
+            className="dialog-attach-btn"
+            title="Attach files — sent with the first prompt"
+            onClick={() =>
+              void window.hang4r
+                .pickAttachments()
+                .then((atts) => setAttachments((cur) => [...cur, ...atts]))
+            }
+          >
+            <Icon name="paperclip" size={13} /> Attach files
+          </button>
+          {attachments.length > 0 && (
+            <button
+              type="button"
+              className="dialog-attach-clear"
+              onClick={() => setAttachments([])}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {attachments.length > 0 && (
+          <div className="composer-chips dialog-chips">
+            {attachments.map((a, i) => (
+              <span
+                key={i}
+                className={'context-chip' + (a.image ? ' context-chip-image' : '')}
+                title={a.image ? a.label : a.text?.slice(0, 400)}
+              >
+                {a.image ? (
+                  <img
+                    className="chip-thumb"
+                    src={`data:${a.image.mediaType};base64,${a.image.base64}`}
+                    alt={a.label}
+                  />
+                ) : (
+                  '⌗ '
+                )}
+                {a.label}
+                <button
+                  className="context-chip-x"
+                  title="Remove"
+                  onClick={() => setAttachments((cur) => cur.filter((_, j) => j !== i))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
 
         {error && <div className="dialog-error">{error}</div>}
 

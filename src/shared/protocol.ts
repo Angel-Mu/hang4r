@@ -265,6 +265,14 @@ export interface NewSessionRequest {
    * the Cursor-style "start an agent without a prompt yet" flow.
    */
   firstPrompt?: string
+  /**
+   * First-turn attachments (from the new-session modal's file picker). Mirror the
+   * follow-up `prompt` params: `firstPrompt` holds the agent-facing text with file
+   * bytes fenced in, while these carry the images + the display-only card metadata.
+   */
+  firstImages?: PromptImage[]
+  firstFiles?: PromptFile[]
+  firstDisplayText?: string
   /** environment 'ssh': which configured host to run on + remote working dir */
   remoteHostId?: string
   remoteDir?: string

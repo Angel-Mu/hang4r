@@ -51,7 +51,7 @@ export interface QueuedMessage {
  * RENDERS: file attachments become cards (their bytes never shown), while inline
  * snippets (a quoted selection with no file) stay in the text.
  */
-function composeMessage(
+export function composeMessage(
   text: string,
   atts: Attachment[]
 ): {
@@ -573,7 +573,8 @@ interface Hang4rState {
     projectId: string,
     variants: { backend: 'claude' | 'codex'; model?: string }[],
     permissionMode: Parameters<typeof window.hang4r.createSession>[0]['permissionMode'],
-    firstPrompt: string
+    firstPrompt: string,
+    attachments?: Attachment[]
   ): Promise<void>
   openSession(sessionId: string, opts?: { split?: boolean }): Promise<void>
   /** Load a session's transcript if not already loaded; no-op if it is. */
@@ -1031,7 +1032,8 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     await get().openSession(session.id)
   },
 
-  async createBestOfN(projectId, variants, permissionMode, firstPrompt) {
+  async createBestOfN(projectId, variants, permissionMode, firstPrompt, attachments) {
+    const composed = composeMessage(firstPrompt, attachments ?? [])
     for (const v of variants.slice(0, 4)) {
       const session = await window.hang4r.createSession({
         projectId,
@@ -1040,7 +1042,10 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         model: v.model || undefined,
         permissionMode,
         title: `${firstPrompt.slice(0, 40)} [${v.backend}${v.model ? '/' + v.model : ''}]`,
-        firstPrompt
+        firstPrompt: composed.full || firstPrompt,
+        firstImages: composed.images.length ? composed.images : undefined,
+        firstFiles: composed.files.length ? composed.files : undefined,
+        firstDisplayText: composed.files.length ? composed.displayText : undefined
       })
       set((s) => ({
         sessions: s.sessions.some((x) => x.id === session.id)

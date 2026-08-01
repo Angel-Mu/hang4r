@@ -848,6 +848,42 @@ button:disabled {
   min-height: 80px;
 }
 
+.dialog-attach-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.dialog-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.dialog-attach-btn:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+.dialog-attach-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+}
+.dialog-attach-clear:hover {
+  color: var(--text-muted);
+}
+.dialog-chips {
+  margin-top: 8px;
+}
+
 .dialog-error {
   color: var(--red);
   font-size: 12px;

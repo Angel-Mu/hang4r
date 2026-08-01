@@ -334,19 +334,40 @@ app.on('before-quit', (event) => {
     }
   }
 
-  sessionManager?.disposeAll()
-  getPtyService()?.disposeAll()
-  getBrowserControl()?.dispose()
+  try {
+    sessionManager?.disposeAll()
+    getPtyService()?.disposeAll()
+    getBrowserControl()?.dispose()
+  } catch {
+    // best-effort — we're terminating regardless; a disposal error must not
+    // fall through to the graceful teardown that crashes (below)
+  }
 
-  // node-pty's ThreadSafeFunction can fire during Node's graceful environment
-  // teardown AFTER quit and throw into an already-freed JS context → the SIGABRT
-  // "hang4r quit unexpectedly" crash Angel hit every time on close/reinstall
-  // (stack: pty.node → Napi::ThreadSafeFunction::CallJS in CleanupHandles). The
-  // PTYs are killed above and better-sqlite3 writes synchronously, so terminate
-  // now and skip the teardown that crashes. Squirrel's installer only needs the
-  // process to exit, so in-app updates still apply. (Not under e2e — Playwright
-  // owns the quit there and clean shells don't wedge teardown.)
-  if (!QUIET_TEST_MODE) app.exit(0)
+  // "hang4r quit unexpectedly" (SIGABRT) crash on close/reinstall. Stack:
+  // node::Environment::CleanupHandles → uv_run → node::ThreadPoolWork (node-pty's
+  // waitpid completion) → pty.node ThreadSafeFunction::CallJS →
+  // ThrowAsJavaScriptException → abort. When we kill the PTYs above, node-pty has
+  // an in-flight libuv work item to reap the child; Node's graceful shutdown runs
+  // a FINAL uv_run inside CleanupHandles that drains it, firing node-pty's onExit
+  // ThreadSafeFunction into a JS context that's already being freed → it throws
+  // during teardown → abort.
+  //
+  // app.exit(0) was NOT enough (v1.0.51): Electron's exit still runs
+  // FreeEnvironment → CleanupHandles → that fatal uv_run. The only reliable fix
+  // is to skip Node/libuv cleanup ENTIRELY — SIGKILL is uncatchable and
+  // terminates the process instantly, so the pty callback never runs. Safe: the
+  // PTYs are already killed, better-sqlite3 commits synchronously (WAL is
+  // crash-safe, replays on next open — no data loss), and Squirrel's installer
+  // only needs the process to EXIT for an in-app update to apply (it does, even
+  // through the old crash). Not under e2e — Playwright owns the quit there and a
+  // hard kill would break its teardown/coverage.
+  if (!QUIET_TEST_MODE) {
+    try {
+      process.kill(process.pid, 'SIGKILL')
+    } catch {
+      app.exit(0) // SIGKILL never returns; this is a paranoid fallback only
+    }
+  }
 })
 
 app.on('window-all-closed', () => {

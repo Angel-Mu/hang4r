@@ -2,6 +2,7 @@ import { readdir, readFile, stat, writeFile, mkdir, rename, rm } from 'node:fs/p
 import { existsSync, type Dirent } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { isAbsolute, join, normalize, relative, sep } from 'node:path'
+import { homedir } from 'node:os'
 import { promisify } from 'node:util'
 import type { Attachment, DirEntry } from '../../shared/protocol'
 import { shellQuote, type Exec } from './remoteService'
@@ -265,7 +266,10 @@ export const FileService = {
     p: string,
     external?: boolean
   ): Promise<{ dataUrl?: string; text?: string; kind: string } | null> {
-    const file = external && isAbsolute(p) ? p : safeJoin(root, p)
+    // expand a leading ~ (home) so a path like ~/.claude/… the agent wrote
+    // outside the worktree resolves to a real absolute path we can preview.
+    const expanded = p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p
+    const file = external && isAbsolute(expanded) ? expanded : safeJoin(root, p)
     const s = await stat(file).catch(() => null)
     if (!s) return null
     const kind = attachmentKind(p)

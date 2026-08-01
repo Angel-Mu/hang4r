@@ -787,6 +787,17 @@ export function CodeEditor({
       setDirty(docDirty)
       setPreviewText(docDirty ? (editor.getModel()?.getValue() ?? res.content) : res.content)
       void applyGutter()
+    }).catch(() => {
+      // the editor read failed — the path is outside the sandboxed workspace or
+      // gone (e.g. a ~/.claude file written elsewhere). Never leave a silent blank
+      // tab: fall back to the preview overlay, which reads any absolute/~ path or
+      // shows a clear "couldn't open" message if it's truly missing.
+      if (cancelled) return
+      void useHang4r.getState().openFilePreview(sessionId, {
+        name: path.split('/').pop() || path,
+        path,
+        external: true
+      })
     })
     return () => {
       cancelled = true

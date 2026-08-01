@@ -62,9 +62,9 @@ function chatMdComponents(sessionId: string): Components {
           onClick={(e) => {
             if (!e.metaKey && !e.altKey) return
             if (urlLike) return useHang4r.getState().requestOpenUrl(sessionId, text)
-            const lm = /:(\d+)(?::\d+)?$/.exec(text)
-            const path = (lm ? text.slice(0, lm.index) : text).replace(/^\.\//, '')
-            useHang4r.getState().requestOpenFile(sessionId, path, lm ? Number(lm[1]) : undefined)
+            // same classification as tool-row paths: in-tree → editor, absolute
+            // or ~home outside the worktree → preview overlay (never a blank tab)
+            openToolPath(sessionId, text)
           }}
         >
           {children}
@@ -643,20 +643,22 @@ function toolFilePath(input: unknown): string | null {
 }
 
 /**
- * Open a path referenced in a tool call. Under the session's worktree → an editor
- * tab (with :line). Absolute + OUTSIDE the worktree (e.g. /tmp files a run wrote)
- * → a preview overlay (image/pdf render, text shows) since the editor is
- * sandboxed to the workspace. Relative → workspace-relative editor tab.
+ * Open a path referenced in a tool call or in prose. Under the session's worktree
+ * → an editor tab (with :line). Absolute OR home-relative (~/…) AND outside the
+ * worktree (e.g. /tmp files or ~/.claude/… a run wrote elsewhere) → a preview
+ * overlay (image/pdf render, text shows), since the editor is sandboxed to the
+ * workspace and would otherwise open a blank tab. Relative → workspace editor tab.
  */
 function openToolPath(sessionId: string, rawPath: string): void {
   const store = useHang4r.getState()
   const lm = /:(\d+)(?::\d+)?$/.exec(rawPath)
-  const path = lm ? rawPath.slice(0, lm.index) : rawPath
+  const path = (lm ? rawPath.slice(0, lm.index) : rawPath).replace(/^\.\//, '')
   const line = lm ? Number(lm[1]) : undefined
   const cwd = store.sessions.find((s) => s.id === sessionId)?.cwd
   if (cwd && path.startsWith(cwd + '/')) {
     store.requestOpenFile(sessionId, path.slice(cwd.length + 1), line)
-  } else if (path.startsWith('/')) {
+  } else if (path.startsWith('/') || path.startsWith('~/') || path === '~') {
+    // absolute or ~home, outside the worktree → preview (~ is expanded main-side)
     void store.openFilePreview(sessionId, { name: path.split('/').pop() || path, path, external: true })
   } else {
     store.requestOpenFile(sessionId, path, line)

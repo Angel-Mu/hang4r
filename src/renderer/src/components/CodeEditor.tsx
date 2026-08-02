@@ -226,6 +226,11 @@ const viewStateMemo = new Map<string, monaco.editor.ICodeEditorViewState>()
 // so a later session-switch REMOUNT (SessionTile is keyed per session) doesn't
 // re-steal focus from wherever the user is. Nonce is monotonic per open.
 const focusedOpenNonces = new Set<number>()
+// `sessionId:path` keys whose editor read FAILED and fell back to the preview
+// overlay ONCE. Stops the preview re-opening every time the editor remounts (a
+// panel switch) for a tab that can't load — Angel's infinite-modal loop. Cleared
+// when the same path later reads successfully.
+const previewFallbackDone = new Set<string>()
 
 // archiving a session removes its worktree — drop its `${sessionId}:${path}`
 // entries so the maps don't grow forever (QA hunt #9's leak finding)
@@ -748,6 +753,7 @@ export function CodeEditor({
       const editor = editorRef.current
       if (cancelled || !editor) return
       const key = `${sessionId}:${path}`
+      previewFallbackDone.delete(key) // read OK now → allow a future fallback again
       // switching files (not the initial load into a fresh editor) — save the
       // outgoing file's view state before the model underneath it changes
       if (viewStateKeyRef.current && viewStateKeyRef.current !== key) {
@@ -789,10 +795,13 @@ export function CodeEditor({
       void applyGutter()
     }).catch(() => {
       // the editor read failed — the path is outside the sandboxed workspace or
-      // gone (e.g. a ~/.claude file written elsewhere). Never leave a silent blank
-      // tab: fall back to the preview overlay, which reads any absolute/~ path or
-      // shows a clear "couldn't open" message if it's truly missing.
+      // gone. Fall back to the preview overlay ONCE (which reads any absolute/~
+      // path or shows a clear "couldn't open"). Guarded so it can't re-open every
+      // time this tab remounts on a panel switch — that was an infinite modal.
       if (cancelled) return
+      const key = `${sessionId}:${path}`
+      if (previewFallbackDone.has(key)) return
+      previewFallbackDone.add(key)
       void useHang4r.getState().openFilePreview(sessionId, {
         name: path.split('/').pop() || path,
         path,

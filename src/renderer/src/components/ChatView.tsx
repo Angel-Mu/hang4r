@@ -87,7 +87,7 @@ function chatMdComponents(sessionId: string): Components {
             if (urlLike) return useHang4r.getState().requestOpenUrl(sessionId, text)
             // same classification as tool-row paths: in-tree → editor, absolute
             // or ~home outside the worktree → preview overlay (never a blank tab)
-            openToolPath(sessionId, text)
+            void openToolPath(sessionId, text)
           }}
           onContextMenu={(e) => {
             if (!text) return
@@ -100,10 +100,10 @@ function chatMdComponents(sessionId: string): Components {
               },
               {
                 label: urlLike ? 'Open in browser' : 'Open',
-                onClick: () =>
-                  urlLike
-                    ? useHang4r.getState().requestOpenUrl(sessionId, text)
-                    : openToolPath(sessionId, text)
+                onClick: () => {
+                  if (urlLike) useHang4r.getState().requestOpenUrl(sessionId, text)
+                  else void openToolPath(sessionId, text)
+                }
               }
             ])
           }}
@@ -683,14 +683,28 @@ function toolFilePath(input: unknown): string | null {
   return typeof p === 'string' && p.length > 0 ? p : null
 }
 
+/** Resolve a relative path referenced in the conversation to a REAL in-tree file:
+ *  its exact path if present, else the unique basename match (a bare
+ *  "settings.local.json" that lives in .claude/), else null. Lets a clicked path
+ *  open the RIGHT, loadable editor tab instead of a blank one — a blank tab that
+ *  fails to read re-opens the preview on every panel switch (Angel's loop). */
+async function resolveInTree(sessionId: string, relPath: string): Promise<string | null> {
+  const files = await window.hang4r.listAllFiles(sessionId, true).catch(() => [] as string[])
+  if (files.includes(relPath)) return relPath
+  const base = relPath.split('/').pop()
+  const matches = files.filter((f) => f.split('/').pop() === base)
+  return matches.length === 1 ? matches[0] : null
+}
+
 /**
  * Open a path referenced in a tool call or in prose. Under the session's worktree
  * → an editor tab (with :line). Absolute OR home-relative (~/…) AND outside the
  * worktree (e.g. /tmp files or ~/.claude/… a run wrote elsewhere) → a preview
  * overlay (image/pdf render, text shows), since the editor is sandboxed to the
- * workspace and would otherwise open a blank tab. Relative → workspace editor tab.
+ * workspace. Relative → resolved to its real in-tree file for an editor tab, or a
+ * one-time preview if it can't be resolved.
  */
-function openToolPath(sessionId: string, rawPath: string): void {
+async function openToolPath(sessionId: string, rawPath: string): Promise<void> {
   const store = useHang4r.getState()
   const lm = /:(\d+)(?::\d+)?$/.exec(rawPath)
   const path = (lm ? rawPath.slice(0, lm.index) : rawPath).replace(/^\.\//, '')
@@ -702,7 +716,16 @@ function openToolPath(sessionId: string, rawPath: string): void {
     // absolute or ~home, outside the worktree → preview (~ is expanded main-side)
     void store.openFilePreview(sessionId, { name: path.split('/').pop() || path, path, external: true })
   } else {
-    store.requestOpenFile(sessionId, path, line)
+    // relative → open the REAL in-tree file (so the editor tab actually loads and
+    // never falls into the re-previewing loop); unresolvable → one-time preview
+    const resolved = await resolveInTree(sessionId, path)
+    if (resolved) store.requestOpenFile(sessionId, resolved, line)
+    else
+      void store.openFilePreview(sessionId, {
+        name: path.split('/').pop() || path,
+        path,
+        external: true
+      })
   }
 }
 
@@ -753,7 +776,7 @@ function CompactToolRow({
                 title={`Open ${fp}`}
                 onClick={(e) => {
                   e.stopPropagation() // open the file, don't toggle the row
-                  openToolPath(sessionId, fp)
+                  void openToolPath(sessionId, fp)
                 }}
               >
                 {summary}

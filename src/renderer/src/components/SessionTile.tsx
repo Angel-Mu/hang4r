@@ -889,6 +889,34 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     window.getSelection()?.removeAllRanges()
   }
 
+  /** Right-click in the chat/diff → a real context menu (Electron shows none by
+   *  default). Copy the selection, or Add it to chat. Links/paths bring their own
+   *  "Copy link address" menu (they stopPropagation), so we don't override them. */
+  const onBodyContextMenu = (e: MouseEvent): void => {
+    const target = e.target as HTMLElement
+    if (target.closest('a') || target.closest('.code-link') || target.closest('.tool-path-link'))
+      return
+    if (!target.closest('.chat-scroll') && !target.closest('.diff-body')) return
+    const text = window.getSelection()?.toString().trim() ?? ''
+    if (!text) return // nothing selected → nothing to act on
+    e.preventDefault()
+    const firstLine = text.split('\n')[0].slice(0, 24)
+    useHang4r.getState().openContextMenu(e.clientX, e.clientY, [
+      { label: 'Copy', onClick: () => void navigator.clipboard.writeText(text) },
+      {
+        label: 'Add to chat',
+        onClick: () => {
+          addAttachment(sessionId, {
+            label: `“${firstLine}${text.length > 24 ? '…' : ''}”`,
+            text
+          })
+          setSelPopup(null)
+          window.getSelection()?.removeAllRanges()
+        }
+      }
+    ])
+  }
+
   const toggleContext = (tab: ContextTab): void => {
     setContextTab((cur) => (cur === tab ? null : tab))
   }
@@ -1063,7 +1091,12 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
         </button>
       </header>
 
-      <div className="tile-body" ref={bodyRef} onMouseUp={onBodyMouseUp}>
+      <div
+        className="tile-body"
+        ref={bodyRef}
+        onMouseUp={onBodyMouseUp}
+        onContextMenu={onBodyContextMenu}
+      >
         {selPopup && (
           <button className="sel-popup" style={{ left: selPopup.x, top: selPopup.y }} onClick={addSelectionToChat}>
             ↳ Add to chat

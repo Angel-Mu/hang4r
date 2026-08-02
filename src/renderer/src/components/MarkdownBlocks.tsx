@@ -135,28 +135,52 @@ function make(
 ): { code: typeof MdCode; a: (p: { href?: string; children?: React.ReactNode }) => JSX.Element } {
   return {
     code: MdCode,
-    a: ({ href, children }) => (
-      <a
-        href={href}
-        title={href}
-        onClick={(e) => {
-          e.preventDefault()
-          if (!href || href.startsWith('#')) return
-          if (/^file:\/\//.test(href)) {
-            if (!openFileHref(sessionId, href)) useHang4r.getState().requestOpenUrl(sessionId, href)
-          } else if (/^https?:\/\//.test(href)) {
-            useHang4r.getState().requestOpenUrl(sessionId, href)
-          } else if (!/^[a-z]+:/.test(href)) {
-            // relative link → open in the editor, resolved against this file
-            const lm = /:(\d+)(?::\d+)?$/.exec(href)
-            const clean = lm ? href.slice(0, lm.index) : href
-            useHang4r.getState().requestOpenFile(sessionId, resolveRel(basePath, clean), lm ? Number(lm[1]) : undefined)
-          }
-        }}
-      >
-        {children}
-      </a>
-    )
+    a: ({ href, children }) => {
+      const open = (): void => {
+        if (!href || href.startsWith('#')) return
+        if (/^file:\/\//.test(href)) {
+          if (!openFileHref(sessionId, href)) useHang4r.getState().requestOpenUrl(sessionId, href)
+        } else if (/^https?:\/\//.test(href)) {
+          useHang4r.getState().requestOpenUrl(sessionId, href)
+        } else if (!/^[a-z]+:/.test(href)) {
+          // relative link → open in the editor, resolved against this file
+          const lm = /:(\d+)(?::\d+)?$/.exec(href)
+          const clean = lm ? href.slice(0, lm.index) : href
+          useHang4r
+            .getState()
+            .requestOpenFile(sessionId, resolveRel(basePath, clean), lm ? Number(lm[1]) : undefined)
+        }
+      }
+      return (
+        <a
+          href={href}
+          title={href}
+          onClick={(e) => {
+            e.preventDefault()
+            open()
+          }}
+          onContextMenu={(e) => {
+            // right-click → copy the real target (URL/path), not the rendered text
+            if (!href || href.startsWith('#')) return
+            e.preventDefault()
+            e.stopPropagation()
+            const isUrl = /^https?:\/\//.test(href)
+            const value = /^file:\/\//.test(href)
+              ? decodeURIComponent(href.replace(/^file:\/\//, ''))
+              : href
+            useHang4r.getState().openContextMenu(e.clientX, e.clientY, [
+              {
+                label: isUrl ? 'Copy link address' : 'Copy path',
+                onClick: () => void navigator.clipboard.writeText(value)
+              },
+              { label: isUrl ? 'Open in browser' : 'Open', onClick: open }
+            ])
+          }}
+        >
+          {children}
+        </a>
+      )
+    }
   }
 }
 

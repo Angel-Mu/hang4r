@@ -27,21 +27,44 @@ function chatMdComponents(sessionId: string): Components {
   if (cached) return cached
   const made: Components = {
     // links open the inner browser pane, never the app window;
-    // file:// under the workdir opens in the editor instead
-    a: ({ href, children }) => (
-      <a
-        href={href}
-        title={href}
-        onClick={(e) => {
-          e.preventDefault()
-          if (!href) return
-          if (/^file:\/\//.test(href) && openFileHref(sessionId, href)) return
-          useHang4r.getState().requestOpenUrl(sessionId, href)
-        }}
-      >
-        {children}
-      </a>
-    ),
+    // file:// under the workdir opens in the editor instead. Right-click →
+    // "Copy link address" copies the real target (URL/path), not the rendered
+    // text (Angel: a "[this form]" link should copy its URL).
+    a: ({ href, children }) => {
+      const open = (): void => {
+        if (!href) return
+        if (/^file:\/\//.test(href) && openFileHref(sessionId, href)) return
+        useHang4r.getState().requestOpenUrl(sessionId, href)
+      }
+      return (
+        <a
+          href={href}
+          title={href}
+          onClick={(e) => {
+            e.preventDefault()
+            open()
+          }}
+          onContextMenu={(e) => {
+            if (!href || href.startsWith('#')) return
+            e.preventDefault()
+            e.stopPropagation()
+            const isUrl = /^https?:\/\//.test(href)
+            const value = /^file:\/\//.test(href)
+              ? decodeURIComponent(href.replace(/^file:\/\//, ''))
+              : href
+            useHang4r.getState().openContextMenu(e.clientX, e.clientY, [
+              {
+                label: isUrl ? 'Copy link address' : 'Copy path',
+                onClick: () => void navigator.clipboard.writeText(value)
+              },
+              { label: isUrl ? 'Open in browser' : 'Open', onClick: open }
+            ])
+          }}
+        >
+          {children}
+        </a>
+      )
+    },
     // inline code that looks like a file path → ⌘/alt-click opens it in
     // the editor (with :line support); plain URLs → inner browser
     code: ({ children, ...props }) => {
@@ -65,6 +88,24 @@ function chatMdComponents(sessionId: string): Components {
             // same classification as tool-row paths: in-tree → editor, absolute
             // or ~home outside the worktree → preview overlay (never a blank tab)
             openToolPath(sessionId, text)
+          }}
+          onContextMenu={(e) => {
+            if (!text) return
+            e.preventDefault()
+            e.stopPropagation()
+            useHang4r.getState().openContextMenu(e.clientX, e.clientY, [
+              {
+                label: urlLike ? 'Copy link address' : 'Copy path',
+                onClick: () => void navigator.clipboard.writeText(text)
+              },
+              {
+                label: urlLike ? 'Open in browser' : 'Open',
+                onClick: () =>
+                  urlLike
+                    ? useHang4r.getState().requestOpenUrl(sessionId, text)
+                    : openToolPath(sessionId, text)
+              }
+            ])
           }}
         >
           {children}

@@ -66,6 +66,10 @@ export class SessionManager {
    *  is deferred until turn-complete, where we compare against the session's
    *  (already-updated) mode and dispose the stale adapter if they diverge. */
   private spawnedPermissionMode = new Map<string, PermissionMode>()
+  /** how many times we've auto-continued a poisoned tail without a successful
+   *  turn in between — capped so a PERSISTENT failure can never loop / burn turns.
+   *  Reset on the next successful turn (a fresh abort then gets a fresh attempt). */
+  private autoContinueAttempts = new Map<string, number>()
 
   constructor(
     private store: Store,
@@ -446,6 +450,43 @@ export class SessionManager {
       return anchor?.parentUuid ?? null
     } catch {
       return null
+    }
+  }
+
+  /**
+   * The renderer poll (every ~2.5s while visible) calls this. Re-sync any external
+   * interactive-CLI turns, then — if that left a POISONED tail (an external turn
+   * aborted mid-tool) — auto-continue past it so the user doesn't have to type
+   * "continue" (Angel's chosen behavior).
+   */
+  async resyncAndRecover(sessionId: string): Promise<number> {
+    const n = await this.resyncExternal(sessionId)
+    await this.maybeAutoContinue(sessionId)
+    return n
+  }
+
+  /**
+   * Auto-recover a session whose jsonl tail is POISONED because an interactive-CLI
+   * turn aborted mid-tool (a dangling tool_use the CLI refuses to --resume → the
+   * next turn re-errors with error_during_execution). Fork past the poison and
+   * resume automatically. SCOPED to the idle/external case only, so it never
+   * changes how our OWN errored turns behave (those keep manual recovery). Capped
+   * at one attempt between successes so a persistent failure can't loop/burn turns.
+   */
+  private async maybeAutoContinue(sessionId: string): Promise<void> {
+    const session = this.store.getSession(sessionId)
+    if (!session || session.backend !== 'claude' || !session.backendSessionId) return
+    if (session.status === 'running' || session.status === 'starting') return
+    if (session.status === 'error') return // our own error → existing manual recovery
+    if (!ClaudeImport.tailIsPoisoned(session.backendSessionId)) return
+    if ((this.autoContinueAttempts.get(sessionId) ?? 0) >= 1) return
+    this.autoContinueAttempts.set(sessionId, 1)
+    // prompt() runs the full fork-past-poison recovery; "continue" is the minimal
+    // resume input, kept visible in the transcript so the auto-recovery is honest.
+    try {
+      await this.prompt(sessionId, 'continue')
+    } catch {
+      /* couldn't spawn — leave it; the user can retry manually */
     }
   }
 
@@ -1452,6 +1493,7 @@ export class SessionManager {
         // (adding each turn triangular-summed into absurd values, e.g. $105).
         totalCostUsd: ev.costUsd ?? session?.totalCostUsd ?? 0
       })
+      if (!ev.isError) this.autoContinueAttempts.delete(sessionId) // a clean turn re-arms auto-continue
       if (!ev.isError && session?.environment === 'worktree') {
         void this.commitCheckpoint(session)
       }

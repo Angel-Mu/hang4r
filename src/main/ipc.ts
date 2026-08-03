@@ -537,7 +537,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     (_e, sessionId: string, branch: string, message: string) =>
       sessions.branchCommitPushSession(sessionId, branch, message)
   )
-  ipcMain.handle('sessions:resync', (_e, sessionId: string) => sessions.resyncExternal(sessionId))
+  ipcMain.handle('sessions:resync', (_e, sessionId: string) => sessions.resyncAndRecover(sessionId))
   ipcMain.handle('sessions:agent-alive', (_e, sessionId: string) => sessions.agentAlive(sessionId))
   // the CLI's own permission allow/deny rules that apply to a session's cwd —
   // read-only surfacing (Angel: "read per agent already whitelisted permissions")

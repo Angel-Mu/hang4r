@@ -55,6 +55,10 @@ type Broadcast = {
  * store (transcript) and the renderer (live), keeping SessionMeta status in
  * sync, isolating worktree sessions, and committing per-turn checkpoints.
  */
+/** max CONSECUTIVE auto-continues (poisoned-tail recovery) before we stop and
+ *  wait for a manual prompt — a repeated-crash loop can't burn turns forever. */
+const MAX_AUTO_CONTINUE = 3
+
 export class SessionManager {
   private adapters = new Map<string, AgentAdapter>()
   /** monotonically increasing turn counter per session, for commit messages */
@@ -66,9 +70,9 @@ export class SessionManager {
    *  is deferred until turn-complete, where we compare against the session's
    *  (already-updated) mode and dispose the stale adapter if they diverge. */
   private spawnedPermissionMode = new Map<string, PermissionMode>()
-  /** how many times we've auto-continued a poisoned tail without a successful
-   *  turn in between — capped so a PERSISTENT failure can never loop / burn turns.
-   *  Reset on the next successful turn (a fresh abort then gets a fresh attempt). */
+  /** CONSECUTIVE auto-continues of a poisoned tail since the last MANUAL prompt —
+   *  capped at MAX_AUTO_CONTINUE so a repeated-crash loop can never burn turns
+   *  forever. Reset only when the user manually sends something (prompt auto=false). */
   private autoContinueAttempts = new Map<string, number>()
 
   constructor(
@@ -360,8 +364,13 @@ export class SessionManager {
     text: string,
     images?: PromptImage[],
     files?: PromptFile[],
-    displayText?: string
+    displayText?: string,
+    auto = false
   ): Promise<void> {
+    // a MANUAL prompt (you stepping in) re-arms auto-continue: it clears the
+    // consecutive-auto counter so recovery is available again. An auto-continue
+    // (auto=true) does NOT, so a repeated-crash loop stays capped.
+    if (!auto) this.autoContinueAttempts.delete(sessionId)
     // pull in any turns taken in an external interactive CLI (/remote-control)
     // BEFORE resuming — adoption switches backendSessionId to the fork's tip,
     // so this turn continues from the conversation INCLUDING those turns
@@ -470,8 +479,13 @@ export class SessionManager {
    * turn aborted mid-tool (a dangling tool_use the CLI refuses to --resume → the
    * next turn re-errors with error_during_execution). Fork past the poison and
    * resume automatically. SCOPED to the idle/external case only, so it never
-   * changes how our OWN errored turns behave (those keep manual recovery). Capped
-   * at one attempt between successes so a persistent failure can't loop/burn turns.
+   * changes how our OWN errored turns behave (those keep manual recovery).
+   *
+   * LOOP SAFETY (Angel): capped at MAX_AUTO_CONTINUE CONSECUTIVE auto-continues,
+   * and the counter resets ONLY when the user manually sends something (see
+   * prompt(auto)). So if the recovery keeps re-crashing — even when each attempt
+   * "succeeds" and the external CLI just re-poisons — it stops after a few tries
+   * and waits for you, instead of auto-continuing (and burning turns) forever.
    */
   private async maybeAutoContinue(sessionId: string): Promise<void> {
     const session = this.store.getSession(sessionId)
@@ -479,12 +493,14 @@ export class SessionManager {
     if (session.status === 'running' || session.status === 'starting') return
     if (session.status === 'error') return // our own error → existing manual recovery
     if (!ClaudeImport.tailIsPoisoned(session.backendSessionId)) return
-    if ((this.autoContinueAttempts.get(sessionId) ?? 0) >= 1) return
-    this.autoContinueAttempts.set(sessionId, 1)
+    const count = this.autoContinueAttempts.get(sessionId) ?? 0
+    if (count >= MAX_AUTO_CONTINUE) return // too many in a row without you stepping in — stop
+    this.autoContinueAttempts.set(sessionId, count + 1)
     // prompt() runs the full fork-past-poison recovery; "continue" is the minimal
     // resume input, kept visible in the transcript so the auto-recovery is honest.
+    // auto=true so it does NOT reset the consecutive-auto counter.
     try {
-      await this.prompt(sessionId, 'continue')
+      await this.prompt(sessionId, 'continue', undefined, undefined, undefined, true)
     } catch {
       /* couldn't spawn — leave it; the user can retry manually */
     }
@@ -1493,7 +1509,6 @@ export class SessionManager {
         // (adding each turn triangular-summed into absurd values, e.g. $105).
         totalCostUsd: ev.costUsd ?? session?.totalCostUsd ?? 0
       })
-      if (!ev.isError) this.autoContinueAttempts.delete(sessionId) // a clean turn re-arms auto-continue
       if (!ev.isError && session?.environment === 'worktree') {
         void this.commitCheckpoint(session)
       }

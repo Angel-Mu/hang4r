@@ -499,6 +499,12 @@ button:disabled {
 .msg-assistant {
   max-width: 92%;
   line-height: 1.55;
+  /* long unbreakable tokens (file paths, URLs, stack traces) must WRAP, not
+     spill past the bubble (Angel: Playwright output overflowed the container).
+     Inherited → covers paragraphs + inline code; `pre` keeps white-space:pre so
+     fenced code blocks still scroll via their own overflow-x. */
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .msg-assistant p {
   margin-bottom: 8px;
@@ -2089,6 +2095,9 @@ button:disabled {
    out instead of the card's pre-wrap; its own code blocks keep their whitespace */
 .msg-user-md {
   white-space: normal;
+  /* long unbreakable tokens (paths/URLs) wrap instead of overflowing the bubble */
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 /* "jump to latest" — sticks to the bottom-right of the scroll viewport while the

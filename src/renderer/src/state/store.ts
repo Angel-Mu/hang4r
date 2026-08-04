@@ -422,6 +422,10 @@ interface Hang4rState {
   /** sessions currently open as tiles, in tile order */
   openSessionIds: string[]
   focusedSessionId: string | null
+  /** sessions that FINISHED a turn (or errored) while you weren't looking at them
+   *  — a sidebar "come look" badge that clears when you open/focus that session.
+   *  In-memory + per-viewer (mirrors the main-process dock badge); NOT persisted. */
+  finishedUnseen: Set<string>
   /** when set, that pane renders full-size (Cursor's expand-to-focus) */
   expandedSessionId: string | null
   newSessionProjectId: string | null
@@ -662,6 +666,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   transcripts: {},
   openSessionIds: [],
   focusedSessionId: null,
+  finishedUnseen: new Set<string>(),
   expandedSessionId: null,
   newSessionProjectId: null,
   usage: { inputTokens: 0, outputTokens: 0 },
@@ -917,6 +922,18 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       // and the queued message is explicit user intent that should still go.
       if (wasActive && (session.status === 'idle' || session.status === 'error')) {
         void get().flushQueue(session.id)
+        // a turn settled — if you weren't looking at THIS session (window hidden,
+        // or focused on a different one), flag it "come look" in the sidebar so
+        // you can tell which session finished. Cleared when you open/focus it.
+        const notLooking = document.hidden || session.id !== get().focusedSessionId
+        set((s) => {
+          const has = s.finishedUnseen.has(session.id)
+          if (notLooking === has) return {} // no change
+          const next = new Set(s.finishedUnseen)
+          if (notLooking) next.add(session.id)
+          else next.delete(session.id)
+          return { finishedUnseen: next }
+        })
       }
     })
 
@@ -1082,10 +1099,17 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         // pane — clicking/creating/importing shows it alone, never auto-splits.
         openSessionIds = [sessionId]
       }
+      // opening a session = you've now seen it → clear its "come look" badge
+      let finishedUnseen = s.finishedUnseen
+      if (finishedUnseen.has(sessionId)) {
+        finishedUnseen = new Set(finishedUnseen)
+        finishedUnseen.delete(sessionId)
+      }
       return {
         transcripts: { ...s.transcripts, [sessionId]: loaded.transcript },
         openSessionIds,
         focusedSessionId: sessionId,
+        finishedUnseen,
         sessionUsage: {
           ...s.sessionUsage,
           [sessionId]: {
@@ -1135,7 +1159,12 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
 
   focusSession(sessionId) {
-    set({ focusedSessionId: sessionId })
+    set((s) => {
+      if (!s.finishedUnseen.has(sessionId)) return { focusedSessionId: sessionId }
+      const finishedUnseen = new Set(s.finishedUnseen)
+      finishedUnseen.delete(sessionId) // focusing it = seen
+      return { focusedSessionId: sessionId, finishedUnseen }
+    })
     persistLayout(get())
   },
 

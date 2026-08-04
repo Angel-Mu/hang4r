@@ -48,6 +48,7 @@ export function Sidebar(): JSX.Element {
   const projects = useHang4r((s) => s.projects)
   const sessions = useHang4r((s) => s.sessions)
   const focusedId = useHang4r((s) => s.focusedSessionId)
+  const finishedUnseen = useHang4r((s) => s.finishedUnseen)
   const addProject = useHang4r((s) => s.addProject)
   const pinnedProjectIds = useHang4r((s) => s.pinnedProjectIds)
   const projectSort = useHang4r((s) => s.projectSort)
@@ -269,6 +270,9 @@ export function Sidebar(): JSX.Element {
           // workspace can't hide sessions that need you.
           const awaitingCount = projectSessions.filter((s) => awaitingPermission(s.id)).length
           const errorCount = projectSessions.filter((s) => s.status === 'error').length
+          const unseenCount = projectSessions.filter(
+            (s) => finishedUnseen.has(s.id) && s.status === 'idle' && !awaitingPermission(s.id)
+          ).length
           return (
             <div key={project.id} className="project-group">
               <div
@@ -347,6 +351,14 @@ export function Sidebar(): JSX.Element {
                     {errorCount} error{errorCount > 1 ? 's' : ''}
                   </span>
                 )}
+                {collapsed.has(project.id) && unseenCount > 0 && (
+                  <span
+                    className="project-flag project-flag-finished"
+                    title={`${unseenCount} session${unseenCount > 1 ? 's' : ''} finished`}
+                  >
+                    {unseenCount} done
+                  </span>
+                )}
                 {pinnedProjectIds.includes(project.id) && (
                   <span className="project-pin" title="Pinned workspace">
                     <Icon name="pin" size={13} />
@@ -367,11 +379,22 @@ export function Sidebar(): JSX.Element {
                 <div className="project-sessions">
                   {projectSessions.map((session) => {
                     const awaiting = awaitingPermission(session.id)
+                    // finished a turn while you weren't looking → "come look" badge
+                    // (only for a plain idle finish; awaiting/error have their own).
+                    const unseenDone =
+                      finishedUnseen.has(session.id) && session.status === 'idle' && !awaiting
                     // idle => no visible dot (kept in the DOM, transparent, for
-                    // alignment + e2e); permission-wait overrides to amber.
+                    // alignment + e2e); permission-wait overrides to amber; an
+                    // unseen finish lights it so you can spot which one completed.
                     const dotClass =
-                      `status-dot status-${session.status}` + (awaiting ? ' status-awaiting' : '')
-                    const dotTitle = awaiting ? 'waiting for your response' : STATUS_LABEL[session.status]
+                      `status-dot status-${session.status}` +
+                      (awaiting ? ' status-awaiting' : '') +
+                      (unseenDone ? ' status-unseen' : '')
+                    const dotTitle = awaiting
+                      ? 'waiting for your response'
+                      : unseenDone
+                        ? 'Finished — open to view'
+                        : STATUS_LABEL[session.status]
                     return (
                       <div
                         key={session.id}
@@ -414,6 +437,14 @@ export function Sidebar(): JSX.Element {
                                 title={session.lastError ?? 'Turn failed'}
                               >
                                 ✗
+                              </span>
+                            )}
+                            {unseenDone && (
+                              <span
+                                className="session-flag session-flag-finished"
+                                title="Finished — open to view"
+                              >
+                                🔔
                               </span>
                             )}
                             {(() => {

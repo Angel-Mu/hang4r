@@ -333,6 +333,11 @@ button:disabled {
   background: var(--amber);
   animation: pulse 1.2s ease-in-out infinite;
 }
+/* finished a turn while you weren't looking — a passive "come look" marker
+   (accent, NO pulse: it's not active like running/awaiting, just unseen) */
+.status-dot.status-unseen {
+  background: var(--accent);
+}
 
 @keyframes pulse {
   50% {
@@ -4387,6 +4392,7 @@ button:disabled {
 }
 .session-flag-action { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
 .session-flag-error { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
+.session-flag-finished { font-size: 0.66em; background: color-mix(in srgb, var(--accent) 15%, transparent); }
 
 /* collapsed-workspace count chip — same "needs you" signal, aggregated, so
    collapsing a workspace can never hide sessions waiting on the user */
@@ -4401,6 +4407,7 @@ button:disabled {
 }
 .project-flag-action { background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--amber); border-color: var(--amber); }
 .project-flag-error { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); border-color: var(--red); }
+.project-flag-finished { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); border-color: var(--accent); }
 
 /* ============ THEMES (token overrides; :root defaults = Dark) ============ */
 :root[data-theme="light"] {

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import {
   prettifyClaudeModelId,
+  resolveClaudeModels,
   CLAUDE_MODELS,
   CURRENT_CLAUDE_VERSIONS
 } from '../src/renderer/src/modelChoices'
@@ -32,4 +33,33 @@ test('prettifyClaudeModelId derives the display name from a resolved id', () => 
   expect(prettifyClaudeModelId('claude-sonnet-5')).toBe('Sonnet 5')
   // a thinking/1M suffix is dropped, family+version kept
   expect(prettifyClaudeModelId('claude-fable-5-thinking-high')).toBe('Fable 5')
+})
+
+test('a session switched to another alias does NOT relabel it with the stale model', () => {
+  // Angel: a session that had run "fable", then switched to "opus", showed the
+  // opus entry as "Fable 5" (and "Fable 5" appeared twice). The stale fable init
+  // id must not leak onto the opus alias.
+  const sessions = [{ id: 's1', backend: 'claude' as const, model: 'opus' }]
+  const sessionInit = { s1: { model: 'claude-fable-5' } }
+  const byValue = Object.fromEntries(
+    resolveClaudeModels(sessions, sessionInit).map((m) => [m.value, m.label])
+  )
+  expect(byValue['opus']).toBe(CURRENT_CLAUDE_VERSIONS['opus']) // "Opus 5", NOT "Fable 5"
+  expect(byValue['fable']).toBe(CURRENT_CLAUDE_VERSIONS['fable'])
+  // no two alias entries share a label (the reported duplicate)
+  const labels = resolveClaudeModels(sessions, sessionInit)
+    .filter((m) => m.value)
+    .map((m) => m.label)
+  expect(new Set(labels).size).toBe(labels.length)
+})
+
+test('a session actually running an alias relabels it with the CLI-resolved version', () => {
+  // same-family init id → self-correcting label (the intended behavior stays)
+  const byValue = Object.fromEntries(
+    resolveClaudeModels(
+      [{ id: 's1', backend: 'claude' as const, model: 'opus' }],
+      { s1: { model: 'claude-opus-4-8' } }
+    ).map((m) => [m.value, m.label])
+  )
+  expect(byValue['opus']).toBe('Opus 4.8')
 })

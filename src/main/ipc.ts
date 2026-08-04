@@ -393,10 +393,30 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     ) => sessions.prompt(sessionId, text, images, files, displayText)
   )
   ipcMain.handle('dialog:pick-attachments', async () => {
+    // Attachments aren't images-only: readExternalAttachment reads any non-image
+    // as text and renders it as a file card. macOS greys out files that don't
+    // match the FIRST (default) filter, so that filter must be broad — markdown,
+    // text, docs, and common code — or the user can only pick images. "All Files"
+    // stays available in the format dropdown for anything not listed here.
+    const images = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico']
+    const docsAndCode = [
+      // markdown / text / docs
+      'md', 'markdown', 'mdx', 'txt', 'text', 'rtf', 'pdf', 'csv', 'tsv', 'log',
+      // structured / config
+      'json', 'jsonc', 'json5', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm',
+      'css', 'scss', 'less', 'ini', 'env', 'conf', 'cfg', 'properties',
+      // code
+      'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'vue', 'svelte', 'py', 'rb', 'go',
+      'rs', 'java', 'kt', 'kts', 'swift', 'm', 'mm', 'c', 'h', 'cpp', 'cc',
+      'cxx', 'hpp', 'cs', 'php', 'sh', 'bash', 'zsh', 'fish', 'sql', 'graphql',
+      'gql', 'proto', 'dockerfile', 'makefile', 'gradle', 'lua', 'r', 'dart',
+      'ex', 'exs', 'erl', 'clj', 'scala', 'pl', 'diff', 'patch'
+    ]
     const result = await dialog.showOpenDialog({
       properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+        { name: 'Documents, Code & Images', extensions: [...docsAndCode, ...images] },
+        { name: 'Images', extensions: images },
         { name: 'All Files', extensions: ['*'] }
       ]
     })

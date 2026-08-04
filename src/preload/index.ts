@@ -238,6 +238,11 @@ const api: Hang4rApi = {
     ipcRenderer.on('focus-session', handler)
     return () => ipcRenderer.removeListener('focus-session', handler)
   },
+  onMenuCommand: (cb: (command: string) => void) => {
+    const handler = (_e: unknown, command: string): void => cb(command)
+    ipcRenderer.on('menu:command', handler)
+    return () => ipcRenderer.removeListener('menu:command', handler)
+  },
   onSettingsChanged: (cb: (scope: SettingsScope) => void) => {
     const handler = (_e: unknown, scope: SettingsScope): void => cb(scope)
     ipcRenderer.on('settings-changed', handler)

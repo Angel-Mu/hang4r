@@ -184,28 +184,75 @@ app.whenReady().then(() => {
   }
 
   if (process.platform === 'darwin') {
+    // A hang4r-native menu bar (Cursor-shaped), not Electron's defaults. Every
+    // app action is exposed + discoverable with its shortcut. CRITICAL: menu
+    // accelerators fire GLOBALLY — even inside the <webview> browser pane — so
+    // for anything the RENDERER already owns (⌘P/⌘K/⌘B/⌘F/…, all focus-aware),
+    // we set `registerAccelerator: false`: the shortcut is DISPLAYED but NOT
+    // registered, so the renderer keeps handling the key (no browser-pane
+    // hijack) while CLICKING the item still works via `menu:command`. Only
+    // menu-native actions (reload/devtools/close-window) keep real accelerators,
+    // on ⌥-shifted keys that don't collide with the browser pane.
+    const run = (cmd: string): void =>
+      BrowserWindow.getFocusedWindow()?.webContents.send('menu:command', cmd)
+    /** renderer-owned shortcut: show it, don't bind it, route clicks to the renderer */
+    const cmd = (
+      label: string,
+      accelerator: string,
+      command: string
+    ): Electron.MenuItemConstructorOptions => ({
+      label,
+      accelerator,
+      registerAccelerator: false,
+      click: () => run(command)
+    })
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
-        { role: 'appMenu' },
-        // NOT { role: 'fileMenu' }: that role binds Close Window to ⌘W, and a
-        // menu accelerator fires even when focus is inside a <webview> — so
-        // ⌘W in the browser pane closed the ENTIRE app window (Angel hit it).
-        // The renderer owns ⌘W (scoped close); the window keeps ⇧⌘W.
-        { label: 'File', submenu: [{ role: 'close', accelerator: 'Shift+Cmd+W' }] },
+        {
+          label: 'hang4r',
+          submenu: [
+            { role: 'about', label: 'About hang4r' },
+            { label: 'Check for Updates…', click: () => run('check-updates') },
+            { type: 'separator' },
+            cmd('Settings…', 'Cmd+,', 'settings'),
+            { type: 'separator' },
+            { role: 'services' },
+            { type: 'separator' },
+            { role: 'hide', label: 'Hide hang4r' },
+            { role: 'hideOthers' },
+            { role: 'unhide' },
+            { type: 'separator' },
+            { role: 'quit', label: 'Quit hang4r' }
+          ]
+        },
+        {
+          label: 'File',
+          submenu: [
+            cmd('New Agent', 'Cmd+N', 'new-agent'),
+            { label: 'New Workspace…', click: () => run('new-workspace') },
+            { label: 'Import a Session…', click: () => run('import-session') },
+            { type: 'separator' },
+            // ⌘W is the renderer's SCOPED close (editor file / terminal / pane);
+            // ⇧⌘W closes the whole window. (fileMenu role's ⌘W would fire even in
+            // the webview and close the whole app — Angel hit that.)
+            cmd('Close Pane', 'Cmd+W', 'close'),
+            { role: 'close', label: 'Close Window', accelerator: 'Shift+Cmd+W' }
+          ]
+        },
         { role: 'editMenu' },
-        // NOT { role: 'viewMenu' }, and NO ⌘R / ⌥⌘I / ⌘± here. A menu
-        // accelerator fires GLOBALLY — even inside a <webview> — so any browser
-        // shortcut placed here would hijack the whole app (Angel hit ⌘R
-        // reloading everything, and ⌥⌘I opening the APP's devtools instead of
-        // the page's). Reload / DevTools / zoom belong to the browser pane and
-        // are handled there per focused tab. This menu keeps only genuinely
-        // app-level actions on accelerators that don't collide with the pane.
         {
           label: 'View',
           submenu: [
-            // App-window reload lives on ⌥-shifted keys so plain ⌘R / ⇧⌘R stay
-            // free for the browser pane's PAGE reload. These are menu items (so
-            // they're discoverable) with non-conflicting accelerators.
+            cmd('Command Palette…', 'Shift+Cmd+P', 'command-palette'),
+            cmd('Quick Open File…', 'Cmd+P', 'quick-open'),
+            cmd('Search in Files…', 'Shift+Cmd+F', 'search-files'),
+            { type: 'separator' },
+            cmd('Toggle Sidebar', 'Cmd+B', 'toggle-sidebar'),
+            cmd('Toggle Context Panel', 'Alt+Cmd+B', 'toggle-panel'),
+            cmd('Toggle Terminal', 'Ctrl+`', 'toggle-terminal'),
+            { type: 'separator' },
+            // real accelerators — menu-native, ⌥-shifted so plain ⌘R / ⌥⌘I stay
+            // free for the browser pane's own page reload / inspector
             {
               label: 'Reload Window',
               accelerator: 'Alt+Cmd+R',
@@ -217,9 +264,6 @@ app.whenReady().then(() => {
               click: () => BrowserWindow.getFocusedWindow()?.webContents.reloadIgnoringCache()
             },
             {
-              // DevTools on a NON-conflicting accelerator (plain ⌥⌘I belongs to
-              // the browser pane's page inspector) so the renderer console is
-              // reachable in the packaged app for diagnosing issues.
               label: 'Toggle Developer Tools',
               accelerator: 'Alt+Shift+Cmd+I',
               click: () => BrowserWindow.getFocusedWindow()?.webContents.toggleDevTools()
@@ -228,7 +272,29 @@ app.whenReady().then(() => {
             { role: 'togglefullscreen' }
           ]
         },
-        { role: 'windowMenu' }
+        {
+          label: 'Session',
+          submenu: [
+            cmd('Interrupt Agent', 'Cmd+.', 'interrupt'),
+            cmd('Expand / Collapse Pane', 'Shift+Cmd+E', 'expand-pane')
+          ]
+        },
+        { role: 'windowMenu' },
+        {
+          role: 'help',
+          submenu: [
+            { label: 'hang4r Website', click: () => void shell.openExternal('https://hang4r.dev') },
+            {
+              label: 'Release Notes',
+              click: () =>
+                void shell.openExternal('https://github.com/Angel-Mu/hang4r-releases/releases')
+            },
+            {
+              label: 'Report an Issue',
+              click: () => void shell.openExternal('https://github.com/Angel-Mu/hang4r/issues')
+            }
+          ]
+        }
       ])
     )
   }

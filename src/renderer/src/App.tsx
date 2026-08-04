@@ -189,6 +189,67 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // native menu-bar item clicked → run the matching app command. The menu shows
+  // each shortcut but doesn't REGISTER it (registerAccelerator:false in the main
+  // menu), so the renderer stays the single owner of the KEYS; this handles the
+  // CLICKS, dispatching the exact same store actions the shortcuts above do.
+  useEffect(() => {
+    return window.hang4r.onMenuCommand((command) => {
+      const s = useHang4r.getState()
+      switch (command) {
+        case 'new-agent': {
+          const projectId =
+            s.sessions.find((x) => x.id === s.focusedSessionId)?.projectId ?? s.projects[0]?.id
+          if (projectId) s.openNewSessionDialog(projectId)
+          break
+        }
+        case 'new-workspace':
+          void s.addProject()
+          break
+        case 'import-session':
+          s.setImportSource('cursor')
+          s.setCursorImportOpen(true)
+          break
+        case 'command-palette':
+          s.toggleCommandPalette(true)
+          break
+        case 'quick-open':
+          s.toggleFileFinder(true)
+          break
+        case 'search-files':
+          s.openSearch()
+          break
+        case 'settings':
+          s.setSettingsOpen(true)
+          break
+        case 'check-updates':
+          s.setSettingsOpen(true)
+          void window.hang4r.checkForUpdates()
+          break
+        case 'toggle-sidebar':
+          s.toggleSidebar()
+          break
+        case 'toggle-panel':
+          s.togglePanel()
+          break
+        case 'toggle-terminal':
+          s.toggleTerminalPanel()
+          break
+        case 'expand-pane':
+          if (s.focusedSessionId) s.toggleExpand(s.focusedSessionId)
+          break
+        case 'interrupt':
+          if (s.focusedSessionId) void s.interrupt(s.focusedSessionId)
+          break
+        case 'close': {
+          const closed = s.scopedClose?.()
+          if (!closed && s.focusedSessionId) s.closeTile(s.focusedSessionId)
+          break
+        }
+      }
+    })
+  }, [])
+
   // ⌘F for the EDITOR, handled in CAPTURE so it beats Monaco's own per-editor ⌘F
   // command. That command fires for whichever editor has FOCUS — which, with
   // several files open, can be a HIDDEN one that kept focus, so ⌘F opened its

@@ -778,6 +778,8 @@ export interface Hang4rApi {
   onSessionUpdated(cb: (session: SessionMeta) => void): () => void
   /** a completion notification was clicked — surface this session */
   onFocusSession(cb: (sessionId: string) => void): () => void
+  /** a native menu-bar item was clicked — dispatch the matching app command */
+  onMenuCommand(cb: (command: string) => void): () => void
   /** a settings.json file changed on disk (external edit) — reload from it */
   onSettingsChanged(cb: (scope: SettingsScope) => void): () => void
   // agent-drivable browser (the `hang4r browser` CLI drives these guest tabs)

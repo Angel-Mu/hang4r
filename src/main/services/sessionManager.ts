@@ -74,6 +74,11 @@ export class SessionManager {
    *  capped at MAX_AUTO_CONTINUE so a repeated-crash loop can never burn turns
    *  forever. Reset only when the user manually sends something (prompt auto=false). */
   private autoContinueAttempts = new Map<string, number>()
+  /** sessions whose last turn ended because the USER interrupted a tool (pressed
+   *  stop). A deliberate stop means "I'm taking over" — don't auto-continue over
+   *  them (Angel). Cleared when the user sends the next manual prompt, or on any
+   *  clean turn. Separate from the poison recovery, which is for CLI-side aborts. */
+  private userInterrupted = new Set<string>()
 
   constructor(
     private store: Store,
@@ -369,8 +374,12 @@ export class SessionManager {
   ): Promise<void> {
     // a MANUAL prompt (you stepping in) re-arms auto-continue: it clears the
     // consecutive-auto counter so recovery is available again. An auto-continue
-    // (auto=true) does NOT, so a repeated-crash loop stays capped.
-    if (!auto) this.autoContinueAttempts.delete(sessionId)
+    // (auto=true) does NOT, so a repeated-crash loop stays capped. It also clears
+    // the "you interrupted this" flag — sending a real prompt IS taking over.
+    if (!auto) {
+      this.autoContinueAttempts.delete(sessionId)
+      this.userInterrupted.delete(sessionId)
+    }
     // pull in any turns taken in an external interactive CLI (/remote-control)
     // BEFORE resuming — adoption switches backendSessionId to the fork's tip,
     // so this turn continues from the conversation INCLUDING those turns
@@ -492,6 +501,7 @@ export class SessionManager {
     if (!session || session.backend !== 'claude' || !session.backendSessionId) return
     if (session.status === 'running' || session.status === 'starting') return
     if (session.status === 'error') return // our own error → existing manual recovery
+    if (this.userInterrupted.has(sessionId)) return // you deliberately stopped it — don't drive over you
     if (!ClaudeImport.tailIsPoisoned(session.backendSessionId)) return
     const count = this.autoContinueAttempts.get(sessionId) ?? 0
     if (count >= MAX_AUTO_CONTINUE) return // too many in a row without you stepping in — stop
@@ -574,12 +584,13 @@ export class SessionManager {
     }
     // The CLI flushes its final assistant line LATE — the uuid watermark can
     // land one line short, which would re-import hang4r's OWN last reply as
-    // "external" (caught by QA hunt 7). Timestamp guard: our own lagging lines
-    // were written BEFORE turn end; genuinely external turns come seconds
-    // after. Messages without a timestamp pass (uuid position still applies).
-    if (wm.turnEndedAt) {
-      msgs = msgs.filter((m) => !m.at || m.at > wm.turnEndedAt!)
-    }
+    // "external" (caught by QA hunt 7, and again when a user INTERRUPT left the
+    // watermark stale → Angel's phantom "⇄ interactive CLI" fork). Timestamp
+    // guard: our own lagging lines were written BEFORE turn end; genuinely
+    // external turns come after. Relies on turnEndedAt being the CURRENT turn's
+    // end — recordSyncWatermark now writes it SYNCHRONOUSLY at turn-complete so
+    // a resync poll can't slip in with a stale (previous-turn) watermark.
+    msgs = ClaudeImport.filterExternalTurns(msgs, wm.turnEndedAt)
     if (!msgs.length) return 0
     for (const m of msgs) {
       this.handleAgentEvent(sessionId, {
@@ -614,7 +625,7 @@ export class SessionManager {
    */
   private recordSyncWatermark(sessionId: string, delayMs = 600): void {
     const turnEndedAt = Date.now()
-    setTimeout(() => {
+    const write = (): void => {
       const s = this.store.getSession(sessionId)
       if (!s?.backendSessionId || s.backend !== 'claude' || s.environment === 'ssh') return
       const uuid = ClaudeImport.tailUuid(s.backendSessionId)
@@ -624,7 +635,16 @@ export class SessionManager {
           JSON.stringify({ uuid, fileId: s.backendSessionId, turnEndedAt })
         )
       }
-    }, delayMs)
+    }
+    // delayMs<=0: write SYNCHRONOUSLY. turn-complete flips status→idle and then
+    // records the watermark with NO await between; a setTimeout(0) here opened a
+    // gap where a resync poll (fires once status isn't 'running') read the STALE
+    // previous-turn watermark and re-imported our own just-ended turn as an
+    // "⇄ interactive CLI" turn — the phantom fork Angel saw after interrupting a
+    // tool. A synchronous write keeps turnEndedAt current before any poll runs.
+    // The delayed call still catches the CLI's late-flushed final line.
+    if (delayMs <= 0) write()
+    else setTimeout(write, delayMs)
   }
 
   /** whether a live agent (CLI) process exists — background tasks can't outlive it */
@@ -1529,6 +1549,10 @@ export class SessionManager {
       // painting that red (status dot, sidebar error badge, error notification)
       // conflated "you stopped it" with "it failed" (flagged twice by QA agents)
       const interrupted = ev.isError && ev.errorMessage === 'interrupted'
+      // remember a user-initiated stop so auto-continue doesn't drive over you;
+      // any clean turn clears it (you let it run again)
+      if (interrupted) this.userInterrupted.add(sessionId)
+      else if (!ev.isError) this.userInterrupted.delete(sessionId)
       this.updateSession(sessionId, {
         status: ev.isError && !interrupted ? 'error' : 'idle',
         lastError: ev.isError && !interrupted ? (ev.errorMessage ?? 'unknown error') : null,

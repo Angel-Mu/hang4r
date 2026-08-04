@@ -104,6 +104,54 @@ export function parseRewindAnchor(
   return { parentUuid: parents[idx] }
 }
 
+export interface AfterMessage {
+  role: 'user' | 'assistant'
+  text: string
+  at: number
+}
+
+/**
+ * User/assistant messages strictly AFTER the line carrying `afterUuid`. Pure
+ * (operates on raw jsonl text) so the external-turn re-sync is unit-testable.
+ * Tool results / injected meta (text starting with '<') and blank lines drop.
+ */
+export function parseMessagesAfter(raw: string, afterUuid: string): AfterMessage[] {
+  const out: AfterMessage[] = []
+  let seen = false
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    if (!seen) {
+      if (line.includes(`"uuid":"${afterUuid}"`)) seen = true
+      continue
+    }
+    let ev: { type?: string; message?: { content?: unknown }; timestamp?: string }
+    try {
+      ev = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (ev.type !== 'user' && ev.type !== 'assistant') continue
+    const text = textOf(ev.message?.content).trim()
+    if (!text || text.startsWith('<')) continue // tool results / injected meta
+    out.push({ role: ev.type, text, at: ev.timestamp ? Date.parse(ev.timestamp) || 0 : 0 })
+  }
+  return out
+}
+
+/**
+ * Keep only GENUINELY-external turns: those written strictly after `turnEndedAt`
+ * (when hang4r's OWN turn ended). Our own turn's lines carry `at <= turnEndedAt`,
+ * so this drops them — the guard that stops hang4r re-importing its OWN just-ended
+ * turn as an "⇄ interactive CLI" turn (the phantom fork after a user interrupt,
+ * Angel). Only reliable when `turnEndedAt` is the CURRENT turn's end — recorded
+ * SYNCHRONOUSLY at turn-complete so a resync poll can't read a stale watermark.
+ * Messages without a parseable timestamp pass (uuid position already applied).
+ */
+export function filterExternalTurns(msgs: AfterMessage[], turnEndedAt?: number): AfterMessage[] {
+  if (!turnEndedAt) return msgs
+  return msgs.filter((m) => !m.at || m.at > turnEndedAt)
+}
+
 /**
  * True if the conversation ends mid-tool: an assistant `tool_use` block with no
  * matching `tool_result`. Claude REFUSES to --resume such a jsonl (it's an
@@ -489,32 +537,16 @@ export const ClaudeImport = {
   },
 
   /** user/assistant messages strictly AFTER the line carrying `afterUuid` */
-  messagesAfter(path: string, afterUuid: string): { role: 'user' | 'assistant'; text: string; at: number }[] {
-    const out: { role: 'user' | 'assistant'; text: string; at: number }[] = []
-    let seen = false
+  messagesAfter(path: string, afterUuid: string): AfterMessage[] {
     try {
-      for (const line of readFileSync(path, 'utf8').split('\n')) {
-        if (!line.trim()) continue
-        if (!seen) {
-          if (line.includes(`"uuid":"${afterUuid}"`)) seen = true
-          continue
-        }
-        let ev: { type?: string; message?: { content?: unknown }; timestamp?: string }
-        try {
-          ev = JSON.parse(line)
-        } catch {
-          continue
-        }
-        if (ev.type !== 'user' && ev.type !== 'assistant') continue
-        const text = textOf(ev.message?.content).trim()
-        if (!text || text.startsWith('<')) continue // tool results / injected meta
-        out.push({ role: ev.type, text, at: ev.timestamp ? Date.parse(ev.timestamp) || 0 : 0 })
-      }
+      return parseMessagesAfter(readFileSync(path, 'utf8'), afterUuid)
     } catch {
       return []
     }
-    return out
   },
+
+  /** genuinely-external turns only — drops our own just-ended turn (see filterExternalTurns) */
+  filterExternalTurns,
 
   getTranscript(id: string): ExternalMessage[] {
     const path = this.sessionFile(id)

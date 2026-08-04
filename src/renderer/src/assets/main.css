@@ -171,6 +171,30 @@ button:disabled {
   border-left: 1px solid var(--border);
 }
 
+/* "Show N more" — a subtle full-width row under a paginated workspace's sessions */
+.session-see-more {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.session-see-more:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.see-more-count {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
 .session-row {
   display: flex;
   align-items: center;

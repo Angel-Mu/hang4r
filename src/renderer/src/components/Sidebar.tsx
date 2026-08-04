@@ -20,6 +20,10 @@ const STATUS_LABEL: Record<SessionMeta['status'], string> = {
   archived: 'archived'
 }
 
+/** sessions shown per workspace before the "Show more" button; each click adds
+ *  another SESSIONS_PAGE (10, 20, 30…). Search results are never paginated. */
+const SESSIONS_PAGE = 10
+
 // Per-backend identity glyph (defined in Icon.tsx; tinted via CSS).
 const BACKEND_ICON: Record<BackendId, IconName> = {
   claude: 'claude',
@@ -60,6 +64,9 @@ export function Sidebar(): JSX.Element {
   // per-workspace collapse (open/closed folder), like Cursor
   const projectOrder = useHang4r((s) => s.projectOrder)
   const [dropTarget, setDropTarget] = useState<{ id: string; before: boolean } | null>(null)
+  // per-workspace "show N sessions" cap — starts at SESSIONS_PAGE, grows by
+  // SESSIONS_PAGE each "Show more" so long workspaces stay scannable (Angel).
+  const [pageLimits, setPageLimits] = useState<Record<string, number>>({})
   // per-workspace collapse is persisted in the store (survives an app restart), keyed by project id
   const collapsedProjectIds = useHang4r((s) => s.collapsedProjectIds)
   const toggleCollapsed = useHang4r((s) => s.toggleProjectCollapsed)
@@ -273,6 +280,11 @@ export function Sidebar(): JSX.Element {
           const unseenCount = projectSessions.filter(
             (s) => finishedUnseen.has(s.id) && s.status === 'idle' && !awaitingPermission(s.id)
           ).length
+          // paginate the list (10, then +10 via "Show more") — but a SEARCH shows
+          // every match, never hidden behind a button
+          const limit = pageLimits[project.id] ?? SESSIONS_PAGE
+          const visibleSessions = filterLower ? projectSessions : projectSessions.slice(0, limit)
+          const hiddenCount = projectSessions.length - visibleSessions.length
           return (
             <div key={project.id} className="project-group">
               <div
@@ -377,7 +389,7 @@ export function Sidebar(): JSX.Element {
               </div>
               {!collapsed.has(project.id) && projectSessions.length > 0 && (
                 <div className="project-sessions">
-                  {projectSessions.map((session) => {
+                  {visibleSessions.map((session) => {
                     const awaiting = awaitingPermission(session.id)
                     // finished a turn while you weren't looking → "come look" badge
                     // (only for a plain idle finish; awaiting/error have their own).
@@ -518,6 +530,18 @@ export function Sidebar(): JSX.Element {
                       </div>
                     )
                   })}
+                  {hiddenCount > 0 && (
+                    <button
+                      className="session-see-more"
+                      title={`${hiddenCount} more session${hiddenCount > 1 ? 's' : ''} in this workspace`}
+                      onClick={() =>
+                        setPageLimits((p) => ({ ...p, [project.id]: limit + SESSIONS_PAGE }))
+                      }
+                    >
+                      Show {Math.min(SESSIONS_PAGE, hiddenCount)} more
+                      <span className="see-more-count">{hiddenCount} hidden</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

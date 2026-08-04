@@ -790,10 +790,16 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
             : session?.permissionMode
               ? ` --permission-mode ${session.permissionMode}`
               : ''
+        // HAND OFF: stop hang4r's own agent on this session first, so it isn't a
+        // second writer fighting the terminal CLI — that collision is what drifted
+        // the transcript into a separate conversation and caused error_during_
+        // execution (Angel). The terminal becomes the sole driver; hang4r mirrors
+        // its turns back and takes over again the next time you prompt here.
+        void window.hang4r.releaseForExternal(sessionId)
         useHang4r.getState().runInTerminal(sessionId, `claude${resume}${perm}${name} "/${cmd}"`, `/${cmd}`)
         setContextTab('Terminal')
         flash(
-          'Running /remote-control on this conversation → note: turns taken in that terminal live in the CLI, not in this transcript',
+          'Handed this conversation to the terminal — hang4r paused its own agent so they don’t conflict, and will mirror the terminal’s turns back here',
           7000
         )
         return true

@@ -643,6 +643,33 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Hand THIS conversation to an external interactive CLI (/remote-control):
+   * stop hang4r's OWN -p process so it's no longer a second writer on the same
+   * session file. Two writers on one jsonl is exactly what collides into
+   * error_during_execution AND drifts the transcript into two conversations
+   * (Angel's remote-control complaint). After this the terminal CLI is the sole
+   * driver; resyncExternal mirrors its turns back into the desktop transcript, and
+   * hang4r takes control back automatically the next time the user prompts from
+   * the composer (which respawns the adapter). The watermark is reset to the
+   * current tail so the mirror picks up cleanly from where the handoff happened.
+   */
+  releaseForExternal(sessionId: string): void {
+    const adapter = this.adapters.get(sessionId)
+    if (adapter) {
+      try {
+        adapter.interrupt() // stop our in-flight turn cleanly (no dangling tool_use)
+      } catch {
+        /* best-effort */
+      }
+      adapter.dispose()
+      this.adapters.delete(sessionId)
+    }
+    this.spawnedPermissionMode.delete(sessionId)
+    this.updateSession(sessionId, { status: 'idle', lastError: null })
+    this.recordSyncWatermark(sessionId, 0)
+  }
+
   /** Poll until the session is no longer 'running' (interrupt settled) or the
    *  timeout passes — an interrupt is async (Cursor: SIGTERM→SIGKILL escalation). */
   private async waitForTurnEnd(sessionId: string, timeoutMs: number): Promise<void> {

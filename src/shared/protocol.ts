@@ -520,6 +520,9 @@ export interface Hang4rApi {
   ): Promise<void>
   pickAttachments(): Promise<Attachment[]>
   interrupt(sessionId: string): Promise<void>
+  /** hand this conversation to an external interactive CLI (/remote-control):
+   *  stop hang4r's own agent so it isn't a second writer on the same session */
+  releaseForExternal(sessionId: string): Promise<void>
   archiveSession(sessionId: string): Promise<void>
   /** worktree sessions: remove the worktree from disk but KEEP the session live
    *  and its conversation searchable; hang4r won't rebuild it on open. */

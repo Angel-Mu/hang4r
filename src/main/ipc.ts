@@ -404,6 +404,9 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     return Promise.all(result.filePaths.map((p) => FileService.readExternalAttachment(p)))
   })
   ipcMain.handle('sessions:interrupt', (_e, sessionId: string) => sessions.interrupt(sessionId))
+  ipcMain.handle('sessions:release-external', (_e, sessionId: string) =>
+    sessions.releaseForExternal(sessionId)
+  )
   ipcMain.handle('sessions:archive', (_e, sessionId: string) => sessions.archive(sessionId))
   ipcMain.handle('sessions:drop-worktree', (_e, sessionId: string) =>
     sessions.dropWorktree(sessionId)

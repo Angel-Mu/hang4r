@@ -36,6 +36,8 @@ const api: Hang4rApi = {
   ) => ipcRenderer.invoke('sessions:prompt', sessionId, text, images, files, displayText),
   pickAttachments: () => ipcRenderer.invoke('dialog:pick-attachments'),
   interrupt: (sessionId: string) => ipcRenderer.invoke('sessions:interrupt', sessionId),
+  releaseForExternal: (sessionId: string) =>
+    ipcRenderer.invoke('sessions:release-external', sessionId),
   archiveSession: (sessionId: string) => ipcRenderer.invoke('sessions:archive', sessionId),
   dropWorktree: (sessionId: string) => ipcRenderer.invoke('sessions:drop-worktree', sessionId),
   recreateWorktree: (sessionId: string) =>

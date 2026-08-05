@@ -25,10 +25,15 @@ test('a mermaid fence renders an SVG diagram, and an invalid one falls back to c
     await tile.getByRole('button', { name: 'Send' }).click()
     await expect(tile.locator('.mermaid-svg svg')).toBeVisible({ timeout: 10_000 })
 
-    // click the rendered diagram → it enlarges in the lightbox (Angel: hard to
-    // read at chat width)
+    // click the rendered diagram → it enlarges in a zoom/pan viewer (Angel: hard
+    // to read at chat width, and the first enlarge was too big with no zoom)
     await tile.locator('.mermaid-block-ready').first().click()
     await expect(page.locator('.lightbox-diagram svg')).toBeVisible({ timeout: 5_000 })
+    // fit-to-view zoom controls are present and zooming changes the level
+    await expect(page.locator('.diagram-controls')).toBeVisible()
+    const before = await page.locator('.diagram-zoom').textContent()
+    await page.locator('.diagram-controls button[title="Zoom in"]').click()
+    await expect(page.locator('.diagram-zoom')).not.toHaveText(before ?? '')
     await page.keyboard.press('Escape')
     await expect(page.locator('.lightbox-backdrop')).toHaveCount(0)
 

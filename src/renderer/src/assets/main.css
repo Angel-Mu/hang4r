@@ -5951,22 +5951,81 @@ button:disabled {
   max-width: 100%;
   height: auto;
 }
-/* the enlarged diagram in the lightbox — scale the vector SVG up to fill the
-   viewport (crisp at any size), overriding mermaid's inline max-width cap */
+/* the enlarged diagram in the lightbox — a fit-to-view, zoomable/pannable canvas
+   (the vector SVG stays crisp at any scale). Opens fitted; +/−/Fit + wheel zoom. */
 .lightbox-diagram {
-  max-width: 94vw;
-  max-height: 90vh;
-  overflow: auto;
-  cursor: default;
+  position: relative;
+  width: 92vw;
+  height: 88vh;
   background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 20px;
   box-shadow: 0 20px 70px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  cursor: default;
 }
-.lightbox-diagram svg {
+.diagram-viewport {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.diagram-viewport:active {
+  cursor: grabbing;
+}
+.diagram-canvas {
+  transform-origin: center;
+  will-change: transform;
+}
+.diagram-canvas svg {
   max-width: none !important;
-  width: min(90vw, 1600px);
-  height: auto;
+  display: block;
+}
+.diagram-controls {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  z-index: 2;
+}
+.diagram-controls button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.diagram-controls button:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+.diagram-fit {
+  font-size: 12px !important;
+  font-weight: 600;
+}
+.diagram-zoom {
+  min-width: 46px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
 }
 /* while the diagram renders (debounced during streaming) — not a blank box */
 .mermaid-block-loading {

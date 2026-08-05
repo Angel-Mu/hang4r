@@ -128,6 +128,16 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       }
     })
     note.show()
+    // bounce the dock icon so a pending session keeps drawing your eye AFTER the
+    // macOS notification banner auto-dismisses — otherwise it's easy to lose
+    // track that something needs you (Angel). A blocking action (approval/answer)
+    // bounces until you focus the app; a finished turn bounces once. Same gates
+    // as the notification above (unfocused + the per-workspace toggle).
+    if (process.platform === 'darwin' && app.dock) {
+      const blocking =
+        ev.event.kind === 'permission-request' || ev.event.kind === 'question-request'
+      app.dock.bounce(blocking ? 'critical' : 'informational')
+    }
     finishedUnseen.add(ev.sessionId)
     updateBadge()
   }

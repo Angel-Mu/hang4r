@@ -23,7 +23,14 @@ test('a mermaid fence renders an SVG diagram, and an invalid one falls back to c
     // a valid flowchart → renders as an SVG (debounced ~250ms + mermaid render)
     await tile.locator('.composer-input').fill('```mermaid\ngraph TD\n  A[Start] --> B[Done]\n```')
     await tile.getByRole('button', { name: 'Send' }).click()
-    await expect(tile.locator('.mermaid-block svg')).toBeVisible({ timeout: 10_000 })
+    await expect(tile.locator('.mermaid-svg svg')).toBeVisible({ timeout: 10_000 })
+
+    // click the rendered diagram → it enlarges in the lightbox (Angel: hard to
+    // read at chat width)
+    await tile.locator('.mermaid-block-ready').first().click()
+    await expect(page.locator('.lightbox-diagram svg')).toBeVisible({ timeout: 5_000 })
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.lightbox-backdrop')).toHaveCount(0)
 
     // an invalid diagram falls back to the readable code, not a blank box
     await tile.locator('.composer-input').fill('```mermaid\n%%not-a-real-diagram%% @@@ !!!\n```')

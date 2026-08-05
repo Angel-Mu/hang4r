@@ -2,6 +2,7 @@ import { useEffect, type JSX } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useHang4r } from '../state/store'
+import { mdComponents, MdCode } from './MarkdownBlocks'
 
 /**
  * Full-screen click-to-enlarge overlay for a rendered attachment. The chat
@@ -41,13 +42,27 @@ export function Lightbox(): JSX.Element | null {
           type="application/pdf"
           onClick={(e) => e.stopPropagation()}
         />
+      ) : box.kind === 'diagram' ? (
+        // an enlarged mermaid diagram — the same SVG, scaled up to fill the view
+        <div
+          className="lightbox-diagram"
+          onClick={(e) => e.stopPropagation()}
+          dangerouslySetInnerHTML={{ __html: box.svg ?? '' }}
+        />
       ) : box.kind === 'markdown' || box.kind === 'text' ? (
         // text/markdown attachment → readable document, NOT raw bytes
         <div className="lightbox-doc" onClick={(e) => e.stopPropagation()}>
           {box.alt ? <div className="lightbox-doc-title">{box.alt}</div> : null}
           {box.kind === 'markdown' ? (
+            // shared components so a ```mermaid fence renders a diagram (not raw
+            // code) and links open in-app — the bare renderer had neither (Angel)
             <div className="markdown-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{box.text ?? ''}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={box.sessionId ? mdComponents(box.sessionId, box.path) : { code: MdCode }}
+              >
+                {box.text ?? ''}
+              </ReactMarkdown>
             </div>
           ) : (
             <pre className="lightbox-doc-pre">{box.text}</pre>

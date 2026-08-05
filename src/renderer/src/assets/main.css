@@ -4416,7 +4416,13 @@ button:disabled {
 }
 .session-flag-action { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
 .session-flag-error { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
-.session-flag-finished { font-size: 0.66em; background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.session-flag-finished {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
 
 /* collapsed-workspace count chip — same "needs you" signal, aggregated, so
    collapsing a workspace can never hide sessions waiting on the user */
@@ -5911,8 +5917,55 @@ button:disabled {
   border-radius: var(--radius);
   overflow-x: auto;
 }
+/* a rendered (non-loading) diagram is click-to-enlarge */
+.mermaid-block-ready {
+  position: relative;
+  cursor: zoom-in;
+}
+.mermaid-expand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: zoom-in;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+.mermaid-block-ready:hover .mermaid-expand {
+  opacity: 1;
+}
+.mermaid-expand:hover {
+  color: var(--text);
+}
 .mermaid-block svg {
   max-width: 100%;
+  height: auto;
+}
+/* the enlarged diagram in the lightbox — scale the vector SVG up to fill the
+   viewport (crisp at any size), overriding mermaid's inline max-width cap */
+.lightbox-diagram {
+  max-width: 94vw;
+  max-height: 90vh;
+  overflow: auto;
+  cursor: default;
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.6);
+}
+.lightbox-diagram svg {
+  max-width: none !important;
+  width: min(90vw, 1600px);
   height: auto;
 }
 /* while the diagram renders (debounced during streaming) — not a blank box */

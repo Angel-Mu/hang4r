@@ -9,6 +9,26 @@ import { shellQuote, type Exec } from './remoteService'
 
 const exec = promisify(execFile)
 
+/**
+ * Absolute paths of every git worktree of the repo containing `dir` (this
+ * worktree, its siblings, and the main checkout), via `git worktree list`.
+ * Returns [] when `dir` isn't a git repo or git fails. Used to resolve a file
+ * referenced by a RELATIVE path from the conversation that actually lives in a
+ * SIBLING worktree (a session runs in one worktree, but agents often reference
+ * files they wrote in another — Angel).
+ */
+async function gitWorktrees(dir: string): Promise<string[]> {
+  const { stdout } = await exec('git', ['worktree', 'list', '--porcelain'], {
+    cwd: dir,
+    maxBuffer: 1024 * 1024
+  }).catch(() => ({ stdout: '' }))
+  const out: string[] = []
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('worktree ')) out.push(line.slice('worktree '.length).trim())
+  }
+  return out
+}
+
 /** How a remote (ssh) call runs: the branch is explicit, not a plain Exec. */
 type Remote = { exec: Exec }
 
@@ -284,6 +304,22 @@ export const FileService = {
       if (matches.length === 1) {
         file = safeJoin(root, matches[0])
         s = await stat(file).catch(() => null)
+      }
+    }
+    // STILL not found and relative? The file may live in a SIBLING worktree of
+    // the same repo (this session runs in ONE worktree, but the agent references
+    // a file it wrote in another — clicking that path errored and forced Finder,
+    // Angel). Try <each worktree>/<relPath>; open the first that exists.
+    if (!s && !isAbsolute(expanded)) {
+      const rel = expanded.replace(/^(?:\.\/)+/, '')
+      for (const wt of await gitWorktrees(root)) {
+        const cand = join(wt, rel)
+        const cs = await stat(cand).catch(() => null)
+        if (cs?.isFile()) {
+          file = cand
+          s = cs
+          break
+        }
       }
     }
     if (!s) return null

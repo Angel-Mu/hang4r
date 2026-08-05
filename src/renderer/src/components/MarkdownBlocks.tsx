@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 import { isDarkTheme, resolveTheme } from '../theme'
 import { useHang4r } from '../state/store'
+import { Icon } from './Icon'
 
 /**
  * Shared markdown block renderers for every Markdown surface (chat, subagent
@@ -67,7 +68,28 @@ export function MermaidBlock({ code }: { code: string }): JSX.Element {
   }
   // rendered declaratively (not via a ref) so the SVG can't be dropped by an
   // error→success re-render race. mermaid's strict mode sanitizes the SVG.
-  if (svg) return <div className="mermaid-block" dangerouslySetInnerHTML={{ __html: svg }} />
+  // Click to enlarge in the lightbox — diagrams are often too small to read at
+  // chat width (Angel). A hover "expand" button makes the affordance discoverable.
+  if (svg)
+    return (
+      <div
+        className="mermaid-block mermaid-block-ready"
+        title="Click to enlarge"
+        onClick={() => useHang4r.getState().openDiagram(svg)}
+      >
+        <button
+          className="mermaid-expand"
+          title="Enlarge diagram"
+          onClick={(e) => {
+            e.stopPropagation()
+            useHang4r.getState().openDiagram(svg)
+          }}
+        >
+          <Icon name="maximize" size={13} />
+        </button>
+        <div className="mermaid-svg" dangerouslySetInnerHTML={{ __html: svg }} />
+      </div>
+    )
   return <div className="mermaid-block mermaid-block-loading">rendering diagram…</div>
 }
 

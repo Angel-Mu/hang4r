@@ -456,7 +456,7 @@ export function Sidebar(): JSX.Element {
                                 className="session-flag session-flag-finished"
                                 title="Finished — open to view"
                               >
-                                🔔
+                                <Icon name="bell" size={11} />
                               </span>
                             )}
                             {(() => {

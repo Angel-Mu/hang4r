@@ -488,9 +488,17 @@ interface Hang4rState {
     src?: string
     text?: string
     alt?: string
-    kind: 'image' | 'pdf' | 'markdown' | 'text'
+    kind: 'image' | 'pdf' | 'markdown' | 'text' | 'diagram'
+    /** markdown preview: render via the shared components (mermaid diagrams +
+     *  safe in-app links) scoped to this session/file, not a bare renderer */
+    sessionId?: string
+    path?: string
+    /** kind 'diagram': the rendered mermaid SVG markup, enlarged to fill the box */
+    svg?: string
   } | null
   openLightbox(src: string, kind: 'image' | 'pdf', alt?: string): void
+  /** enlarge a rendered mermaid diagram (its SVG markup) — click-to-magnify */
+  openDiagram(svg: string): void
   closeLightbox(): void
   /** re-read an attached file and open its preview (card click in the chat) */
   openFilePreview(sessionId: string, file: PromptFile): Promise<void>
@@ -1406,6 +1414,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   openLightbox(src, kind, alt) {
     set({ lightbox: { src, kind, alt } })
   },
+  openDiagram(svg) {
+    set({ lightbox: { svg, kind: 'diagram' } })
+  },
   closeLightbox() {
     set({ lightbox: null })
   },
@@ -1422,7 +1433,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       set({ lightbox: { src: res.dataUrl, kind: res.kind, alt: file.name } })
     } else {
       const kind = res.kind === 'markdown' ? 'markdown' : 'text'
-      set({ lightbox: { text: res.text ?? '', kind, alt: file.name } })
+      set({ lightbox: { text: res.text ?? '', kind, alt: file.name, sessionId, path: file.path } })
     }
   },
   togglePin(sessionId) {

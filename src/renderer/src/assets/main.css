@@ -5978,10 +5978,13 @@ button:disabled {
   cursor: grabbing;
 }
 .diagram-canvas {
-  transform-origin: center;
   will-change: transform;
+  flex: none;
 }
+/* the diagram fills the canvas's controlled width; height follows via viewBox */
 .diagram-canvas svg {
+  width: 100% !important;
+  height: auto !important;
   max-width: none !important;
   display: block;
 }

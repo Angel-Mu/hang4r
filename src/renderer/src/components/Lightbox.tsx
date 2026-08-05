@@ -4,15 +4,33 @@ import remarkGfm from 'remark-gfm'
 import { useHang4r } from '../state/store'
 import { mdComponents, MdCode } from './MarkdownBlocks'
 
+/** aspect ratio (w/h) of a mermaid SVG from its viewBox — reliable as a RATIO
+ *  even though its absolute pixel size isn't (mermaid emits width="100%"). */
+function svgAspect(el: SVGSVGElement): number {
+  const attr = el.getAttribute('viewBox')
+  if (attr) {
+    const p = attr.split(/[\s,]+/).map(Number)
+    if (p.length === 4 && p[2] > 0 && p[3] > 0) return p[2] / p[3]
+  }
+  const vb = el.viewBox?.baseVal
+  if (vb && vb.width > 0 && vb.height > 0) return vb.width / vb.height
+  const r = el.getBoundingClientRect()
+  return r.width > 0 && r.height > 0 ? r.width / r.height : 1.6
+}
+
 /**
  * A zoomable/pannable viewer for an enlarged mermaid diagram. Opens FIT to the
- * viewport (the whole diagram visible — Angel: enlarged was "too big" with no
- * zoom), then scroll-wheel or the +/−/Fit controls zoom, and drag pans. The SVG
- * is vector so it stays crisp at any scale.
+ * viewport (the whole diagram visible — Angel: enlarged was "too big"/tiny with
+ * broken zoom), then scroll-wheel or +/−/Fit controls zoom, and drag pans. We
+ * control the diagram's RENDER WIDTH directly (the SVG fills it at width:100%,
+ * height auto via its viewBox) rather than transform-scaling an unreliably-sized
+ * SVG — so "fit" genuinely fills the modal and 100% = fits-the-view. Vector stays
+ * crisp at any width.
  */
 function DiagramViewer({ svg }: { svg: string }): JSX.Element {
   const viewportRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(1)
+  const [width, setWidth] = useState(0) // px render width of the diagram
+  const [fitW, setFitW] = useState(0) // the fit width (= 100% zoom reference)
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
 
@@ -20,16 +38,11 @@ function DiagramViewer({ svg }: { svg: string }): JSX.Element {
     const vp = viewportRef.current
     const el = vp?.querySelector('svg') as SVGSVGElement | null
     if (!vp || !el) return
-    const vb = el.viewBox?.baseVal
-    const w = (vb && vb.width) || el.getBoundingClientRect().width || 800
-    const h = (vb && vb.height) || el.getBoundingClientRect().height || 600
-    // normalize to natural pixel size so scale() is predictable (mermaid emits
-    // width="100%" + an inline max-width, which would fight the transform)
-    el.style.width = `${w}px`
-    el.style.height = `${h}px`
-    el.style.maxWidth = 'none'
-    const s = Math.min(vp.clientWidth / w, vp.clientHeight / h) * 0.92
-    setScale(Math.min(2, s > 0 ? s : 1)) // don't blow a tiny diagram up absurdly
+    const aspect = svgAspect(el)
+    // widest the diagram can be while BOTH it and its (width/aspect) height fit
+    const w = Math.min(vp.clientWidth, vp.clientHeight * aspect) * 0.94
+    setFitW(w)
+    setWidth(w)
     setPos({ x: 0, y: 0 })
   }, [])
 
@@ -37,7 +50,9 @@ function DiagramViewer({ svg }: { svg: string }): JSX.Element {
     fit()
   }, [fit, svg])
 
-  const zoom = (factor: number): void => setScale((s) => Math.min(8, Math.max(0.1, s * factor)))
+  const zoom = (factor: number): void =>
+    setWidth((w) => Math.max(80, Math.min((fitW || 1) * 12, w * factor)))
+  const pct = fitW ? Math.round((width / fitW) * 100) : 100
 
   return (
     <div className="lightbox-diagram" onClick={(e) => e.stopPropagation()}>
@@ -60,7 +75,7 @@ function DiagramViewer({ svg }: { svg: string }): JSX.Element {
       >
         <div
           className="diagram-canvas"
-          style={{ transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})` }}
+          style={{ width: `${width}px`, transform: `translate(${pos.x}px, ${pos.y}px)` }}
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       </div>
@@ -68,7 +83,7 @@ function DiagramViewer({ svg }: { svg: string }): JSX.Element {
         <button title="Zoom out" onClick={() => zoom(1 / 1.2)}>
           −
         </button>
-        <span className="diagram-zoom">{Math.round(scale * 100)}%</span>
+        <span className="diagram-zoom">{pct}%</span>
         <button title="Zoom in" onClick={() => zoom(1.2)}>
           +
         </button>

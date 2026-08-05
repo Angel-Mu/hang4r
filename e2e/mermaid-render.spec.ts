@@ -29,11 +29,25 @@ test('a mermaid fence renders an SVG diagram, and an invalid one falls back to c
     // to read at chat width, and the first enlarge was too big with no zoom)
     await tile.locator('.mermaid-block-ready').first().click()
     await expect(page.locator('.lightbox-diagram svg')).toBeVisible({ timeout: 5_000 })
-    // fit-to-view zoom controls are present and zooming changes the level
     await expect(page.locator('.diagram-controls')).toBeVisible()
-    const before = await page.locator('.diagram-zoom').textContent()
+    await expect(page.locator('.diagram-zoom')).toHaveText('100%')
+
+    // FIT must actually FILL the viewport (regression: a broken fit rendered a
+    // tiny cluster in the center). The diagram fits INSIDE the viewport and fills
+    // ≥80% of at least one axis.
+    const d = await page.evaluate(() => {
+      const vp = document.querySelector('.diagram-viewport') as HTMLElement
+      const c = document.querySelector('.diagram-canvas') as HTMLElement
+      const cr = c.getBoundingClientRect()
+      return { vpW: vp.clientWidth, vpH: vp.clientHeight, cW: cr.width, cH: cr.height }
+    })
+    expect(d.cW).toBeLessThanOrEqual(d.vpW + 2)
+    expect(d.cH).toBeLessThanOrEqual(d.vpH + 2)
+    expect(Math.max(d.cW / d.vpW, d.cH / d.vpH)).toBeGreaterThan(0.8)
+
+    // zoom in changes the level (and grows the diagram past the fit width)
     await page.locator('.diagram-controls button[title="Zoom in"]').click()
-    await expect(page.locator('.diagram-zoom')).not.toHaveText(before ?? '')
+    await expect(page.locator('.diagram-zoom')).not.toHaveText('100%')
     await page.keyboard.press('Escape')
     await expect(page.locator('.lightbox-backdrop')).toHaveCount(0)
 

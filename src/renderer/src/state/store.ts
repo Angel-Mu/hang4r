@@ -64,15 +64,24 @@ export function composeMessage(
     .filter((a) => a.image)
     .map((a) => ({ base64: a.image!.base64, mediaType: a.image!.mediaType }))
   const fence = (a: Attachment): string => `${a.label}:\n\`\`\`\n${a.text}\n\`\`\``
+  // a quoted selection ("Add to chat") renders as a BLOCKQUOTE in the transcript:
+  // prose wraps and reads as a quote, instead of a monospace, horizontally-
+  // scrolling code block (Angel: add-to-chat gave weird code-block formatting).
+  // The AGENT still gets the fenced form in `full` for unambiguous delineation.
+  const quote = (a: Attachment): string =>
+    (a.text ?? '')
+      .split('\n')
+      .map((l) => `> ${l}`)
+      .join('\n')
   const fileAtts = atts.filter((a) => a.text && a.file) // → cards
-  const snippetAtts = atts.filter((a) => a.text && !a.file) // → inline (selection quotes)
+  const snippetAtts = atts.filter((a) => a.text && !a.file) // → blockquotes (selection quotes)
   const files = fileAtts.map((a) => a.file!)
 
   const fileBlocks = fileAtts.map(fence).join('\n\n')
   const snippetBlocks = snippetAtts.map(fence).join('\n\n')
-  // agent gets everything; display omits the file bytes (they're cards)
+  // agent gets everything fenced; display quotes snippets and omits file bytes (cards)
   const full = [fileBlocks, snippetBlocks, text].filter(Boolean).join('\n\n')
-  const displayText = [snippetBlocks, text].filter(Boolean).join('\n\n')
+  const displayText = [snippetAtts.map(quote).join('\n\n'), text].filter(Boolean).join('\n\n')
   return { full, images, files, displayText }
 }
 
@@ -1062,7 +1071,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         firstPrompt: composed.full || firstPrompt,
         firstImages: composed.images.length ? composed.images : undefined,
         firstFiles: composed.files.length ? composed.files : undefined,
-        firstDisplayText: composed.files.length ? composed.displayText : undefined
+        firstDisplayText: composed.displayText !== composed.full ? composed.displayText : undefined
       })
       set((s) => ({
         sessions: s.sessions.some((x) => x.id === session.id)
@@ -1179,7 +1188,11 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       full,
       images.length ? images : undefined,
       files.length ? files : undefined,
-      files.length ? displayText : undefined
+      // pass the display echo whenever it DIFFERS from the agent text — file cards
+      // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
+      // files.length, which dropped snippet-only quotes → they echoed the fenced
+      // `full` and rendered as a code block instead of a blockquote (Angel).
+      displayText !== full ? displayText : undefined
     )
   },
 
@@ -1246,7 +1259,11 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       full,
       images.length ? images : undefined,
       files.length ? files : undefined,
-      files.length ? displayText : undefined
+      // pass the display echo whenever it DIFFERS from the agent text — file cards
+      // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
+      // files.length, which dropped snippet-only quotes → they echoed the fenced
+      // `full` and rendered as a code block instead of a blockquote (Angel).
+      displayText !== full ? displayText : undefined
     )
   },
 

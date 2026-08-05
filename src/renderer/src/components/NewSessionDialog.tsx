@@ -232,7 +232,7 @@ export function NewSessionDialog(): JSX.Element | null {
           firstPrompt: composed.full || undefined,
           firstImages: composed.images.length ? composed.images : undefined,
           firstFiles: composed.files.length ? composed.files : undefined,
-          firstDisplayText: composed.files.length ? composed.displayText : undefined,
+          firstDisplayText: composed.displayText !== composed.full ? composed.displayText : undefined,
           ...(environment === 'ssh'
             ? {
                 remoteHostId: selectedHost?.id,

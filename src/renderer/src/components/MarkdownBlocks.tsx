@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { isDarkTheme, resolveTheme } from '../theme'
 import { useHang4r } from '../state/store'
 import { Icon } from './Icon'
@@ -113,15 +113,44 @@ function resolveRel(basePath: string | undefined, href: string): string {
  * must NEVER default-navigate: http(s) opens the Browser pane, relative
  * paths open in the editor, anchors are inert.
  */
-const mdComponentsCache = new Map<
-  string,
-  { code: typeof MdCode; a: (p: { href?: string; children?: React.ReactNode }) => JSX.Element }
->()
+/**
+ * A fenced code block with a hover "copy" button (Angel). Overrides react-
+ * markdown's <pre> so every block on every markdown surface gets it; reads the
+ * rendered text (textContent) so it copies exactly what's shown, no child parsing.
+ */
+export function MdPre(props: { children?: React.ReactNode }): JSX.Element {
+  const ref = useRef<HTMLPreElement>(null)
+  const [copied, setCopied] = useState(false)
+  const copy = (): void => {
+    const text = ref.current?.textContent ?? ''
+    if (!text) return
+    void navigator.clipboard.writeText(text)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1400)
+  }
+  return (
+    <div className="md-codeblock">
+      <pre ref={ref}>{props.children}</pre>
+      <button
+        className={'md-copy' + (copied ? ' md-copied' : '')}
+        title={copied ? 'Copied!' : 'Copy'}
+        onClick={copy}
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={12} />
+      </button>
+    </div>
+  )
+}
 
-export function mdComponents(
-  sessionId: string,
-  basePath?: string
-): { code: typeof MdCode; a: (p: { href?: string; children?: React.ReactNode }) => JSX.Element } {
+type MdCompMap = {
+  code: typeof MdCode
+  a: (p: { href?: string; children?: React.ReactNode }) => JSX.Element
+  pre: typeof MdPre
+}
+
+const mdComponentsCache = new Map<string, MdCompMap>()
+
+export function mdComponents(sessionId: string, basePath?: string): MdCompMap {
   // stable identity per (session, file): fresh component fns every render
   // would remount the whole rendered-markdown subtree on each re-render
   const key = `${sessionId}|${basePath ?? ''}`
@@ -151,12 +180,10 @@ export function openFileHref(sessionId: string, href: string): boolean {
   return true
 }
 
-function make(
-  sessionId: string,
-  basePath?: string
-): { code: typeof MdCode; a: (p: { href?: string; children?: React.ReactNode }) => JSX.Element } {
+function make(sessionId: string, basePath?: string): MdCompMap {
   return {
     code: MdCode,
+    pre: MdPre,
     a: ({ href, children }) => {
       const open = (): void => {
         if (!href || href.startsWith('#')) return

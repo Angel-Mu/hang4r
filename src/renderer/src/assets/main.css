@@ -559,6 +559,44 @@ button:disabled {
   background: none;
   padding: 0;
 }
+/* fenced code block: a hover "copy" button in the top-right (Angel). The wrapper
+   is relative; the button rides the block, not the scroll area, so it stays put
+   while the code scrolls horizontally. Applies on every markdown surface. */
+.md-codeblock {
+  position: relative;
+}
+.md-copy {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.md-codeblock:hover .md-copy {
+  opacity: 0.85;
+}
+.md-copy:hover {
+  opacity: 1;
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.md-copy.md-copied {
+  opacity: 1;
+  color: var(--accent);
+  border-color: var(--accent);
+}
 .msg-assistant ul,
 .msg-assistant ol {
   padding-left: 20px;

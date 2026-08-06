@@ -3,7 +3,7 @@ import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { subagentLabelForPermission } from './SubagentInspector'
-import { MdCode, mdComponents, openFileHref } from './MarkdownBlocks'
+import { MdCode, MdPre, mdComponents, openFileHref } from './MarkdownBlocks'
 
 type BlockItem = Extract<TranscriptItem, { type: 'block' }>
 
@@ -26,6 +26,8 @@ function chatMdComponents(sessionId: string): Components {
   const cached = chatMdComponentsCache.get(sessionId)
   if (cached) return cached
   const made: Components = {
+    // fenced code blocks get a hover copy button (Angel)
+    pre: MdPre,
     // links open the inner browser pane, never the app window;
     // file:// under the workdir opens in the editor instead. Right-click →
     // "Copy link address" copies the real target (URL/path), not the rendered

@@ -92,6 +92,8 @@ const api: Hang4rApi = {
   respondQuestion: (sessionId: string, requestId: string, answers: QuestionAnswer[]) =>
     ipcRenderer.invoke('sessions:respond-question', sessionId, requestId, answers),
   duplicateSession: (sessionId: string) => ipcRenderer.invoke('sessions:duplicate', sessionId),
+  forkToBackend: (sessionId: string, backend: string, model?: string) =>
+    ipcRenderer.invoke('sessions:fork-to-backend', sessionId, backend, model),
   retrySession: (sessionId: string) => ipcRenderer.invoke('sessions:retry', sessionId),
   rewindSession: (sessionId: string, originalText: string, occurrenceFromEnd: number, newText: string) =>
     ipcRenderer.invoke('sessions:rewind', sessionId, originalText, occurrenceFromEnd, newText),

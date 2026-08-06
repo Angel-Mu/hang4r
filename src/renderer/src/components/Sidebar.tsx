@@ -81,6 +81,7 @@ export function Sidebar(): JSX.Element {
   const openSession = useHang4r((s) => s.openSession)
   const archiveSession = useHang4r((s) => s.archiveSession)
   const duplicateSession = useHang4r((s) => s.duplicateSession)
+  const handoffToBackend = useHang4r((s) => s.handoffToBackend)
   const retrySession = useHang4r((s) => s.retrySession)
   const renameSession = useHang4r((s) => s.renameSession)
   const openContextMenu = useHang4r((s) => s.openContextMenu)
@@ -134,6 +135,19 @@ export function Sidebar(): JSX.Element {
       },
       { label: isPinned(id) ? 'Unpin' : 'Pin to top', onClick: () => togglePin(id) },
       { label: 'Duplicate / Fork', onClick: () => void duplicateSession(id) },
+      // hand off to a DIFFERENT agent, seeded with this conversation
+      ...(
+        [
+          { id: 'claude', label: 'Claude Code' },
+          { id: 'codex', label: 'Codex' },
+          { id: 'cursor', label: 'Cursor' }
+        ] as const
+      )
+        .filter((b) => b.id !== sessions.find((x) => x.id === id)?.backend)
+        .map((b) => ({
+          label: `Hand off to ${b.label}`,
+          onClick: () => void handoffToBackend(id, b.id)
+        })),
       { label: 'Retry Last Message', onClick: () => void retrySession(id) },
       ...worktreeItems,
       { separator: true, label: '' },

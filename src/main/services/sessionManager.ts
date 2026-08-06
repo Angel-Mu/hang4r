@@ -1,5 +1,6 @@
 import type {
   AgentEvent,
+  BackendId,
   ChangedFile,
   DiffScope,
   NewSessionRequest,
@@ -14,6 +15,7 @@ import type {
   SessionMeta
 } from '../../shared/protocol'
 import { findBinary } from './binaryDiscovery'
+import { buildHandoffSeed, backendLabel } from './handoff'
 import { ClaudeAdapter } from './adapters/claudeAdapter'
 import { CodexAdapter } from './adapters/codexAdapter'
 import { CursorAdapter } from './adapters/cursorAdapter'
@@ -762,6 +764,45 @@ export class SessionManager {
     }
     this.updateSession(dup.id, { status: 'idle' })
     return this.store.getSession(dup.id)!
+  }
+
+  /**
+   * Cross-agent handoff: start a FRESH session on a DIFFERENT backend, in the
+   * SAME working directory, seeded with this session's conversation reconstructed
+   * as text (Angel: hit my Claude limit, keep going on Codex). Not a native resume
+   * — backend session ids don't cross agents — so the new agent reads a summary of
+   * the history (tool calls as prose) rather than resuming live tool state. Reuses
+   * the source cwd so any uncommitted work carries over (no new worktree).
+   */
+  async forkToBackend(
+    sessionId: string,
+    backend: BackendId,
+    model?: string
+  ): Promise<SessionMeta> {
+    const src = this.store.getSession(sessionId)
+    if (!src) throw new Error(`Unknown session: ${sessionId}`)
+    const events = this.store.getEvents(sessionId).map((e) => e.event)
+    const seed = buildHandoffSeed(events, {
+      sourceBackend: src.backend,
+      // Cursor passes the prompt as an argv (ARG_MAX) → smaller budget
+      maxChars: backend === 'cursor' ? 16_000 : 48_000
+    })
+    const session = this.store.createSession({
+      projectId: src.projectId,
+      backend,
+      title: `${src.title} → ${backendLabel(backend)}`,
+      model,
+      cwd: src.cwd,
+      environment: src.environment,
+      baseRef: src.baseRef,
+      permissionMode: src.permissionMode,
+      remoteHostId: src.remoteHostId ?? undefined
+    })
+    const adapter = this.spawnAdapter(session)
+    this.adapters.set(session.id, adapter)
+    adapter.prompt(seed)
+    this.updateSession(session.id, { status: 'running' })
+    return this.store.getSession(session.id)!
   }
 
   /** Switch model mid-session (Cursor's in-composer model picker). */

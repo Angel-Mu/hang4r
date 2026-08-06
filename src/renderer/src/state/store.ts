@@ -5,6 +5,7 @@ import type {
   AgentEvent,
   AgentQuestion,
   Attachment,
+  BackendId,
   BrowserHotkeyAction,
   PermissionMode,
   Project,
@@ -624,6 +625,9 @@ interface Hang4rState {
   respondPermission(sessionId: string, requestId: string, decision: string): Promise<void>
   respondQuestion(sessionId: string, requestId: string, answers: QuestionAnswer[]): Promise<void>
   duplicateSession(sessionId: string): Promise<void>
+  /** hand off to a different agent (Codex/Cursor/Claude) seeded with this
+   *  conversation — opens the new session in a split */
+  handoffToBackend(sessionId: string, backend: BackendId): Promise<void>
   retrySession(sessionId: string): Promise<void>
   toggleExpand(sessionId: string): void
   /** move or swap a session into the pane at targetIndex (drag & drop) */
@@ -1659,6 +1663,14 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         : [...s.sessions, dup]
     }))
     await get().openSession(dup.id, { split: true })
+  },
+
+  async handoffToBackend(sessionId, backend) {
+    const s = await window.hang4r.forkToBackend(sessionId, backend)
+    set((st) => ({
+      sessions: st.sessions.some((x) => x.id === s.id) ? st.sessions : [...st.sessions, s]
+    }))
+    await get().openSession(s.id, { split: true })
   },
 
   async retrySession(sessionId) {

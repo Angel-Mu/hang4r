@@ -91,6 +91,13 @@ const NO_ATTACHMENTS: { label: string; text: string }[] = []
 const NO_ITEMS: TranscriptItem[] = []
 const NO_QUEUE: import('../state/store').QueuedMessage[] = []
 
+/** the agents a session can be handed off to (the current one is filtered out) */
+const HANDOFF_BACKENDS: { id: BackendId; label: string }[] = [
+  { id: 'claude', label: 'Claude Code' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'cursor', label: 'Cursor' }
+]
+
 /** permission modes in the CLI's own Shift+Tab cycle order, with short labels */
 const PERMISSION_MODES: { value: PermissionMode; label: string }[] = [
   { value: 'default', label: 'Ask (default)' },
@@ -287,6 +294,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   const sendPrompt = useHang4r((s) => s.sendPrompt)
   const interrupt = useHang4r((s) => s.interrupt)
   const duplicateSession = useHang4r((s) => s.duplicateSession)
+  const handoffToBackend = useHang4r((s) => s.handoffToBackend)
   const retrySession = useHang4r((s) => s.retrySession)
   const addAttachment = useHang4r((s) => s.addAttachment)
   const removeAttachment = useHang4r((s) => s.removeAttachment)
@@ -976,6 +984,12 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
               }
             },
             { label: 'Duplicate / Fork', onClick: () => void duplicateSession(sessionId) },
+            // hand off to a DIFFERENT agent, seeded with this conversation (hit a
+            // usage limit on one agent → keep going on another)
+            ...HANDOFF_BACKENDS.filter((b) => b.id !== session.backend).map((b) => ({
+              label: `Hand off to ${b.label}`,
+              onClick: () => void handoffToBackend(sessionId, b.id)
+            })),
             { label: 'Retry Last Message', onClick: () => void retrySession(sessionId) },
             {
               // hang4r sessions live in a worktree cwd + are unnamed, so they

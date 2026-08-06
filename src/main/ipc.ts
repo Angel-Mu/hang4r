@@ -15,6 +15,7 @@ import { homedir } from 'os'
 import { existsSync, readFileSync } from 'fs'
 import { pathToFileURL } from 'url'
 import type {
+  BackendId,
   DiffScope,
   NewSessionRequest,
   PermissionMode,
@@ -457,6 +458,11 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   )
   ipcMain.handle('sessions:duplicate', (_e, sessionId: string) =>
     sessions.duplicateSession(sessionId)
+  )
+  ipcMain.handle(
+    'sessions:fork-to-backend',
+    (_e, sessionId: string, backend: BackendId, model?: string) =>
+      sessions.forkToBackend(sessionId, backend, model)
   )
   ipcMain.handle('sessions:retry', (_e, sessionId: string) => sessions.retry(sessionId))
   ipcMain.handle(

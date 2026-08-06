@@ -628,6 +628,11 @@ export interface Hang4rApi {
   /** Answer a pending question-request (Claude AskUserQuestion) so the turn continues */
   respondQuestion(sessionId: string, requestId: string, answers: QuestionAnswer[]): Promise<void>
   duplicateSession(sessionId: string): Promise<SessionMeta>
+  /** Hand off to a DIFFERENT agent: start a fresh session on `backend` in the
+   *  same worktree, seeded with this conversation's history (reconstruction, not
+   *  a native resume — backend ids don't cross agents). For "hit my Claude limit,
+   *  keep going on Codex". */
+  forkToBackend(sessionId: string, backend: BackendId, model?: string): Promise<SessionMeta>
   retrySession(sessionId: string): Promise<void>
   /** Edit an already-sent user message and restart the conversation there (CC rewind) */
   rewindSession(

@@ -442,6 +442,7 @@ export function Settings(): JSX.Element | null {
   const [setupScript, setSetupScript] = useState('')
   const [wtScope, setWtScope] = useState('') // '' = global default, else projectId
   const [terminalShell, setTerminalShell] = useState('')
+  const [terminalLoginShell, setTerminalLoginShell] = useState(false)
   const [notifyOnComplete, setNotifyOnComplete] = useState(true)
   const [notifyOnActionRequired, setNotifyOnActionRequired] = useState(true)
   const [notifyOnError, setNotifyOnError] = useState(true)
@@ -463,6 +464,9 @@ export function Settings(): JSX.Element | null {
     void window.hang4r.getSetting('defaultPermissionMode').then((v) => setDefaultPerm(v ?? 'acceptEdits'))
     void window.hang4r.getSetting('defaultEnvironment').then((v) => setDefaultEnv(v ?? 'worktree'))
     void window.hang4r.getSetting('terminalShell').then((v) => setTerminalShell(v ?? ''))
+    void window.hang4r
+      .getSetting('terminalLoginShell')
+      .then((v) => setTerminalLoginShell(v === 'on'))
     void window.hang4r.getSetting('notifyOnComplete').then((v) => setNotifyOnComplete(v !== 'off'))
     void window.hang4r
       .getSetting('notifications.onActionRequired')
@@ -492,6 +496,7 @@ export function Settings(): JSX.Element | null {
     await window.hang4r.setSetting('defaultPermissionMode', defaultPerm)
     await window.hang4r.setSetting('defaultEnvironment', defaultEnv)
     await window.hang4r.setSetting('terminalShell', terminalShell.trim())
+    await window.hang4r.setSetting('terminalLoginShell', terminalLoginShell ? 'on' : 'off')
     await window.hang4r.setSetting('notifyOnComplete', notifyOnComplete ? 'on' : 'off')
     await window.hang4r.setSetting(
       'notifications.onActionRequired',
@@ -575,12 +580,28 @@ export function Settings(): JSX.Element | null {
                   </select>
                 </Field>
                 <Field label="Terminal shell">
-                  <input
-                    className="field"
-                    placeholder="Auto-detected (e.g. /opt/homebrew/bin/fish)"
-                    value={terminalShell}
-                    onChange={(e) => setTerminalShell(e.target.value)}
-                  />
+                  <>
+                    <input
+                      className="field"
+                      placeholder="Auto-detected — your login shell (e.g. /opt/homebrew/bin/fish)"
+                      value={terminalShell}
+                      onChange={(e) => setTerminalShell(e.target.value)}
+                    />
+                    <div className="notify-option">
+                      <label className="notify-toggle">
+                        <input
+                          type="checkbox"
+                          checked={terminalLoginShell}
+                          onChange={(e) => setTerminalLoginShell(e.target.checked)}
+                        />
+                        Run as a login shell
+                      </label>
+                      <p className="notify-hint">
+                        Sources your full login profile (~/.zprofile, PATH) like Terminal.app / iTerm.
+                        Off = interactive-only (~/.zshrc). Blank shell above = your detected login shell.
+                      </p>
+                    </div>
+                  </>
                 </Field>
                 <Field label="Notifications">
                   <>

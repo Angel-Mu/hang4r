@@ -86,7 +86,13 @@ const APP_SCHEMA = {
     },
     terminalShell: {
       type: 'string',
-      description: 'Shell for new terminals (blank = the system default shell).'
+      description: 'Shell for new terminals (blank = your detected login shell).'
+    },
+    terminalLoginShell: {
+      type: 'boolean',
+      default: false,
+      description:
+        'Run new terminals as a login shell (-l), sourcing ~/.zprofile/PATH like Terminal.app/iTerm. Default off = interactive-only (~/.zshrc).'
     },
     terminalKeymap: {
       type: 'array',
@@ -192,6 +198,10 @@ const WORKSPACE_SCHEMA = {
     terminalShell: {
       type: 'string',
       description: 'Shell override for this workspace (blank = falls back to the app setting).'
+    },
+    terminalLoginShell: {
+      type: 'boolean',
+      description: 'Login-shell override for this workspace (unset = falls back to the app setting).'
     },
     notifications: NOTIFICATIONS,
     devProcesses: {

@@ -801,6 +801,9 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       const session = store.getSession(sessionId)
       // workspace shell override beats the app default for local terminals
       const shell = (settings.resolve('terminalShell', session?.projectId) ?? '') || undefined
+      // opt-in login shell: only when the user turned it ON (sources ~/.zprofile
+      // like Terminal.app/iTerm). Default off = interactive-only, unchanged.
+      const loginShell = settings.resolve('terminalLoginShell', session?.projectId) === 'on'
       const sshHost =
         session?.environment === 'ssh'
           ? sessions.remoteHost(session.remoteHostId)?.host
@@ -808,7 +811,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       // ssh terminals run on the remote host and can't reach the local socket, so
       // they get no browser-control env; local terminals do (skip ensure-tab there)
       const env = sshHost ? undefined : browserControl?.sessionEnv(sessionId)
-      ptyService!.start(id, cwd, cols, rows, shell, sshHost, env)
+      ptyService!.start(id, cwd, cols, rows, shell, sshHost, env, loginShell)
     }
   )
   ipcMain.handle(

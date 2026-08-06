@@ -70,7 +70,11 @@ export class PtyService {
     rows: number,
     shellOverride?: string,
     sshHost?: string,
-    extraEnv?: Record<string, string>
+    extraEnv?: Record<string, string>,
+    /** run the shell as a LOGIN shell (-l) so it sources ~/.zprofile etc., like
+     *  Terminal.app / iTerm. Opt-in (default off = interactive-only, ~/.zshrc) so
+     *  it never changes existing terminals unless the user asks for it. */
+    loginShell = false
   ): void {
     // Re-attach: the PTY is still alive (only the xterm was unmounted on a tab
     // switch). Replay buffered scrollback into the fresh xterm instead of a
@@ -108,9 +112,12 @@ export class PtyService {
     const shell = resolveShell(shellOverride)
     // node-pty throws if cwd doesn't exist — fall back to home defensively
     const safeCwd = cwd && existsSync(cwd) ? cwd : homedir()
+    // login shell (-l) sources ~/.zprofile/PATH like a normal macOS terminal;
+    // powershell on win32 has no such flag, so never add it there
+    const shellArgs = loginShell && platform() !== 'win32' ? ['-l'] : []
     let pty: IPty
     try {
-      pty = spawn(shell, [], {
+      pty = spawn(shell, shellArgs, {
         name: 'xterm-color',
         cwd: safeCwd,
         cols: cols || 80,

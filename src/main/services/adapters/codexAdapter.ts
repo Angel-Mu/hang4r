@@ -324,7 +324,12 @@ export class CodexAdapter implements AgentAdapter {
         requestId,
         tool: 'command',
         summary: String(params.command ?? params.reason ?? 'Run command'),
-        detail: params.cwd ? `cwd: ${params.cwd}` : undefined,
+        // full command + cwd in the detail so it's fully readable — the header
+        // summary truncates (Angel: can't see the whole command to Allow/Deny)
+        detail:
+          [String(params.command ?? ''), params.cwd ? `cwd: ${params.cwd}` : '']
+            .filter(Boolean)
+            .join('\n\n') || undefined,
         options: ['accept', 'acceptForSession', 'decline']
       })
       return

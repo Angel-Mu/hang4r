@@ -2055,10 +2055,21 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* the FULL command/path — must be fully readable to decide Allow/Deny (Angel):
+   wrap (incl. long unbreakable hashes/paths), preserve any line breaks, and
+   scroll within the card if it's very long, on a subtle code-block backdrop */
 .permission-detail {
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
 }
 .permission-actions {
   display: flex;

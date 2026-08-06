@@ -317,7 +317,9 @@ export class ClaudeAdapter implements AgentAdapter {
         requestId: req.request_id,
         tool: r.tool_name ?? 'tool',
         summary: summarizeToolInput(r.tool_name, r.input) || (r.title ?? r.tool_name ?? 'Use tool'),
-        detail: r.description,
+        // detail = the FULL command/path (untruncated) so you can read exactly
+        // what you're approving; fall back to the CLI's short description
+        detail: fullToolText(r.input) ?? r.description,
         options,
         toolUseId: r.tool_use_id
       })
@@ -701,6 +703,20 @@ function summarizeToolInput(tool: string | undefined, input: unknown): string {
     }
   }
   return ''
+}
+
+/** the FULL actionable input (command / path / url …) for a permission card's
+ *  detail, UNtruncated (capped generously) — the one-line summary is only a
+ *  preview, but you need the whole command to decide Allow/Deny (Angel). */
+function fullToolText(input: unknown): string | undefined {
+  if (input && typeof input === 'object') {
+    const o = input as Record<string, unknown>
+    const v = o.command ?? o.file_path ?? o.path ?? o.url ?? o.pattern ?? o.query
+    if (typeof v === 'string' && v.trim()) {
+      return v.length > 4000 ? v.slice(0, 4000) + '…' : v
+    }
+  }
+  return undefined
 }
 
 function normalizeBlock(block: Record<string, unknown>): ContentBlock {

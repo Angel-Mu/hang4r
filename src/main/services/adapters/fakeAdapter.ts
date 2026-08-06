@@ -157,7 +157,11 @@ export class FakeAdapter implements AgentAdapter {
         kind: 'permission-request',
         requestId: `fake-perm-${turn}`,
         tool: 'Bash',
-        summary: 'Bash: rm -rf ./sandbox-test',
+        // summary is a truncated preview; detail carries the FULL command so it's
+        // fully readable for the Allow/Deny decision (Angel)
+        summary: 'Bash: rm -rf ./sandbox-test && git show 728cb4260 --stat',
+        detail:
+          'rm -rf ./sandbox-test && git show 728cb4260 --stat FULLCMD_MARKER_qz && echo "the whole command must be readable"',
         options: ['allow', 'allow_session', 'allow_always', 'deny']
       })
       return // turn continues when the user decides (see respondPermission)

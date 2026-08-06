@@ -58,6 +58,12 @@ const USER_KEYS: Record<string, KeySpec> = {
   },
   'notifications.onError': { path: 'notifications.onError', codec: 'bool', workspaceScoped: true },
   defaultModel: { path: 'defaultModel', codec: 'str', workspaceScoped: false },
+  // per-agent default model (agents.<backend>.model) — the SAME path
+  // resolveAgentDefault reads, so setting it here becomes each agent's default
+  // for new sessions (a workspace agents.<backend>.model still overrides)
+  claudeModel: { path: 'agents.claude.model', codec: 'str', workspaceScoped: false },
+  codexModel: { path: 'agents.codex.model', codec: 'str', workspaceScoped: false },
+  cursorModel: { path: 'agents.cursor.model', codec: 'str', workspaceScoped: false },
   defaultPermissionMode: { path: 'defaultPermissionMode', codec: 'str', workspaceScoped: false },
   defaultEnvironment: { path: 'defaultEnvironment', codec: 'str', workspaceScoped: false },
   claudeBinaryPath: { path: 'binaries.claude', codec: 'str', workspaceScoped: false },

@@ -108,7 +108,7 @@ const APP_SCHEMA = {
     defaultModel: {
       type: 'string',
       description:
-        'Pre-fills the New Agent dialog with this model (blank = choose per session) (applies at New Agent).'
+        'Legacy Claude-only default model (superseded by agents.claude.model). Per-agent defaults live in agents.<backend>.model — set them in Settings → Models. Blank = choose per session.'
     },
     defaultPermissionMode: {
       type: 'string',

@@ -1,7 +1,8 @@
 import { useEffect, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useHang4r } from '../state/store'
 import { THEMES, type Theme } from '../theme'
-import type { SettingsScope, UpdateStatus } from '../../../shared/protocol'
+import type { ModelChoice, SettingsScope, UpdateStatus } from '../../../shared/protocol'
+import { CLAUDE_MODELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
 import { SettingsJsonEditor } from './SettingsJsonEditor'
 import {
   ACTION_LABELS,
@@ -11,6 +12,19 @@ import {
   type KeyBinding,
   type KeymapAction
 } from '../terminalKeymap'
+
+/** <option>s for a per-agent model dropdown, including the current value even if
+ *  it isn't in the discovered list (so a saved model is never silently dropped) */
+function modelOptions(list: ModelChoice[], current: string): JSX.Element[] {
+  const opts = list.some((m) => m.value === current)
+    ? list
+    : [...list, { value: current, label: current || 'Default model' }]
+  return opts.map((m) => (
+    <option key={m.value} value={m.value}>
+      {m.label}
+    </option>
+  ))
+}
 
 interface SshHost {
   id: string
@@ -434,7 +448,12 @@ export function Settings(): JSX.Element | null {
   const [claudePath, setClaudePath] = useState('')
   const [codexPath, setCodexPath] = useState('')
   const [cursorPath, setCursorPath] = useState('')
-  const [defaultModel, setDefaultModel] = useState('')
+  // per-agent default model (each agent has its own models) + their available lists
+  const [claudeModel, setClaudeModel] = useState('')
+  const [codexModel, setCodexModel] = useState('')
+  const [cursorModel, setCursorModel] = useState('')
+  const [codexModels, setCodexModels] = useState<ModelChoice[]>(FALLBACK_CODEX_MODELS)
+  const [cursorModels, setCursorModels] = useState<ModelChoice[]>(FALLBACK_CURSOR_MODELS)
   const [defaultPerm, setDefaultPerm] = useState('acceptEdits')
   const [defaultEnv, setDefaultEnv] = useState('worktree')
   const [worktreeDir, setWorktreeDir] = useState('')
@@ -460,7 +479,22 @@ export function Settings(): JSX.Element | null {
     void window.hang4r.getSetting('claudeBinaryPath').then((v) => setClaudePath(v ?? ''))
     void window.hang4r.getSetting('codexBinaryPath').then((v) => setCodexPath(v ?? ''))
     void window.hang4r.getSetting('cursorBinaryPath').then((v) => setCursorPath(v ?? ''))
-    void window.hang4r.getSetting('defaultModel').then((v) => setDefaultModel(v ?? ''))
+    // Claude default = agents.claude.model, falling back to the legacy single
+    // `defaultModel` so existing users keep their value until they re-save
+    void Promise.all([
+      window.hang4r.getSetting('claudeModel'),
+      window.hang4r.getSetting('defaultModel')
+    ]).then(([m, legacy]) => setClaudeModel(m || legacy || ''))
+    void window.hang4r.getSetting('codexModel').then((v) => setCodexModel(v ?? ''))
+    void window.hang4r.getSetting('cursorModel').then((v) => setCursorModel(v ?? ''))
+    void window.hang4r
+      .listCodexModels()
+      .then((m) => m?.length && setCodexModels(m))
+      .catch(() => {})
+    void window.hang4r
+      .listCursorModels()
+      .then((m) => m?.length && setCursorModels(m))
+      .catch(() => {})
     void window.hang4r.getSetting('defaultPermissionMode').then((v) => setDefaultPerm(v ?? 'acceptEdits'))
     void window.hang4r.getSetting('defaultEnvironment').then((v) => setDefaultEnv(v ?? 'worktree'))
     void window.hang4r.getSetting('terminalShell').then((v) => setTerminalShell(v ?? ''))
@@ -492,7 +526,9 @@ export function Settings(): JSX.Element | null {
     await window.hang4r.setSetting('claudeBinaryPath', claudePath.trim())
     await window.hang4r.setSetting('codexBinaryPath', codexPath.trim())
     await window.hang4r.setSetting('cursorBinaryPath', cursorPath.trim())
-    await window.hang4r.setSetting('defaultModel', defaultModel)
+    await window.hang4r.setSetting('claudeModel', claudeModel)
+    await window.hang4r.setSetting('codexModel', codexModel)
+    await window.hang4r.setSetting('cursorModel', cursorModel)
     await window.hang4r.setSetting('defaultPermissionMode', defaultPerm)
     await window.hang4r.setSetting('defaultEnvironment', defaultEnv)
     await window.hang4r.setSetting('terminalShell', terminalShell.trim())
@@ -664,9 +700,25 @@ export function Settings(): JSX.Element | null {
                 <Field label="Sign-in">
                   <AuthStatus />
                 </Field>
-                <Field label="Default model">
-                  <input className="field" placeholder="e.g. opus, sonnet, haiku" value={defaultModel} onChange={(e) => setDefaultModel(e.target.value)} />
+                <Field label="Claude Code default model">
+                  <select className="field" value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)}>
+                    {modelOptions(CLAUDE_MODELS, claudeModel)}
+                  </select>
                 </Field>
+                <Field label="Codex default model">
+                  <select className="field" value={codexModel} onChange={(e) => setCodexModel(e.target.value)}>
+                    {modelOptions(codexModels, codexModel)}
+                  </select>
+                </Field>
+                <Field label="Cursor default model">
+                  <select className="field" value={cursorModel} onChange={(e) => setCursorModel(e.target.value)}>
+                    {modelOptions(cursorModels, cursorModel)}
+                  </select>
+                </Field>
+                <p className="settings-note">
+                  Each agent has its own models. The default is used when you start a new session with
+                  that agent (a workspace can still override it).
+                </p>
                 <Field label="Claude Code binary path">
                   <input className="field" placeholder="auto-detected (PATH / nvm / homebrew)" value={claudePath} onChange={(e) => setClaudePath(e.target.value)} />
                 </Field>

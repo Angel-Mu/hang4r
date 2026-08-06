@@ -81,7 +81,13 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       // the in-tile embedded browser pane uses <webview>
-      webviewTag: true
+      webviewTag: true,
+      // hang4r is an agent MONITOR — keep the renderer live while backgrounded so
+      // a turn that completes while you're in another app still commits to the
+      // conversation. Default throttling deferred the React commit, so you'd get
+      // a notification, come back, and see NOTHING until an unrelated action
+      // (opening Settings, switching sessions) forced a flush (Angel).
+      backgroundThrottling: false
     }
   })
 

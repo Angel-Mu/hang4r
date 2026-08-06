@@ -984,14 +984,33 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       get().requestOpenUrl(sessionId, url)
     })
 
-    // Returning to hang4r after driving a conversation elsewhere (Remote Control
-    // on your phone, or a `/remote-control` terminal) — pull in any turns taken
-    // in that external CLI so the desktop view catches up instead of showing a
-    // stale, "forked"-looking transcript (Angel). resyncSession is a cheap no-op
-    // when there are no external turns / the session is mid-turn; imported turns
-    // broadcast as external-turn events and land in the live transcript.
-    window.addEventListener('focus', () => {
+    // Returning to hang4r (window focus OR the page becoming visible):
+    // (1) FLUSH — a turn that completed while hang4r was backgrounded WAS applied
+    //     to the store, but its React commit could sit deferred until an unrelated
+    //     set() (Angel: notification fires, I come back, the conversation shows
+    //     nothing until I open Settings / switch sessions). Refresh the open
+    //     transcripts' object + items refs so the pending render commits now.
+    //     Belt-and-suspenders with webPreferences.backgroundThrottling:false.
+    // (2) RESYNC — pull in any turns taken in an external CLI (/remote-control);
+    //     a cheap no-op when there are none / the session is mid-turn.
+    const onReturn = (): void => {
+      set((s) => {
+        const next = { ...s.transcripts }
+        let changed = false
+        for (const id of s.openSessionIds) {
+          const t = next[id]
+          if (t) {
+            next[id] = { ...t, items: [...t.items] }
+            changed = true
+          }
+        }
+        return changed ? { transcripts: next } : {}
+      })
       for (const id of get().openSessionIds) void window.hang4r.resyncSession(id).catch(() => {})
+    }
+    window.addEventListener('focus', onReturn)
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) onReturn()
     })
 
     // LIVE remote-control: focus-only sync meant a conversation driven from your

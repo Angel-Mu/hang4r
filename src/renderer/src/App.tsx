@@ -57,6 +57,25 @@ function UpdatePill(): JSX.Element | null {
   return null
 }
 
+/**
+ * ⌘W / File → Close. scopedClose closes the focused-TILE's active editor file /
+ * terminal tab / browser tab — but it's registered per focused TILE, not per
+ * focused PANE, so when you're typing in the conversation it would still fire and
+ * close a background panel's file, leaving the tile in a blank state instead of
+ * closing the session (Angel). Gate it on where DOM focus actually is: only run
+ * scopedClose when focus is inside a pane; otherwise close the whole session tile.
+ */
+function closeFocusedScope(): void {
+  const s = useHang4r.getState()
+  const a = document.activeElement as HTMLElement | null
+  const inPane =
+    !!a?.closest('.context-panel') ||
+    !!a?.closest('.terminal-view') ||
+    !!a?.closest('.browser-pane')
+  const closed = inPane ? s.scopedClose?.() : false
+  if (!closed && s.focusedSessionId) s.closeTile(s.focusedSessionId)
+}
+
 export default function App(): JSX.Element {
   const init = useHang4r((s) => s.init)
   const sidebarVisible = useHang4r((s) => s.sidebarVisible)
@@ -161,10 +180,10 @@ export default function App(): JSX.Element {
           s.toggleExpand(s.focusedSessionId)
         }
       } else if (k === 'w') {
-        // scoped close: focused editor file / active terminal first, else the tile
+        // close the pane item you're IN (editor file / terminal / browser tab), or
+        // the whole session tile when focus is in the conversation — see helper
         e.preventDefault()
-        const closedScope = s.scopedClose?.()
-        if (!closedScope && s.focusedSessionId) s.closeTile(s.focusedSessionId)
+        closeFocusedScope()
       } else if (k === '.') {
         if (s.focusedSessionId) {
           e.preventDefault()
@@ -241,11 +260,9 @@ export default function App(): JSX.Element {
         case 'interrupt':
           if (s.focusedSessionId) void s.interrupt(s.focusedSessionId)
           break
-        case 'close': {
-          const closed = s.scopedClose?.()
-          if (!closed && s.focusedSessionId) s.closeTile(s.focusedSessionId)
+        case 'close':
+          closeFocusedScope()
           break
-        }
       }
     })
   }, [])
@@ -271,8 +288,13 @@ export default function App(): JSX.Element {
       // handler does a CHAT find. Only fires when a visible editor actually exists.
       const inEditorCtx =
         !!active?.closest('.code-editor') || !!active?.closest('.context-panel')
-      const nowhere = !active || active === document.body
-      if (!inEditorCtx && !nowhere) return
+      // Only claim ⌘F for the editor when focus is genuinely INSIDE the editor /
+      // context panel. When focus is anywhere else — the composer, the chat text,
+      // or nowhere (clicking non-focusable conversation text drops focus to
+      // <body>) — bail so the bubble handler routes ⌘F to the CONVERSATION find.
+      // (Was: a `nowhere → editor` fallback grabbed body-focus, so clicking in the
+      // conversation then ⌘F wrongly opened the editor's find bar — Angel.)
+      if (!inEditorCtx) return
       const visible = Array.from(
         document.querySelectorAll<HTMLElement>('.tile-focused .context-panel .code-editor')
       ).find((el) => el.offsetParent !== null)

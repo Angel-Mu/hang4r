@@ -502,7 +502,11 @@ interface Hang4rState {
   openDiagram(svg: string): void
   closeLightbox(): void
   /** re-read an attached file and open its preview (card click in the chat) */
-  openFilePreview(sessionId: string, file: PromptFile): Promise<void>
+  openFilePreview(
+    sessionId: string,
+    file: PromptFile,
+    opts?: { silent?: boolean }
+  ): Promise<boolean>
   /** promise-based prompt/confirm/save (Electron has no window.prompt/confirm) */
   dialog:
     | { kind: 'prompt'; title: string; initial: string; resolve: (v: string | null) => void }
@@ -1457,14 +1461,22 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   closeLightbox() {
     set({ lightbox: null })
   },
-  async openFilePreview(sessionId, file) {
-    if (!file.path) return // nothing to re-read (rare drop with no resolvable path)
+  async openFilePreview(sessionId, file, opts) {
+    if (!file.path) return false // nothing to re-read (rare drop with no resolvable path)
     const res = await window.hang4r
       .previewAttachment(sessionId, file.path, file.external)
       .catch(() => null)
     if (!res) {
-      set({ lightbox: { text: `Couldn't open ${file.name} for preview.`, kind: 'text', alt: file.name } })
-      return
+      // silent = the editor's auto-fallback for a tab whose file is GONE (e.g. a
+      // removed worktree restored on relaunch). Popping a blocking modal there
+      // was noise Angel kept hitting on reopen — let the caller show an inline
+      // notice instead. A USER click (no silent) still gets the modal feedback.
+      if (!opts?.silent) {
+        set({
+          lightbox: { text: `Couldn't open ${file.name} for preview.`, kind: 'text', alt: file.name }
+        })
+      }
+      return false
     }
     if (res.dataUrl && (res.kind === 'image' || res.kind === 'pdf')) {
       set({ lightbox: { src: res.dataUrl, kind: res.kind, alt: file.name } })
@@ -1472,6 +1484,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       const kind = res.kind === 'markdown' ? 'markdown' : 'text'
       set({ lightbox: { text: res.text ?? '', kind, alt: file.name, sessionId, path: file.path } })
     }
+    return true
   },
   togglePin(sessionId) {
     set((s) => {

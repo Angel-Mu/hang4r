@@ -260,6 +260,17 @@ export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
       toggleDevTools()
       return
     }
+    // Esc closes OUR find bar even when focus has drifted off the find input —
+    // after ⌘F the address bar or guest webview can hold focus, so the input's
+    // own Esc (which only fires while it's focused) missed, and the bar wouldn't
+    // close (Angel; also a recurring flake in browser-tabs e2e). Only acts while
+    // the browser find is actually open, so normal Esc is untouched otherwise.
+    if (e.key === 'Escape' && findOpen && !inForeignInput) {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      closeFind()
+      return
+    }
     if (!e.metaKey || e.ctrlKey || inForeignInput) return
     const key = e.key.toLowerCase()
     const claim = (): void => {

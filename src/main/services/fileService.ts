@@ -220,17 +220,34 @@ export const FileService = {
       `(export|public|private|func|def|fn)[[:space:]].*${symbol}${b}`,
       `${symbol}[[:space:]]*\\(` // last resort: a def/call site
     ]
+    // A symbol is often DECLARED again in a test (const foo = …, function foo())
+    // and git grep would return that test file first, so go-to-definition jumped
+    // into specs instead of the real source (Angel). Prefer any non-test match
+    // over any test match — falling back to a test file only if it's the only hit.
+    const isTestPath = (p: string): boolean =>
+      /(\.(test|spec|stories|cy|e2e)\.[cm]?[jt]sx?$)|((^|\/)(__tests__|__mocks__|e2e|tests?|spec|cypress)\/)/i.test(
+        p
+      )
+    let fallback: { path: string; line: number } | null = null
     for (const pat of patterns) {
       const { stdout } = await exec(
         'git',
         ['grep', '--no-color', '-n', '-E', '-I', '--untracked', '-e', pat],
         { cwd: root, maxBuffer: 8 * 1024 * 1024 }
       ).catch((e: { stdout?: string }) => ({ stdout: e.stdout ?? '' }))
-      const first = stdout.split('\n').find((l) => l.trim())
-      const m = first ? /^(.+?):(\d+):/.exec(first) : null
-      if (m) return { path: m[1], line: Number(m[2]) }
+      for (const line of stdout.split('\n')) {
+        if (!line.trim()) continue
+        const m = /^(.+?):(\d+):/.exec(line)
+        if (!m) continue
+        const hit = { path: m[1], line: Number(m[2]) }
+        if (isTestPath(hit.path)) {
+          fallback ??= hit // remember the first test hit in case there's nothing else
+          continue
+        }
+        return hit // first non-test declaration, most-definitive pattern first
+      }
     }
-    return null
+    return fallback
   },
 
   /**

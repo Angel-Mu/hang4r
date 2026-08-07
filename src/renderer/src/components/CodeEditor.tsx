@@ -211,6 +211,17 @@ const dirtyWatchers = new Set<(key: string, dirty: boolean) => void>()
 // content state) instead of leaving the tab falsely unsaved + un-closeable (Angel).
 const savedVersionMemo = new Map<string, number>()
 
+// ⌘S / ⇧⌘S are bound per-editor via editor.addCommand, but ALL CodeEditors share
+// ONE Monaco standalone keybinding service — so the LAST-registered editor's
+// handler wins for EVERY editor, and ⌘S would save a hidden/last-mounted editor
+// instead of the one you're in (Angel: "⌘S doesn't work"; the same class as the
+// ⌘F/⌘←→ keybinding bugs). These module-level refs always point at the FOCUSED
+// editor's save fns (updated on onDidFocusEditorText), so whichever instance's
+// handler Monaco actually runs, it saves the editor that has focus.
+type SaveRef = { current: () => Promise<void> }
+let activeSaveRef: SaveRef | null = null
+let activeSaveAsRef: SaveRef | null = null
+
 /** Preview/Source choice per `${sessionId}:${path}` — survives tab switches */
 const previewModeMemo = new Map<string, boolean>()
 
@@ -323,6 +334,10 @@ export function CodeEditor({
   const doSaveAsRef = useRef<() => Promise<void>>(async () => {})
   const promptSaveAsRef = useRef<() => Promise<boolean>>(async () => false)
   const [truncated, setTruncated] = useState(false)
+  // set when a tab's file can't be read AND can't be previewed (e.g. a removed
+  // worktree's file restored on relaunch). Shows a quiet inline notice instead
+  // of the old blocking "Couldn't open … for preview" modal Angel kept hitting.
+  const [loadError, setLoadError] = useState(false)
   const [hasSel, setHasSel] = useState(false)
   // Preview/Source segmented control (md/html only) — default is source, like
   // VS Code; the choice is remembered per doc so leaving the tab and coming
@@ -619,12 +634,20 @@ export function CodeEditor({
         }
       }
     })
+    // route ⌘S/⇧⌘S to the FOCUSED editor's save — the handler that Monaco runs is
+    // the last-registered one (shared keybinding service), so always dereference
+    // the active refs, which onDidFocusEditorText below keeps pointing at the
+    // editor that has focus (falls back to this instance before any focus event)
+    editor.onDidFocusEditorText(() => {
+      activeSaveRef = doSaveRef
+      activeSaveAsRef = doSaveAsRef
+    })
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      void doSaveRef.current()
+      void (activeSaveRef ?? doSaveRef).current()
     })
     // ⌘⇧S — Save As (prompt for a path, write the buffer there, retarget the tab)
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS, () => {
-      void doSaveAsRef.current()
+      void (activeSaveAsRef ?? doSaveAsRef).current()
     })
     // ⌘F → open OUR find bar, not Monaco's built-in widget. Registering the
     // command binds ⌘F ahead of the default `actions.find` keybinding; Monaco
@@ -730,6 +753,9 @@ export function CodeEditor({
         const viewState = editor.saveViewState()
         if (viewState) viewStateMemo.set(key, viewState)
       }
+      // don't leave ⌘S pointing at a disposed editor's save
+      if (activeSaveRef === doSaveRef) activeSaveRef = null
+      if (activeSaveAsRef === doSaveAsRef) activeSaveAsRef = null
       editor.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -745,9 +771,11 @@ export function CodeEditor({
     if (path.startsWith('untitled:')) {
       viewStateKeyRef.current = `${sessionId}:${path}`
       setTruncated(false)
+      setLoadError(false)
       setDirty(sharedDirty.get(`${sessionId}:${path}`) ?? false)
       return
     }
+    setLoadError(false)
     let cancelled = false
     void window.hang4r.readFile(sessionId, path).then((res) => {
       const editor = editorRef.current
@@ -802,11 +830,14 @@ export function CodeEditor({
       const key = `${sessionId}:${path}`
       if (previewFallbackDone.has(key)) return
       previewFallbackDone.add(key)
-      void useHang4r.getState().openFilePreview(sessionId, {
-        name: path.split('/').pop() || path,
-        path,
-        external: true
-      })
+      // silent: an out-of-tree file that's READABLE still previews; one that's
+      // simply GONE returns false → show a quiet inline notice, never a modal
+      void useHang4r
+        .getState()
+        .openFilePreview(sessionId, { name: path.split('/').pop() || path, path, external: true }, { silent: true })
+        .then((ok) => {
+          if (!ok && !cancelled) setLoadError(true)
+        })
     })
     return () => {
       cancelled = true
@@ -999,6 +1030,11 @@ export function CodeEditor({
           {dirty && <span className="code-editor-dot" title="Unsaved changes">●</span>}
         </span>
         {truncated && <span className="files-truncated">large file — read-only</span>}
+        {loadError && (
+          <span className="files-truncated" title={path}>
+            couldn&apos;t open — file may have moved or its worktree was removed
+          </span>
+        )}
         {hasSel && (
           <button className="ghost-btn code-editor-addchat" onClick={addSelection}>
             ↳ Add to chat

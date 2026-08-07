@@ -681,6 +681,18 @@ interface Hang4rState {
 /** module-level: IPC subscriptions must be registered exactly once */
 let subscribed = false
 
+/**
+ * Monotonic nonce for the one-shot urlToOpen signal. It must NOT derive its next
+ * value from `urlToOpen?.nonce` (the pattern the other signals use) because
+ * consumeUrlToOpen nulls urlToOpen after each open — so that read resets the
+ * nonce to 1 on every click. SessionTile.freshSignal (which surfaces the Browser
+ * panel) assumes strictly increasing nonces, so with a pegged nonce it treats
+ * the 2nd+ click as a stale replay and skips setContextTab('Browser'): the hidden
+ * pane never reopens, the user blind-clicks, and background tabs pile up (Angel).
+ * A never-reset counter keeps every click a genuinely new signal.
+ */
+let urlOpenSeq = 0
+
 export const useHang4r = create<Hang4rState>((set, get) => ({
   projects: [],
   sessions: [],
@@ -1326,7 +1338,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     set({ fileToOpen: { sessionId, path, line, nonce: (get().fileToOpen?.nonce ?? 0) + 1 } })
   },
   requestOpenUrl(sessionId, url) {
-    set({ urlToOpen: { sessionId, url, nonce: (get().urlToOpen?.nonce ?? 0) + 1 } })
+    // monotonic nonce (see urlOpenSeq) — NOT (urlToOpen?.nonce ?? 0) + 1, which
+    // resets to 1 after consumeUrlToOpen nulls urlToOpen and breaks freshSignal
+    set({ urlToOpen: { sessionId, url, nonce: ++urlOpenSeq } })
   },
   consumeUrlToOpen(nonce) {
     if (get().urlToOpen?.nonce === nonce) set({ urlToOpen: null })

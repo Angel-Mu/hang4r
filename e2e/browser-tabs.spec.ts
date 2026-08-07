@@ -249,6 +249,36 @@ test('link click with ONLY the conversation open: pane opens AND loads on the FI
   await expect(page.locator('.browser-tab-active')).toContainText('localhost:5993')
 })
 
+test('a SECOND link re-surfaces the Browser panel after you leave it (Angel: hidden pane stopped reopening, tabs piled up)', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await openBrowserTab(page)
+  await expect(page.locator('.browser-pane')).toBeVisible()
+
+  // give the lone tab content so each link opens a NEW tab (pristine reuse
+  // would otherwise keep the count at one and hide the pile-up)
+  await page.locator('.browser-url').fill('localhost:5996')
+  await page.locator('.browser-url').press('Enter')
+
+  // 1st link — surfaces the pane and CONSUMES the url signal (this consume is
+  // what used to peg the nonce at 1 for every subsequent click)
+  await openLinkInFocused(page, 'http://localhost:5997')
+  await expect(page.locator('.browser-pane')).toBeVisible()
+  await expect(page.locator('.browser-tab')).toHaveCount(2)
+
+  // leave the Browser panel — the pane stays MOUNTED but hidden (display:none)
+  await page.locator('.tile .tile-tabs button', { hasText: 'Files' }).click()
+  await expect(page.locator('.browser-pane')).toBeHidden()
+
+  // 2nd link MUST re-open the hidden Browser panel. The nonce-reset regression
+  // made freshSignal treat this as a stale replay → setContextTab('Browser')
+  // was skipped → the pane never resurfaced, so the user blind-clicked and the
+  // background tabs multiplied. With a monotonic nonce it reopens every time.
+  await openLinkInFocused(page, 'http://localhost:5998')
+  await expect(page.locator('.browser-pane')).toBeVisible()
+  await expect(page.locator('.browser-tab')).toHaveCount(3)
+})
+
 test('⌘F with the browser chrome focused opens a "Find in page" bar (the shared find component)', async () => {
   launched = await launchApp()
   const { page } = launched

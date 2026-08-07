@@ -6,12 +6,12 @@ import { basename } from 'node:path'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
 
 /**
- * The "Run as login shell" option (terminalLoginShell) makes a NEW terminal spawn
- * its shell with -l, so it sources ~/.zprofile / PATH like Terminal.app / iTerm
- * (Angel). Opt-in — off by default (unchanged behavior). We prove the flag
- * actually reaches the shell with a wrapper that echoes its argv.
+ * iTerm-style terminal modes (terminalShellMode): 'custom' runs the chosen shell
+ * as a LOGIN shell (-l) — sources ~/.zprofile / PATH like Terminal.app / iTerm
+ * (Angel). We prove the -l flag actually reaches the shell with a wrapper that
+ * echoes its argv. ('command' mode would spawn it WITHOUT -l.)
  */
-test('terminalLoginShell: on spawns the shell with -l', async () => {
+test('terminalShellMode custom spawns the chosen shell with -l', async () => {
   const launched: LaunchedApp = await launchApp()
   const { page } = launched
   const dir = join(tmpdir(), `hang4r-shell-${Math.random().toString(36).slice(2, 8)}`)
@@ -31,7 +31,7 @@ test('terminalLoginShell: on spawns the shell with -l', async () => {
     await expect(page.locator('.project-name')).toHaveText(basename(repo))
     await page.evaluate(async (w) => {
       await window.hang4r.setSetting('terminalShell', w)
-      await window.hang4r.setSetting('terminalLoginShell', 'on')
+      await window.hang4r.setSetting('terminalShellMode', 'custom')
     }, wrapper)
 
     await page.locator('.project-row .ghost-btn').first().click()

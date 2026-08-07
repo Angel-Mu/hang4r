@@ -84,15 +84,16 @@ const APP_SCHEMA = {
       default: 13,
       description: 'Conversation font size (px).'
     },
+    terminalShellMode: {
+      type: 'string',
+      enum: ['login', 'custom', 'command'],
+      default: 'login',
+      description:
+        "New-terminal mode (iTerm-style): 'login' = your login shell sourced with its full profile (~/.zprofile) — the default; 'custom' = terminalShell run as a login shell; 'command' = terminalShell run as-is (no login profile)."
+    },
     terminalShell: {
       type: 'string',
-      description: 'Shell for new terminals (blank = your detected login shell).'
-    },
-    terminalLoginShell: {
-      type: 'boolean',
-      default: false,
-      description:
-        'Run new terminals as a login shell (-l), sourcing ~/.zprofile/PATH like Terminal.app/iTerm. Default off = interactive-only (~/.zshrc).'
+      description: 'Shell/command for the custom/command modes (ignored in login mode).'
     },
     terminalKeymap: {
       type: 'array',
@@ -195,13 +196,14 @@ const WORKSPACE_SCHEMA = {
       type: 'string',
       description: 'New-worktree setup script for this repo (overrides the app default).'
     },
+    terminalShellMode: {
+      type: 'string',
+      enum: ['login', 'custom', 'command'],
+      description: 'Terminal mode override for this workspace (unset = falls back to the app setting).'
+    },
     terminalShell: {
       type: 'string',
-      description: 'Shell override for this workspace (blank = falls back to the app setting).'
-    },
-    terminalLoginShell: {
-      type: 'boolean',
-      description: 'Login-shell override for this workspace (unset = falls back to the app setting).'
+      description: 'Shell/command override for this workspace (custom/command modes).'
     },
     notifications: NOTIFICATIONS,
     devProcesses: {

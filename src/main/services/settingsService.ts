@@ -48,6 +48,10 @@ const USER_KEYS: Record<string, KeySpec> = {
   editorFontSize: { path: 'editorFontSize', codec: 'num', workspaceScoped: false },
   chatFontSize: { path: 'chatFontSize', codec: 'num', workspaceScoped: false },
   terminalShell: { path: 'terminalShell', codec: 'str', workspaceScoped: true },
+  // iTerm-style terminal mode: 'login' (your login shell, sources ~/.zprofile) |
+  // 'custom' (terminalShell as a login shell) | 'command' (terminalShell as-is).
+  // (terminalLoginShell is the deprecated v1.0.75 boolean, read only for migration.)
+  terminalShellMode: { path: 'terminalShellMode', codec: 'str', workspaceScoped: true },
   terminalLoginShell: { path: 'terminalLoginShell', codec: 'bool', workspaceScoped: true },
   terminalKeymap: { path: 'terminalKeymap', codec: 'json', workspaceScoped: false },
   notifyOnComplete: { path: 'notifyOnComplete', codec: 'bool', workspaceScoped: false },

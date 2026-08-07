@@ -805,11 +805,20 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       const cwd = await sessions.ensureWorkdir(sessionId)
       // ssh sessions get a remote shell in the remote cwd (forced TTY)
       const session = store.getSession(sessionId)
-      // workspace shell override beats the app default for local terminals
-      const shell = (settings.resolve('terminalShell', session?.projectId) ?? '') || undefined
-      // opt-in login shell: only when the user turned it ON (sources ~/.zprofile
-      // like Terminal.app/iTerm). Default off = interactive-only, unchanged.
-      const loginShell = settings.resolve('terminalLoginShell', session?.projectId) === 'on'
+      // iTerm-style terminal mode:
+      //   login  → your detected login shell, sourced as a login shell (-l)
+      //   custom → the terminalShell field, as a login shell (-l)
+      //   command→ the terminalShell field, run as-is (no -l)
+      // Migration (no explicit mode): a preset custom shell → command/custom
+      // (honouring the old terminalLoginShell); otherwise → login (the new default).
+      const pid = session?.projectId
+      const shellField = (settings.resolve('terminalShell', pid) ?? '').trim()
+      const oldLogin = settings.resolve('terminalLoginShell', pid) === 'on'
+      const mode =
+        settings.resolve('terminalShellMode', pid) ||
+        (shellField ? (oldLogin ? 'custom' : 'command') : 'login')
+      const shell = mode === 'login' ? undefined : shellField || undefined
+      const loginShell = mode === 'login' || mode === 'custom'
       const sshHost =
         session?.environment === 'ssh'
           ? sessions.remoteHost(session.remoteHostId)?.host

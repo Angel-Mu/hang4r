@@ -461,7 +461,8 @@ export function Settings(): JSX.Element | null {
   const [setupScript, setSetupScript] = useState('')
   const [wtScope, setWtScope] = useState('') // '' = global default, else projectId
   const [terminalShell, setTerminalShell] = useState('')
-  const [terminalLoginShell, setTerminalLoginShell] = useState(false)
+  // iTerm-style: 'login' (your login shell) | 'custom' (a shell, as login) | 'command'
+  const [terminalShellMode, setTerminalShellMode] = useState('login')
   const [notifyOnComplete, setNotifyOnComplete] = useState(true)
   const [notifyOnActionRequired, setNotifyOnActionRequired] = useState(true)
   const [notifyOnError, setNotifyOnError] = useState(true)
@@ -498,9 +499,15 @@ export function Settings(): JSX.Element | null {
     void window.hang4r.getSetting('defaultPermissionMode').then((v) => setDefaultPerm(v ?? 'acceptEdits'))
     void window.hang4r.getSetting('defaultEnvironment').then((v) => setDefaultEnv(v ?? 'worktree'))
     void window.hang4r.getSetting('terminalShell').then((v) => setTerminalShell(v ?? ''))
-    void window.hang4r
-      .getSetting('terminalLoginShell')
-      .then((v) => setTerminalLoginShell(v === 'on'))
+    // resolve the iTerm-style mode, migrating from the deprecated boolean: an
+    // explicit mode wins; else a preset shell → command/custom, otherwise login
+    void Promise.all([
+      window.hang4r.getSetting('terminalShellMode'),
+      window.hang4r.getSetting('terminalShell'),
+      window.hang4r.getSetting('terminalLoginShell')
+    ]).then(([mode, sh, oldLogin]) =>
+      setTerminalShellMode(mode || (sh ? (oldLogin === 'on' ? 'custom' : 'command') : 'login'))
+    )
     void window.hang4r.getSetting('notifyOnComplete').then((v) => setNotifyOnComplete(v !== 'off'))
     void window.hang4r
       .getSetting('notifications.onActionRequired')
@@ -532,7 +539,7 @@ export function Settings(): JSX.Element | null {
     await window.hang4r.setSetting('defaultPermissionMode', defaultPerm)
     await window.hang4r.setSetting('defaultEnvironment', defaultEnv)
     await window.hang4r.setSetting('terminalShell', terminalShell.trim())
-    await window.hang4r.setSetting('terminalLoginShell', terminalLoginShell ? 'on' : 'off')
+    await window.hang4r.setSetting('terminalShellMode', terminalShellMode)
     await window.hang4r.setSetting('notifyOnComplete', notifyOnComplete ? 'on' : 'off')
     await window.hang4r.setSetting(
       'notifications.onActionRequired',
@@ -615,28 +622,32 @@ export function Settings(): JSX.Element | null {
                     <option value="bypassPermissions">Bypass (YOLO)</option>
                   </select>
                 </Field>
-                <Field label="Terminal shell">
+                <Field label="Terminal">
                   <>
-                    <input
+                    <select
                       className="field"
-                      placeholder="Auto-detected — your login shell (e.g. /opt/homebrew/bin/fish)"
-                      value={terminalShell}
-                      onChange={(e) => setTerminalShell(e.target.value)}
-                    />
-                    <div className="notify-option">
-                      <label className="notify-toggle">
-                        <input
-                          type="checkbox"
-                          checked={terminalLoginShell}
-                          onChange={(e) => setTerminalLoginShell(e.target.checked)}
-                        />
-                        Run as a login shell
-                      </label>
-                      <p className="notify-hint">
-                        Sources your full login profile (~/.zprofile, PATH) like Terminal.app / iTerm.
-                        Off = interactive-only (~/.zshrc). Blank shell above = your detected login shell.
-                      </p>
-                    </div>
+                      value={terminalShellMode}
+                      onChange={(e) => setTerminalShellMode(e.target.value)}
+                    >
+                      <option value="login">Login Shell — your default shell (sources ~/.zprofile)</option>
+                      <option value="custom">Custom Shell — a shell you pick, run as a login shell</option>
+                      <option value="command">Command — a shell/command you pick, run as-is</option>
+                    </select>
+                    {terminalShellMode !== 'login' && (
+                      <input
+                        className="field"
+                        placeholder="e.g. /opt/homebrew/bin/fish"
+                        value={terminalShell}
+                        onChange={(e) => setTerminalShell(e.target.value)}
+                      />
+                    )}
+                    <p className="notify-hint">
+                      {terminalShellMode === 'login'
+                        ? 'Your login shell (from $SHELL / chsh), sourced with its full login profile — like Terminal.app / iTerm.'
+                        : terminalShellMode === 'custom'
+                          ? 'Runs the shell above as a login shell (sources its login profile).'
+                          : 'Runs the shell/command above as-is (interactive, no login profile).'}
+                    </p>
                   </>
                 </Field>
                 <Field label="Notifications">

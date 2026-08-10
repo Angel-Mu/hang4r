@@ -466,6 +466,7 @@ export function Settings(): JSX.Element | null {
   const [notifyOnComplete, setNotifyOnComplete] = useState(true)
   const [notifyOnActionRequired, setNotifyOnActionRequired] = useState(true)
   const [notifyOnError, setNotifyOnError] = useState(true)
+  const [autoContinue, setAutoContinue] = useState(true)
   const [keymap, setKeymap] = useState<KeyBinding[]>(NATURAL_KEYMAP_DEFAULTS)
   const [saved, setSaved] = useState(false)
   const projects = useHang4r((s) => s.projects)
@@ -509,6 +510,7 @@ export function Settings(): JSX.Element | null {
       setTerminalShellMode(mode || (sh ? (oldLogin === 'on' ? 'custom' : 'command') : 'login'))
     )
     void window.hang4r.getSetting('notifyOnComplete').then((v) => setNotifyOnComplete(v !== 'off'))
+    void window.hang4r.getSetting('autoContinue').then((v) => setAutoContinue(v !== 'off'))
     void window.hang4r
       .getSetting('notifications.onActionRequired')
       .then((v) => setNotifyOnActionRequired(v !== 'off'))
@@ -541,6 +543,7 @@ export function Settings(): JSX.Element | null {
     await window.hang4r.setSetting('terminalShell', terminalShell.trim())
     await window.hang4r.setSetting('terminalShellMode', terminalShellMode)
     await window.hang4r.setSetting('notifyOnComplete', notifyOnComplete ? 'on' : 'off')
+    await window.hang4r.setSetting('autoContinue', autoContinue ? 'on' : 'off')
     await window.hang4r.setSetting(
       'notifications.onActionRequired',
       notifyOnActionRequired ? 'on' : 'off'
@@ -687,6 +690,29 @@ export function Settings(): JSX.Element | null {
                       These can be muted per-workspace by hand-editing that project&apos;s{' '}
                       <code>.hang4r/settings.json</code>.
                     </p>
+                  </>
+                </Field>
+                <Field label="Recovery">
+                  <>
+                    <div className="notify-option">
+                      <label className="notify-toggle">
+                        <input
+                          type="checkbox"
+                          checked={autoContinue}
+                          onChange={(e) => setAutoContinue(e.target.checked)}
+                        />
+                        Auto-recover a stuck conversation (send “continue” past an interactive-CLI
+                        error)
+                      </label>
+                      <p className="notify-hint">
+                        When a turn taken in an external interactive CLI (e.g.{' '}
+                        <code>/remote-control</code>) aborts mid-tool, it leaves the conversation in a
+                        state Claude refuses to resume (<code>error_during_execution</code>). With
+                        this on, hang4r forks past it and continues automatically — but only when it
+                        can find a clean fork point, and capped at a few tries in a row. Turn it off
+                        to always recover by hand.
+                      </p>
+                    </div>
                   </>
                 </Field>
                 <Field label="Updates">

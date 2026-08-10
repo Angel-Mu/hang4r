@@ -53,6 +53,20 @@ test.describe('parsePoisonAnchor — fork-truncate the poisoned turn', () => {
     expect(parsePoisonAnchor(jsonl)).toBe('a0')
   })
 
+  test('multiple dangling tool_uses → anchors before the EARLIEST, dropping BOTH poisons', () => {
+    const jsonl = [
+      user('u0', null, [text('setup')]),
+      asst('a0', 'u0', [text('ok')]),
+      user('u1', 'a0', [text('do X')]),
+      asst('a1', 'u1', [toolUse('t1')]), // first dangling
+      user('u2', 'a1', [text('continue')]),
+      asst('a2', 'u2', [toolUse('t2')]) // second dangling
+    ].join('\n')
+    // resume-at a0 forks before u1, so the fork drops u1/a1 AND u2/a2 — the
+    // resumed conversation is clean, which is what lets auto-continue fire safely
+    expect(parsePoisonAnchor(jsonl)).toBe('a0')
+  })
+
   test('clean conversation (every tool_use matched) → null', () => {
     const jsonl = [
       user('u1', null, [text('go')]),

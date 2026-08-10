@@ -452,6 +452,13 @@ export class SessionManager {
     // directly. Fall back to last-user-text for non-poison errors / unresolvable.
     const byPoison = ClaudeImport.poisonRewindAnchor(session.backendSessionId)
     if (byPoison) return byPoison
+    // Poisoned tail but no resolvable fork point: DON'T fall through to the
+    // last-user-text anchor below — retry "continue"s pile up AFTER the dangling
+    // tool_use, so that anchor drifts PAST the poison → the fork keeps it (still
+    // error_during_execution) AND drops real conversation. A plain resume (null
+    // anchor) at least doesn't lose turns. Only the last-user-text path is for our
+    // OWN aborted turns (status==='error', not poisoned), where it's correct.
+    if (ClaudeImport.tailIsPoisoned(session.backendSessionId)) return null
     const events = this.store.getEvents(session.id)
     let lastUserText: string | null = null
     for (let i = events.length - 1; i >= 0; i--) {
@@ -501,10 +508,17 @@ export class SessionManager {
   private async maybeAutoContinue(sessionId: string): Promise<void> {
     const session = this.store.getSession(sessionId)
     if (!session || session.backend !== 'claude' || !session.backendSessionId) return
+    if (this.settings.getSetting('autoContinue') === 'off') return // you turned auto-recovery off
     if (session.status === 'running' || session.status === 'starting') return
     if (session.status === 'error') return // our own error → existing manual recovery
     if (this.userInterrupted.has(sessionId)) return // you deliberately stopped it — don't drive over you
-    if (!ClaudeImport.tailIsPoisoned(session.backendSessionId)) return
+    // Only auto-continue when we can compute a CLEAN fork point PAST the dangling
+    // tool_use. tailIsPoisoned alone isn't enough: if the poison can't be resolved
+    // to a fork anchor (poison in the first turn, broken parent chain), a resume
+    // either re-keeps the poison (drift) or plain-resumes it — EITHER WAY it just
+    // re-errors, so firing "continue" burns an attempt for nothing. Wait for you
+    // instead. (poisonRewindAnchor != null ⇒ poisoned AND cleanly forkable.)
+    if (!ClaudeImport.poisonRewindAnchor(session.backendSessionId)) return
     const count = this.autoContinueAttempts.get(sessionId) ?? 0
     if (count >= MAX_AUTO_CONTINUE) return // too many in a row without you stepping in — stop
     this.autoContinueAttempts.set(sessionId, count + 1)

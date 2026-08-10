@@ -105,6 +105,12 @@ const APP_SCHEMA = {
       default: true,
       description: 'Notify when an agent finishes in the background.'
     },
+    autoContinue: {
+      type: 'boolean',
+      default: true,
+      description:
+        'Auto-recover a conversation left un-resumable by an aborted interactive-CLI turn (error_during_execution) by forking past it and sending "continue". Off = recover manually.'
+    },
     notifications: NOTIFICATIONS,
     defaultModel: {
       type: 'string',

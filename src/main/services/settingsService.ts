@@ -55,6 +55,9 @@ const USER_KEYS: Record<string, KeySpec> = {
   terminalLoginShell: { path: 'terminalLoginShell', codec: 'bool', workspaceScoped: true },
   terminalKeymap: { path: 'terminalKeymap', codec: 'json', workspaceScoped: false },
   notifyOnComplete: { path: 'notifyOnComplete', codec: 'bool', workspaceScoped: false },
+  // auto-recover a poisoned interactive-CLI conversation by sending "continue"
+  // (default ON; unset → on). Off = never auto-drive; you recover manually.
+  autoContinue: { path: 'autoContinue', codec: 'bool', workspaceScoped: false },
   'notifications.onActionRequired': {
     path: 'notifications.onActionRequired',
     codec: 'bool',

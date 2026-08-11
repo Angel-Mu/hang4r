@@ -1588,6 +1588,17 @@ export class SessionManager {
   }
 
   private handleAgentEvent(sessionId: string, ev: AgentEvent): void {
+    // Streaming token fragments (block-delta) are TRANSIENT: broadcast them so the
+    // renderer streams text LIVE, but do NOT persist. block-final carries the whole
+    // block's text, so the reload/replay is identical — while persisting every token
+    // had grown the transcript DB past 200k rows (≈73% deltas) and its synchronous
+    // per-token SQLite write saturated the main event loop, so switching sessions
+    // froze until the running turn finished (Angel). seq:0 flags it transient; the
+    // renderer applies it un-gated (it never advances lastSeq).
+    if (ev.kind === 'block-delta') {
+      this.broadcast.agentEvent({ sessionId, seq: 0, ts: Date.now(), event: ev })
+      return
+    }
     const persisted = this.store.appendEvent(sessionId, ev)
     this.broadcast.agentEvent(persisted)
 

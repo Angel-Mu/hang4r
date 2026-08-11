@@ -83,6 +83,22 @@ export class Store {
     if (!cols.has('worktree_dropped')) {
       this.db.exec('ALTER TABLE sessions ADD COLUMN worktree_dropped INTEGER NOT NULL DEFAULT 0')
     }
+    // One-time purge of TRANSIENT block-delta rows that older builds persisted per
+    // streamed token. They had grown this table past 200k rows (≈73% were deltas),
+    // so every session load re-read + JSON.parsed tens of thousands of fragments and
+    // the per-token synchronous INSERT saturated the main loop mid-turn — switching
+    // sessions froze until the turn finished (Angel). block-final carries the whole
+    // block's text, so dropping the deltas is lossless. Guarded to run once.
+    const purged = this.db.prepare("SELECT 1 FROM settings WHERE key = 'deltaPurgeV1'").get()
+    if (!purged) {
+      this.db.exec("DELETE FROM session_events WHERE json_extract(event_json, '$.kind') = 'block-delta'")
+      this.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('deltaPurgeV1', '1')").run()
+      try {
+        this.db.exec('VACUUM') // reclaim the freed space (one-time, best-effort)
+      } catch {
+        /* the DELETE already fixed the query cost; space reclaim is a bonus */
+      }
+    }
   }
 
   /* ---------- projects ---------- */

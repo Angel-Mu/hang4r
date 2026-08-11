@@ -858,6 +858,26 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       set((state) => {
         const patch: Partial<Hang4rState> = {}
 
+        // block-delta is a TRANSIENT streaming fragment — the main process no longer
+        // persists it (per-token SQLite writes bloated the DB and froze session
+        // switches mid-turn), so it arrives with seq 0. Apply it to the in-flight
+        // block for LIVE display WITHOUT seq-gating and WITHOUT advancing lastSeq;
+        // the persisted block-final (seq-gated, below) sets the complete text and a
+        // reload rebuilds the message from that alone.
+        if (ev.event.kind === 'block-delta') {
+          const existing = state.transcripts[ev.sessionId]
+          if (!existing) return patch
+          const t: Transcript = {
+            items: [...existing.items],
+            blockIndex: existing.blockIndex,
+            toolIndex: existing.toolIndex,
+            hooks: [...existing.hooks],
+            lastSeq: existing.lastSeq
+          }
+          applyEvent(t, ev.event)
+          return { transcripts: { ...state.transcripts, [ev.sessionId]: t } }
+        }
+
         // Usage tracking applies to ALL sessions, open or not.
         if (ev.event.kind === 'turn-complete') {
           const inTok = ev.event.inputTokens ?? 0

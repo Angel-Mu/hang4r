@@ -19,15 +19,56 @@ import { Icon } from './components/Icon'
 import { useHang4r } from './state/store'
 import { applyTheme } from './theme'
 
-/** Titlebar update pill — appears only once the auto-checker finds something.
- *  Downloads happen silently in the background; this surfaces the result and
- *  offers a one-click restart. Never auto-closes the app. */
+/** Titlebar update pill — surfaces the update state (auto-check or a manual
+ *  "Check for Updates"). Downloads happen in the background; this offers a
+ *  one-click restart, and now shows the RESULT of a manual check so that command
+ *  no longer has to open Settings (Angel). The transient informational results
+ *  (up-to-date / error) auto-hide after a beat. Never auto-closes the app. */
 function UpdatePill(): JSX.Element | null {
   const [status, setStatus] = useState<UpdateStatus>({ state: 'idle' })
+  const [dismissed, setDismissed] = useState(false)
   useEffect(() => {
     void window.hang4r.getUpdateStatus().then(setStatus)
-    return window.hang4r.onUpdateStatus(setStatus)
+    return window.hang4r.onUpdateStatus((s) => {
+      setDismissed(false) // a fresh status re-shows the pill
+      setStatus(s)
+    })
   }, [])
+  // "you're up to date" / "check failed" are terminal info — show, then fade out
+  useEffect(() => {
+    if (status.state !== 'not-available' && status.state !== 'error') return
+    const t = setTimeout(() => setDismissed(true), status.state === 'error' ? 6000 : 4000)
+    return () => clearTimeout(t)
+  }, [status])
+  if (status.state === 'checking') {
+    return (
+      <button className="update-pill" disabled title="Checking for updates…">
+        Checking for updates…
+      </button>
+    )
+  }
+  if (!dismissed && status.state === 'not-available') {
+    return (
+      <button
+        className="update-pill"
+        title={`You're on the latest version${status.version ? ` · ${status.version}` : ''}`}
+        onClick={() => setDismissed(true)}
+      >
+        You&apos;re up to date
+      </button>
+    )
+  }
+  if (!dismissed && status.state === 'error') {
+    return (
+      <button
+        className="update-pill"
+        title={status.message}
+        onClick={() => void window.hang4r.checkForUpdates()}
+      >
+        Update check failed — retry
+      </button>
+    )
+  }
   if (status.state === 'downloaded') {
     return (
       <button
@@ -242,7 +283,8 @@ export default function App(): JSX.Element {
           s.setSettingsOpen(true)
           break
         case 'check-updates':
-          s.setSettingsOpen(true)
+          // don't yank you into Settings — the title-bar pill shows the result
+          // (checking → up-to-date / downloading / error), same as an auto-check
           void window.hang4r.checkForUpdates()
           break
         case 'toggle-sidebar':

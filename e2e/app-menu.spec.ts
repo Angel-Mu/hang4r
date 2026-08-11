@@ -34,7 +34,17 @@ test('the app menu is hang4r-shaped and its commands dispatch to the app', async
     await page.keyboard.press('Escape')
     await expect(page.locator('.palette')).toHaveCount(0)
 
-    // Settings opens
+    // "Check for Updates" runs the check but does NOT yank you into Settings —
+    // the result surfaces in the title-bar pill instead (Angel). Assert while
+    // Settings is still closed so a lingering panel can't give a false pass.
+    await expect(page.locator('.settings-nav')).toHaveCount(0)
+    await launched.app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.send('menu:command', 'check-updates')
+    )
+    await page.waitForTimeout(500)
+    await expect(page.locator('.settings-nav')).toHaveCount(0)
+
+    // Settings opens (via its own command)
     await launched.app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].webContents.send('menu:command', 'settings')
     )

@@ -2980,6 +2980,10 @@ button:disabled {
   color: var(--text);
   box-shadow: inset 0 -2px 0 var(--accent);
 }
+/* insertion marker while dragging a tab to reorder it */
+.editor-tab-drop {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 .editor-tab-x {
   color: var(--text-faint);
   font-size: 13px;
@@ -4271,6 +4275,8 @@ button:disabled {
 /* multi-selected file rows */
 .file-row-selected { background: var(--accent-dim); }
 .file-row-selected:hover { background: var(--accent-dim); }
+/* folder highlighted as a drag-to-move drop target */
+.file-row.file-row-drop { background: var(--accent-dim); outline: 1px solid var(--accent); outline-offset: -1px; }
 
 /* combined model + effort picker */
 .perm-mode-select {

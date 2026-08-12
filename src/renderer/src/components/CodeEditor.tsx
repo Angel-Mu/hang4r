@@ -448,6 +448,9 @@ export function CodeEditor({
       scrollBeyondLastLine: false,
       glyphMargin: true,
       tabSize: 2,
+      // let a dropped OS file bubble to the leaf's drop handler (open it as a tab)
+      // instead of Monaco inserting the path/contents as text
+      dropIntoEditor: { enabled: false },
       // ⌘+click adds a cursor; that frees ⌥ (alt) for go-to-definition — Angel's
       // preferred gesture. Without this, ⌥+click is Monaco's multi-cursor and
       // fights our go-to-def handler.

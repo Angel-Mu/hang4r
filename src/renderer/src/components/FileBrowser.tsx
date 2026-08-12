@@ -295,6 +295,25 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     [focusGroup, updateGroups]
   )
 
+  // drag a tab to reorder it within its group (insert BEFORE the drop-target tab)
+  const reorderTab = useCallback(
+    (groupId: number, dragPath: string, dropPath: string): void => {
+      if (dragPath === dropPath) return
+      updateGroups((g) => {
+        if (g.id !== groupId) return g
+        const files = [...g.openFiles]
+        const from = files.indexOf(dragPath)
+        if (from === -1) return g
+        files.splice(from, 1)
+        let to = files.indexOf(dropPath)
+        if (to === -1) to = files.length
+        files.splice(to, 0, dragPath)
+        return { ...g, openFiles: files }
+      })
+    },
+    [updateGroups]
+  )
+
   // ⌘N (Files panel): open a fresh untitled buffer in the focused leaf — no disk
   // file yet; ⌘S in the editor names + writes it (VS Code untitled UX).
   const newUntitledFile = useCallback((): void => {
@@ -453,7 +472,9 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     onDrop: (ev: ReactDragEvent) => void
   } => ({
     onDragOver: (ev: ReactDragEvent): void => {
-      if (!ev.dataTransfer.types.includes('application/x-hang4r-file')) return
+      // accept internal file-tree drags AND OS files dropped from Finder
+      const t = ev.dataTransfer.types
+      if (!t.includes('application/x-hang4r-file') && !t.includes('Files')) return
       ev.preventDefault()
       ev.stopPropagation()
       ev.dataTransfer.dropEffect = 'copy'
@@ -465,9 +486,27 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
         setDropTarget((d) => (d?.id === id ? null : d))
     },
     onDrop: (ev: ReactDragEvent): void => {
-      const path = ev.dataTransfer.getData('application/x-hang4r-file')
       const zone = zoneForLeaf(id, ev.clientX, ev.clientY)
       setDropTarget(null)
+      // OS files dropped from Finder → open each (in-tree = editable tab, outside
+      // the worktree = read-only preview). This is the drag-drop-to-open Angel
+      // wanted; the internal file-tree drag path is handled just below.
+      const osFiles = Array.from(ev.dataTransfer.files ?? [])
+      if (osFiles.length) {
+        ev.preventDefault()
+        ev.stopPropagation()
+        focusGroup(id) // so an in-tree file opens in the leaf you dropped on
+        const store = useHang4r.getState()
+        const cwd = store.sessions.find((s) => s.id === sessionId)?.cwd
+        for (const f of osFiles) {
+          const abs = window.hang4r.filePathForFile(f)
+          if (!abs) continue
+          if (cwd && abs.startsWith(cwd + '/')) store.requestOpenFile(sessionId, abs.slice(cwd.length + 1))
+          else void store.openFilePreview(sessionId, { name: abs.split('/').pop() || abs, path: abs, external: true })
+        }
+        return
+      }
+      const path = ev.dataTransfer.getData('application/x-hang4r-file')
       if (!path) return
       ev.preventDefault()
       ev.stopPropagation()
@@ -650,6 +689,29 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
               }
               onClick={() => setGroupActive(g.id, path)}
               title={path}
+              data-path={path}
+              draggable
+              onDragStart={(ev) => {
+                ev.dataTransfer.setData('application/x-hang4r-tab', `${g.id}\n${path}`)
+                ev.dataTransfer.effectAllowed = 'move'
+              }}
+              onDragOver={(ev) => {
+                if (!ev.dataTransfer.types.includes('application/x-hang4r-tab')) return
+                ev.preventDefault()
+                ev.stopPropagation()
+                ev.dataTransfer.dropEffect = 'move'
+                ev.currentTarget.classList.add('editor-tab-drop')
+              }}
+              onDragLeave={(ev) => ev.currentTarget.classList.remove('editor-tab-drop')}
+              onDrop={(ev) => {
+                ev.currentTarget.classList.remove('editor-tab-drop')
+                const raw = ev.dataTransfer.getData('application/x-hang4r-tab')
+                if (!raw) return
+                ev.preventDefault()
+                ev.stopPropagation()
+                const [gid, dragPath] = raw.split('\n')
+                if (Number(gid) === g.id) reorderTab(g.id, dragPath, path) // reorder within this group
+              }}
             >
               <FileGlyph fi={fileIcon(path)} />
               <span className="editor-tab-name">{tabDisplayName(path)}</span>
@@ -952,8 +1014,30 @@ function TreeLevel({
           <div key={e.path}>
             <button
               className="file-row"
+              data-path={e.path}
               style={{ paddingLeft: depth * 12 + 8 }}
               onClick={() => onToggle(e.path)}
+              onDragOver={(ev) => {
+                // a tree file dragged onto this folder → move it here
+                if (!ev.dataTransfer.types.includes('application/x-hang4r-file')) return
+                ev.preventDefault()
+                ev.stopPropagation()
+                ev.dataTransfer.dropEffect = 'move'
+                ev.currentTarget.classList.add('file-row-drop')
+              }}
+              onDragLeave={(ev) => ev.currentTarget.classList.remove('file-row-drop')}
+              onDrop={(ev) => {
+                ev.currentTarget.classList.remove('file-row-drop')
+                const src = ev.dataTransfer.getData('application/x-hang4r-file')
+                if (!src) return
+                ev.preventDefault()
+                ev.stopPropagation()
+                const base = src.split('/').pop() ?? src
+                const dest = `${e.path}/${base}`
+                // no-op if it's already here; never move a folder into its own subtree
+                if (dest === src || src === e.path || e.path.startsWith(src + '/')) return
+                void window.hang4r.renamePath(sessionId, src, dest).then(onChanged)
+              }}
               onContextMenu={(ev) => {
                 ev.preventDefault()
                 const store = useHang4r.getState()
@@ -1035,12 +1119,14 @@ function TreeLevel({
               (e.path === selected ? ' file-row-active' : '') +
               (multiSel.has(e.path) ? ' file-row-selected' : '')
             }
+            data-path={e.path}
             style={{ paddingLeft: depth * 12 + 20 }}
             draggable
             onDragStart={(ev) => {
-              // drag a file onto the composer to attach it as context
+              // one drag, three targets: composer = attach, editor = open, a
+              // FOLDER = move — so allow both copy and move
               ev.dataTransfer.setData('application/x-hang4r-file', e.path)
-              ev.dataTransfer.effectAllowed = 'copy'
+              ev.dataTransfer.effectAllowed = 'copyMove'
             }}
             onClick={(ev) => onFileClick(ev, e.path, fileSiblings(entries))}
             onContextMenu={(ev) => {

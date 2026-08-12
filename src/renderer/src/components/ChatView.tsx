@@ -527,7 +527,7 @@ function UserMessageCard({
   const [error, setError] = useState<string | null>(null)
   const backend = useHang4r((s) => s.sessions.find((x) => x.id === sessionId)?.backend)
   const openLightbox = useHang4r((s) => s.openLightbox)
-  const openFilePreview = useHang4r((s) => s.openFilePreview)
+  const requestOpenFile = useHang4r((s) => s.requestOpenFile)
   // Cursor can only append; Claude/Codex truly discard the later messages. Keep
   // every string truthful about which one this backend does.
   const appendOnly = backend === 'cursor'
@@ -643,9 +643,9 @@ function UserMessageCard({
             <button
               key={i}
               className="msg-user-file"
-              title={f.path ? `Open preview — ${f.name}` : f.name}
+              title={f.path ? `Open ${f.name}` : f.name}
               disabled={!f.path}
-              onClick={() => void openFilePreview(sessionId, f)}
+              onClick={() => f.path && requestOpenFile(sessionId, f.path)}
             >
               <span className="msg-user-file-badge">{fileBadge(f.name)}</span>
               <span className="msg-user-file-name">{f.name}</span>
@@ -713,22 +713,19 @@ async function openToolPath(sessionId: string, rawPath: string): Promise<void> {
   const path = (lm ? rawPath.slice(0, lm.index) : rawPath).replace(/^\.\//, '')
   const line = lm ? Number(lm[1]) : undefined
   const cwd = store.sessions.find((s) => s.id === sessionId)?.cwd
+  // Everything opens as a real EDITOR TAB now — in-tree files by their relative
+  // path, out-of-tree files by their ABSOLUTE path (the editor reads/writes it
+  // directly), and a path that can't be resolved opens a tab showing a quiet
+  // "couldn't open" notice. No read-only modal for opening a file (Angel).
   if (cwd && path.startsWith(cwd + '/')) {
     store.requestOpenFile(sessionId, path.slice(cwd.length + 1), line)
   } else if (path.startsWith('/') || path.startsWith('~/') || path === '~') {
-    // absolute or ~home, outside the worktree → preview (~ is expanded main-side)
-    void store.openFilePreview(sessionId, { name: path.split('/').pop() || path, path, external: true })
+    store.requestOpenFile(sessionId, path, line) // absolute / ~home → editable tab
   } else {
-    // relative → open the REAL in-tree file (so the editor tab actually loads and
-    // never falls into the re-previewing loop); unresolvable → one-time preview
+    // relative → open the real in-tree file if we can resolve it, else the raw
+    // path (the editor shows the inline notice rather than looping on a modal)
     const resolved = await resolveInTree(sessionId, path)
-    if (resolved) store.requestOpenFile(sessionId, resolved, line)
-    else
-      void store.openFilePreview(sessionId, {
-        name: path.split('/').pop() || path,
-        path,
-        external: true
-      })
+    store.requestOpenFile(sessionId, resolved ?? path, line)
   }
 }
 

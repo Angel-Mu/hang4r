@@ -44,6 +44,19 @@ function safeRel(relPath: string): string {
   return norm
 }
 
+/**
+ * Resolve a path for a LOCAL read/write. A user can open a file OUTSIDE the
+ * worktree (drop it, click an absolute/~ path an agent wrote) as a real editable
+ * tab — so an absolute or `~` path is used VERBATIM (no worktree sandbox; ~ is
+ * expanded). A RELATIVE path still goes through safeJoin, so agent-supplied `..`
+ * traversal stays blocked. (Remote/ssh sessions keep safeRel — absolute paths
+ * there are the remote host's and out-of-tree editing degrades to a notice.)
+ */
+function localPath(root: string, p: string): string {
+  const home = p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p
+  return isAbsolute(home) ? home : safeJoin(root, p)
+}
+
 /** Directories the flat ⌘P list / search never DESCEND into — huge or noisy. */
 const SKIP = new Set(['.git', 'node_modules', '.hang4r-worktrees', '.worktrees', '.DS_Store'])
 /** heavy build/dep dirs kept OUT of the ⌘P finder even when it includes ignored
@@ -121,7 +134,7 @@ export const FileService = {
       }
       return { content: stdout, truncated: false }
     }
-    const file = safeJoin(root, relPath)
+    const file = localPath(root, relPath)
     const s = await stat(file)
     if (s.size > MAX_FILE_BYTES) {
       const buf = await readFile(file)
@@ -139,7 +152,7 @@ export const FileService = {
       await remote.exec.run('sh', ['-c', cmd], { cwd: root })
       return
     }
-    const file = safeJoin(root, relPath)
+    const file = localPath(root, relPath)
     await writeFile(file, content, 'utf8')
   },
 
@@ -285,7 +298,7 @@ export const FileService = {
       if (!b64 || Math.floor((b64.length * 3) / 4) > 12 * 1024 * 1024) return null
       return `data:${mime};base64,${b64}`
     }
-    const file = safeJoin(root, relPath)
+    const file = localPath(root, relPath)
     const s = await stat(file).catch(() => null)
     if (!s || s.size > 12 * 1024 * 1024) return null
     const buf = await readFile(file)

@@ -7,10 +7,11 @@ import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './h
 /**
  * A non-image file attachment must render as a CARD (name + type badge) in the
  * sent message — never the raw bytes inline (Angel: an attached PDF dumped
- * `%PDF-1.5…` as plain text). The card is clickable → opens a real preview, not
- * the binary. The agent still receives the file's text in the prompt.
+ * `%PDF-1.5…` as plain text). The card is clickable → opens the file as a real
+ * EDITABLE editor tab (post file-open revamp — no read-only modal). The agent
+ * still receives the file's text in the prompt.
  */
-test('attached file renders as a card (not raw bytes) and click opens a preview', async () => {
+test('attached file renders as a card (not raw bytes) and click opens an editable tab', async () => {
   const launched: LaunchedApp = await launchApp()
   const { page } = launched
   try {
@@ -49,11 +50,12 @@ test('attached file renders as a card (not raw bytes) and click opens a preview'
       'PREVIEW_MARKER'
     )
 
-    // Click the card → the file opens in a readable preview (not binary bytes).
+    // Click the card → the file opens as an EDITABLE editor tab (not a modal).
     await card.click()
-    await expect(page.locator('.lightbox-backdrop .lightbox-doc')).toBeVisible({ timeout: 5_000 })
-    await expect(page.locator('.lightbox-doc')).toContainText(marker)
-    await page.keyboard.press('Escape')
+    const editor = tile.locator('.editor-slot:visible .monaco-editor')
+    await expect(editor).toBeVisible({ timeout: 5_000 })
+    await expect(editor).toContainText(marker)
+    await expect(tile.locator('.editor-tab', { hasText: 'notes.md' })).toBeVisible()
     await expect(page.locator('.lightbox-backdrop')).toHaveCount(0)
   } finally {
     await launched.app.close()

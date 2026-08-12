@@ -827,22 +827,15 @@ export function CodeEditor({
       setPreviewText(docDirty ? (editor.getModel()?.getValue() ?? res.content) : res.content)
       void applyGutter()
     }).catch(() => {
-      // the editor read failed — the path is outside the sandboxed workspace or
-      // gone. Fall back to the preview overlay ONCE (which reads any absolute/~
-      // path or shows a clear "couldn't open"). Guarded so it can't re-open every
-      // time this tab remounts on a panel switch — that was an infinite modal.
+      // the read failed — the file is gone/unreadable (readFile now reads any
+      // absolute/~ path directly, so a READABLE out-of-tree file never reaches
+      // here). Show a quiet inline notice in the editor bar, never a modal.
+      // Guarded so a tab remount on a panel switch can't re-trigger anything.
       if (cancelled) return
       const key = `${sessionId}:${path}`
       if (previewFallbackDone.has(key)) return
       previewFallbackDone.add(key)
-      // silent: an out-of-tree file that's READABLE still previews; one that's
-      // simply GONE returns false → show a quiet inline notice, never a modal
-      void useHang4r
-        .getState()
-        .openFilePreview(sessionId, { name: path.split('/').pop() || path, path, external: true }, { silent: true })
-        .then((ok) => {
-          if (!ok && !cancelled) setLoadError(true)
-        })
+      setLoadError(true)
     })
     return () => {
       cancelled = true

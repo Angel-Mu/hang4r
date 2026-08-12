@@ -501,8 +501,9 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
         for (const f of osFiles) {
           const abs = window.hang4r.filePathForFile(f)
           if (!abs) continue
-          if (cwd && abs.startsWith(cwd + '/')) store.requestOpenFile(sessionId, abs.slice(cwd.length + 1))
-          else void store.openFilePreview(sessionId, { name: abs.split('/').pop() || abs, path: abs, external: true })
+          // in-tree → relative tab; out-of-tree → open the ABSOLUTE path as an
+          // editable tab (the editor reads/writes it directly), never a modal
+          store.requestOpenFile(sessionId, cwd && abs.startsWith(cwd + '/') ? abs.slice(cwd.length + 1) : abs)
         }
         return
       }

@@ -5,12 +5,12 @@ import { join } from 'node:path'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
 
 /**
- * The file-preview modal (Lightbox) renders a ```mermaid fence as a diagram, the
- * same as the chat — it used a BARE markdown renderer with no mermaid override,
- * so a flowchart showed as raw `graph TD …` code (Angel). Opened by clicking a
- * file-attachment card, which routes through the shared mdComponents now.
+ * A markdown file's ```mermaid fence renders as a live diagram in the EDITOR'S
+ * markdown preview (shared mdComponents). Post file-open revamp, clicking a
+ * file-attachment card opens the file as an editable tab; its Preview tab renders
+ * the diagram — not a raw `graph TD …` fence, and not a read-only modal (Angel).
  */
-test('the preview modal renders a mermaid diagram, not raw code', async () => {
+test('the editor markdown preview renders a mermaid diagram, not raw code', async () => {
   const launched: LaunchedApp = await launchApp()
   const { page } = launched
   try {
@@ -45,11 +45,12 @@ test('the preview modal renders a mermaid diagram, not raw code', async () => {
     await expect(card).toBeVisible({ timeout: 5_000 })
     await card.click()
 
-    // the fence renders as a live SVG diagram inside the preview modal…
-    await expect(page.locator('.lightbox-doc .mermaid-svg svg')).toBeVisible({ timeout: 10_000 })
-    // …not the raw code fallback
-    await expect(page.locator('.lightbox-doc pre.md-code')).toHaveCount(0)
-    await page.keyboard.press('Escape')
+    // opens as an editable tab; switch to Preview → the fence renders as a live SVG
+    await expect(tile.locator('.editor-slot:visible .monaco-editor')).toBeVisible({ timeout: 5_000 })
+    await tile.locator('.preview-source-tab', { hasText: 'Preview' }).click()
+    await expect(tile.locator('.code-editor-preview .mermaid-svg svg')).toBeVisible({ timeout: 10_000 })
+    // …not the raw code fallback, and no modal
+    await expect(tile.locator('.code-editor-preview pre.md-code')).toHaveCount(0)
     await expect(page.locator('.lightbox-backdrop')).toHaveCount(0)
   } finally {
     await launched.app.close()

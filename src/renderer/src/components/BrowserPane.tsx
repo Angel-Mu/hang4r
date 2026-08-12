@@ -115,14 +115,20 @@ export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
     if (!tab) return
     let dest = (target ?? tab.url).trim()
     if (!dest) return
-    // "not a url" with spaces would load verbatim into a blank page — treat a
-    // space-containing non-URL as invalid instead of guessing a search
+    // Omnibox behaviour (Angel: couldn't search from the address bar): a bare
+    // host (github.com, localhost:3000, an IP) navigates; anything else — a
+    // multi-word query, or a single word with no dot/port — becomes a web SEARCH
+    // instead of loading a dead http://<junk> page or being rejected outright.
     if (!/^https?:\/\//.test(dest)) {
-      if (/\s/.test(dest)) {
-        setInvalid(true)
-        return
-      }
-      dest = 'http://' + dest
+      const host = dest.split(/[/?#]/)[0]
+      const looksLikeHost =
+        !/\s/.test(dest) &&
+        (/^localhost(:\d+)?$/i.test(host) ||
+          /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(host) ||
+          /^[^/\s]+\.[a-z]{2,}(:\d+)?$/i.test(host))
+      dest = looksLikeHost
+        ? 'http://' + dest
+        : 'https://www.google.com/search?q=' + encodeURIComponent(dest)
     }
     let parsed: URL
     try {

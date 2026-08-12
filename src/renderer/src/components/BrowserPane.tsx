@@ -484,6 +484,10 @@ export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
     else if (hotkey.action === 'next-tab') cycleTab(1)
     else if (hotkey.action === 'toggle-devtools') toggleDevTools()
     else if (hotkey.action === 'find') openFind()
+    // one-shot: clear it so a later pane REMOUNT (switching sessions away and
+    // back) can't replay the action — that spawned a fresh "New Tab" every time
+    // you jumped between conversations (Angel), mirroring urlToOpen above.
+    useHang4r.getState().consumeBrowserHotkey(hotkey.nonce)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotkey?.nonce])
 

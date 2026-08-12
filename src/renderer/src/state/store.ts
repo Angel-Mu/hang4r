@@ -529,6 +529,8 @@ interface Hang4rState {
   consumeUrlToOpen(nonce: number): void
   /** a browser keybinding main intercepted while the guest page had focus (⌘L/⌘T/⌘W/tab cycling) */
   browserHotkey: { sessionId: string; tabId: string; action: BrowserHotkeyAction; nonce: number } | null
+  /** one-shot clear once BrowserPane acts on it — so a pane remount can't replay it */
+  consumeBrowserHotkey(nonce: number): void
   /** a nudge to surface a session's Browser context tab (agent-driven `goto`) */
   browserToShow: { sessionId: string; nonce: number } | null
   /** the agent-drivable browser (`hang4r browser goto`) with no live tab: load
@@ -1368,6 +1370,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
   consumeUrlToOpen(nonce) {
     if (get().urlToOpen?.nonce === nonce) set({ urlToOpen: null })
+  },
+  consumeBrowserHotkey(nonce) {
+    if (get().browserHotkey?.nonce === nonce) set({ browserHotkey: null })
   },
   toggleTerminalPanel() {
     const sessionId = get().focusedSessionId

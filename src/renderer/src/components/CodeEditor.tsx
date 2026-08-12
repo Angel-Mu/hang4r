@@ -10,6 +10,7 @@ import { ensureModel, loadProject, tsDefinition } from '../monacoProject'
 import { isDarkTheme, resolveTheme, cssToken } from '../theme'
 import { mediaKind } from './MediaViewer'
 import { EditorFindBar } from './EditorFindBar'
+import { ChatFindBar } from './ChatFindBar'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
@@ -285,6 +286,7 @@ export function CodeEditor({
 }): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const previewRef = useRef<HTMLDivElement>(null) // markdown-preview find scopes here
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   // focus the editor when its file becomes the ACTIVE tab (false→true only, not
   // on mount — that would steal focus when the panel first opens). This moves
@@ -1017,15 +1019,29 @@ export function CodeEditor({
 
   return (
     <div className="code-editor" ref={rootRef}>
-      {findOpen && editorRef.current && (
-        <EditorFindBar
-          editor={editorRef.current}
+      {/* ⌘F in the rendered MARKDOWN preview searches the PREVIEW DOM (same
+          Custom-Highlight find as the chat), not the hidden Monaco source —
+          otherwise it counted matches you couldn't see/scroll to (Angel). The
+          HTML preview is a <webview> (separate context) so it stays on Monaco. */}
+      {findOpen && previewable && previewMode && kind === 'markdown' ? (
+        <ChatFindBar
+          containerRef={previewRef}
+          placeholder="Find in preview"
           focusToken={findToken}
-          onClose={() => {
-            setFindOpen(false)
-            editorRef.current?.focus()
-          }}
+          onClose={() => setFindOpen(false)}
         />
+      ) : (
+        findOpen &&
+        editorRef.current && (
+          <EditorFindBar
+            editor={editorRef.current}
+            focusToken={findToken}
+            onClose={() => {
+              setFindOpen(false)
+              editorRef.current?.focus()
+            }}
+          />
+        )
       )}
       <div className="code-editor-bar">
         <span className="code-editor-path">
@@ -1088,7 +1104,10 @@ export function CodeEditor({
         style={previewable && previewMode ? { display: 'none' } : undefined}
       />
       {previewable && previewMode && (
-        <div className={'code-editor-preview' + (kind === 'html' ? ' code-editor-preview-html' : '')}>
+        <div
+          ref={previewRef}
+          className={'code-editor-preview' + (kind === 'html' ? ' code-editor-preview-html' : '')}
+        >
           {kind === 'markdown' ? (
             <div className="markdown-body">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents(sessionId, path)}>{previewText}</ReactMarkdown>

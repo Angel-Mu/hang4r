@@ -64,11 +64,14 @@ function findRanges(root: HTMLElement, query: string): Range[] {
 export function ChatFindBar({
   containerRef,
   onClose,
-  focusToken
+  focusToken,
+  placeholder = 'Find in conversation'
 }: {
   containerRef: RefObject<HTMLDivElement | null>
   onClose: () => void
   focusToken: number
+  /** scope label — the same DOM-text find drives the markdown preview too */
+  placeholder?: string
 }): JSX.Element {
   const [query, setQuery] = useState('')
   const [ranges, setRanges] = useState<Range[]>([])
@@ -139,7 +142,7 @@ export function ChatFindBar({
 
   return (
     <FindBar
-      placeholder="Find in conversation"
+      placeholder={placeholder}
       query={query}
       onQueryChange={setQuery}
       count={ranges.length}

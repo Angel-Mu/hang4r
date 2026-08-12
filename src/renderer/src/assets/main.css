@@ -2872,6 +2872,40 @@ button:disabled {
 .chat-find-close {
   font-size: 11px;
 }
+/* editor find bar: a collapsible replace row that sits just under the find pill */
+.editor-replace-toggle {
+  font-size: 11px;
+}
+.editor-replace-bar {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  padding: 5px 6px;
+}
+.editor-replace-act {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.editor-replace-act:hover:not(:disabled) {
+  background: var(--sel-strong);
+  color: var(--text);
+}
+.editor-replace-act:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 /* Browser scope: the find bar DOCKS under the toolbar, scoped to the pane —
    like a real browser's find-in-page — instead of floating at the app's
    center (the shared bar is absolute+centered, which read as out-of-scope). */

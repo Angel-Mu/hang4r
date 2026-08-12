@@ -26,6 +26,8 @@ export function EditorFindBar({
   const [query, setQuery] = useState('')
   const [matches, setMatches] = useState<monaco.Range[]>([])
   const [current, setCurrent] = useState(0)
+  const [showReplace, setShowReplace] = useState(false)
+  const [replaceQuery, setReplaceQuery] = useState('')
   const decos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null)
 
   // (re)compute matches when the query changes — and keep them fresh if the
@@ -98,17 +100,79 @@ export function EditorFindBar({
     setCurrent(((index % matches.length) + matches.length) % matches.length)
   }
 
+  // Replace via Monaco model edits; the onDidChangeModelContent recompute above
+  // refreshes the match set (and the dirty dot) after each edit.
+  const replaceCurrent = (): void => {
+    if (matches.length === 0) return
+    editor.executeEdits('hang4r-replace', [
+      { range: matches[current], text: replaceQuery, forceMoveMarkers: true }
+    ])
+  }
+  const replaceAll = (): void => {
+    if (matches.length === 0) return
+    editor.executeEdits(
+      'hang4r-replace-all',
+      matches.map((range) => ({ range, text: replaceQuery, forceMoveMarkers: true }))
+    )
+  }
+
   return (
-    <FindBar
-      placeholder="Find in file"
-      query={query}
-      onQueryChange={setQuery}
-      count={matches.length}
-      active={matches.length === 0 ? 0 : current}
-      onNext={() => goTo(current + 1)}
-      onPrev={() => goTo(current - 1)}
-      onClose={onClose}
-      focusToken={focusToken}
-    />
+    <>
+      <FindBar
+        placeholder="Find in file"
+        query={query}
+        onQueryChange={setQuery}
+        count={matches.length}
+        active={matches.length === 0 ? 0 : current}
+        onNext={() => goTo(current + 1)}
+        onPrev={() => goTo(current - 1)}
+        onClose={onClose}
+        focusToken={focusToken}
+        leading={
+          <button
+            className="chat-find-nav editor-replace-toggle"
+            title={showReplace ? 'Hide replace' : 'Replace…'}
+            onClick={() => setShowReplace((v) => !v)}
+          >
+            {showReplace ? '▾' : '▸'}
+          </button>
+        }
+      />
+      {showReplace && (
+        <div className="editor-replace-bar">
+          <input
+            className="chat-find-input"
+            placeholder="Replace"
+            value={replaceQuery}
+            onChange={(e) => setReplaceQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                replaceCurrent()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                onClose()
+              }
+            }}
+          />
+          <button
+            className="editor-replace-act"
+            title="Replace this match (⏎)"
+            disabled={matches.length === 0}
+            onClick={replaceCurrent}
+          >
+            Replace
+          </button>
+          <button
+            className="editor-replace-act"
+            title="Replace all matches"
+            disabled={matches.length === 0}
+            onClick={replaceAll}
+          >
+            All
+          </button>
+        </div>
+      )}
+    </>
   )
 }

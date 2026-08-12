@@ -36,7 +36,8 @@ export function FindBar({
   onPrev,
   onClose,
   focusToken,
-  inputRef
+  inputRef,
+  leading
 }: {
   placeholder: string
   query: string
@@ -49,6 +50,8 @@ export function FindBar({
   /** bump to (re)focus + select the query — a repeat ⌘F while already open */
   focusToken: number
   inputRef?: RefObject<HTMLInputElement | null>
+  /** optional control rendered at the START of the bar (editor: replace toggle) */
+  leading?: JSX.Element
 }): JSX.Element {
   const localRef = useRef<HTMLInputElement>(null)
   const ref = inputRef ?? localRef
@@ -65,6 +68,7 @@ export function FindBar({
   const has = count > 0
   return (
     <div className="chat-find-bar">
+      {leading}
       <input
         ref={ref}
         className="chat-find-input"

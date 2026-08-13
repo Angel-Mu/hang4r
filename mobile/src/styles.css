@@ -427,3 +427,270 @@ body,
   resize: none;
   max-height: 120px;
 }
+
+/* ---- forms (new session) ---- */
+.form-screen {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.form-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+.form-field {
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 12px;
+  font-size: 15px;
+  font-family: inherit;
+  width: 100%;
+  appearance: none;
+}
+.form-textarea {
+  resize: none;
+}
+.segment {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.segment-item {
+  flex: 1;
+  background: var(--bg-raise);
+  border: none;
+  color: var(--text-dim);
+  padding: 11px 8px;
+  font-size: 14px;
+  text-transform: capitalize;
+}
+.segment-item + .segment-item {
+  border-left: 1px solid var(--border);
+}
+.segment-active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.segment-item:disabled {
+  opacity: 0.4;
+}
+
+/* ---- usage / settings cards ---- */
+.usage-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raise);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.usage-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+.usage-line {
+  font-size: 14px;
+}
+.usage-dim {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.usage-window {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.usage-window-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.usage-bar {
+  height: 6px;
+  border-radius: 4px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.usage-fill {
+  height: 100%;
+  background: var(--accent);
+}
+.usage-hot {
+  background: var(--red);
+}
+
+/* ---- diff ---- */
+.view-toggle {
+  font-size: 18px;
+  padding: 4px 10px;
+}
+.view-toggle-active {
+  color: var(--accent);
+}
+.topbar-action {
+  padding: 4px 8px;
+  font-size: 17px;
+}
+.topbar-new {
+  padding: 4px 14px;
+  font-size: 18px;
+}
+.diff-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.scope-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.scope-chip {
+  border: 1px solid var(--border);
+  background: var(--bg-raise);
+  color: var(--text-dim);
+  border-radius: 99px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.scope-chip-active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-soft);
+}
+.diff-totals {
+  font-size: 13px;
+  font-family: ui-monospace, monospace;
+}
+.diff-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 12px;
+  font-size: 13px;
+  text-align: left;
+}
+.diff-status {
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+}
+.diff-status-added {
+  color: var(--green);
+}
+.diff-status-modified {
+  color: var(--amber);
+}
+.diff-status-deleted {
+  color: var(--red);
+}
+.diff-file-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+}
+.diff-counts {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.diff-back {
+  text-align: left;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+.diff-view {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+.diff-add {
+  color: var(--green);
+}
+.diff-del {
+  color: var(--red);
+}
+.diff-hunk {
+  color: var(--accent);
+}
+
+/* ---- markdown ---- */
+.md {
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  word-break: break-word;
+}
+.md h1,
+.md h2,
+.md h3 {
+  font-size: 16px;
+  margin-top: 6px;
+}
+.md code {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  background: var(--bg-raise);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.md pre {
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  overflow-x: auto;
+}
+.md pre code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+}
+.md ul,
+.md ol {
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.md blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  color: var(--text-dim);
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+.md a {
+  color: var(--accent);
+}

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
@@ -109,4 +110,34 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
     sessions[0].id
   )
   expect(events.some((e) => e.event.kind === 'permission-resolved')).toBe(true)
+
+  // diff review: change a file on disk, open the ± view, drill into the patch
+  appendFileSync(join(repo, 'src', 'index.js'), 'export const fromPhoneTest = 2\n')
+  await phone.click('.view-toggle')
+  const fileRow = phone.locator('.diff-file-row', { hasText: 'src/index.js' })
+  await expect(fileRow).toBeVisible({ timeout: 15_000 })
+  await fileRow.click()
+  await expect(phone.locator('.diff-view')).toContainText('fromPhoneTest', { timeout: 15_000 })
+  await phone.click('.diff-back')
+  await phone.click('.view-toggle')
+
+  // start a brand-new session from the phone
+  await phone.click('.topbar .btn-ghost') // ‹ Back → home
+  await phone.click('.topbar-new')
+  await expect(phone.locator('.form-screen')).toBeVisible()
+  await phone.selectOption('.form-field >> nth=0', project.id)
+  await phone.click('.segment-item:has-text("Local")')
+  await phone.fill('.form-textarea', 'second session from the phone')
+  await phone.click('.form-screen .btn-primary')
+  await expect(phone.locator('.msg-user')).toContainText('second session from the phone', {
+    timeout: 30_000
+  })
+  await expect
+    .poll(async () => (await desktop.evaluate(() => window.hang4r.listSessions())).length)
+    .toBe(2)
+
+  // settings screen shows the paired computer online
+  await phone.click('.topbar .btn-ghost') // back home
+  await phone.click('.topbar-action:has-text("⚙")')
+  await expect(phone.locator('.usage-card').first()).toContainText('online', { timeout: 15_000 })
 })

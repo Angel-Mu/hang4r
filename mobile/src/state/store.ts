@@ -5,9 +5,12 @@ import { applyEvent, emptyTranscript, type Transcript } from './transcript'
 
 const PAIRING_KEY = 'h4.pairing'
 
+export type Screen = 'home' | 'new' | 'usage' | 'settings'
+
 interface AppState {
   pairingUrl: string | null
   conn: ConnectionState
+  screen: Screen
   projects: Project[]
   sessions: SessionMeta[]
   openSessionId: string | null
@@ -18,11 +21,20 @@ interface AppState {
 
   pair(url: string): boolean
   unpair(): void
+  setScreen(screen: Screen): void
   refresh(): Promise<void>
   openSession(id: string): Promise<void>
   closeSession(): void
   sendPrompt(text: string): Promise<void>
   interrupt(): Promise<void>
+  startSession(req: {
+    projectId: string
+    backend: string
+    environment: string
+    permissionMode: string
+    model?: string
+    firstPrompt?: string
+  }): Promise<void>
   respondPermission(sessionId: string, requestId: string, decision: string): Promise<void>
   respondQuestion(sessionId: string, requestId: string, answers: QuestionAnswer[]): Promise<void>
 }
@@ -71,12 +83,28 @@ function startClient(url: string): BridgeClient | null {
 export const useApp = create<AppState>((set, get) => ({
   pairingUrl: localStorage.getItem(PAIRING_KEY),
   conn: 'idle',
+  screen: 'home',
   projects: [],
   sessions: [],
   openSessionId: null,
   transcripts: {},
   attention: {},
   error: null,
+
+  setScreen(screen: Screen): void {
+    set({ screen })
+  },
+
+  async startSession(req): Promise<void> {
+    const session = await bridge().call<SessionMeta>('createSession', req)
+    set((s) => ({
+      sessions: s.sessions.some((x) => x.id === session.id)
+        ? s.sessions
+        : [...s.sessions, session],
+      screen: 'home'
+    }))
+    await get().openSession(session.id)
+  },
 
   pair(url: string): boolean {
     const c = startClient(url)

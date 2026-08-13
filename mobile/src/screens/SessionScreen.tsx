@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { useApp } from '../state/store'
 import type { Block, Item } from '../state/transcript'
+import { Markdown } from '../components/Markdown'
+import { DiffPanel } from './DiffPanel'
 
 function ToolChip({ block }: { block: Extract<Block, { type: 'tool' }> }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -138,7 +140,7 @@ function TranscriptItem({ item, sessionId }: { item: Item; sessionId: string }):
         <div className="msg msg-assistant">
           {item.blocks.map((b, i) => {
             if (!b) return null
-            if (b.type === 'text') return b.text ? <p key={i} className="msg-text">{b.text}</p> : null
+            if (b.type === 'text') return b.text ? <Markdown key={i} text={b.text} /> : null
             if (b.type === 'thinking')
               return b.text ? (
                 <p key={i} className="msg-thinking">
@@ -173,6 +175,7 @@ export function SessionScreen(): JSX.Element {
   const interrupt = useApp((s) => s.interrupt)
   const conn = useApp((s) => s.conn)
   const [draft, setDraft] = useState('')
+  const [view, setView] = useState<'chat' | 'diff'>('chat')
   const scrollRef = useRef<HTMLDivElement>(null)
   const itemCount = transcript?.items.length ?? 0
 
@@ -197,15 +200,26 @@ export function SessionScreen(): JSX.Element {
           ‹ Back
         </button>
         <span className="topbar-title topbar-session">{session?.title ?? '…'}</span>
+        <button
+          className={'btn btn-ghost view-toggle' + (view === 'diff' ? ' view-toggle-active' : '')}
+          onClick={() => setView(view === 'chat' ? 'diff' : 'chat')}
+        >
+          ±
+        </button>
         <span className={`status-dot status-${session?.status ?? 'idle'}`} />
       </header>
-      <div className="transcript" ref={scrollRef}>
-        {!transcript && <p className="empty-note">Loading conversation…</p>}
-        {transcript?.items.map((item, i) => (
-          <TranscriptItem key={i} item={item} sessionId={id} />
-        ))}
-        {running && <div className="working-note">agent is working…</div>}
-      </div>
+      {view === 'diff' ? (
+        <DiffPanel sessionId={id} />
+      ) : (
+        <div className="transcript" ref={scrollRef}>
+          {!transcript && <p className="empty-note">Loading conversation…</p>}
+          {transcript?.items.map((item, i) => (
+            <TranscriptItem key={i} item={item} sessionId={id} />
+          ))}
+          {running && <div className="working-note">agent is working…</div>}
+        </div>
+      )}
+      {view === 'chat' && (
       <footer className="composer">
         <textarea
           className="composer-input"
@@ -228,6 +242,7 @@ export function SessionScreen(): JSX.Element {
           </button>
         )}
       </footer>
+      )}
     </div>
   )
 }

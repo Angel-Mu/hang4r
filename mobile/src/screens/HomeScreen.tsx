@@ -29,7 +29,7 @@ export function HomeScreen(): JSX.Element {
   const attention = useApp((s) => s.attention)
   const refresh = useApp((s) => s.refresh)
   const openSession = useApp((s) => s.openSession)
-  const unpair = useApp((s) => s.unpair)
+  const setScreen = useApp((s) => s.setScreen)
   const error = useApp((s) => s.error)
 
   useEffect(() => {
@@ -41,6 +41,15 @@ export function HomeScreen(): JSX.Element {
       <header className="topbar">
         <span className="topbar-title">hang4r</span>
         <ConnDot />
+        <button className="btn btn-ghost topbar-action" onClick={() => setScreen('usage')}>
+          ◔
+        </button>
+        <button className="btn btn-ghost topbar-action" onClick={() => setScreen('settings')}>
+          ⚙
+        </button>
+        <button className="btn btn-primary topbar-new" onClick={() => setScreen('new')}>
+          +
+        </button>
       </header>
       {error && <p className="banner banner-error">{error}</p>}
       {conn === 'relay' && (
@@ -74,9 +83,6 @@ export function HomeScreen(): JSX.Element {
       <footer className="home-footer">
         <button className="btn btn-ghost" onClick={() => void refresh()}>
           Refresh
-        </button>
-        <button className="btn btn-ghost btn-danger" onClick={unpair}>
-          Unpair
         </button>
       </footer>
     </div>

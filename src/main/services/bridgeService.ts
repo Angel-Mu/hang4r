@@ -119,6 +119,29 @@ export class BridgeService {
     // phone is actually looking at; everything else drives badges/approvals
     if ((kind === 'block-delta' || kind === 'usage') && !this.subs.has(ev.sessionId)) return
     this.send({ t: 'event', channel: 'agent-event', payload: ev })
+    this.maybeNotify(ev)
+  }
+
+  /** Content-free push signal for a phone that is NOT connected right now.
+   *  Rides the plaintext control channel on purpose: the relay must read it
+   *  to call APNs, so it never carries session content. */
+  private maybeNotify(ev: SessionEvent): void {
+    if (this.phoneConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    const kind = ev.event.kind
+    const mapped =
+      kind === 'permission-request' || kind === 'question-request'
+        ? 'needs-approval'
+        : kind === 'turn-complete'
+          ? ev.event.isError
+            ? 'turn-error'
+            : 'turn-complete'
+          : null
+    if (!mapped) return
+    try {
+      this.ws.send(JSON.stringify({ t: 'notify', kind: mapped }))
+    } catch {
+      // best-effort; a lost push signal is not worth a reconnect cycle
+    }
   }
 
   onSessionUpdated(session: SessionMeta): void {

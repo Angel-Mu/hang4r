@@ -1,5 +1,14 @@
 import { DurableObject } from 'cloudflare:workers'
 
+export interface RelayEnv {
+  /** APNs push credentials — optional worker secrets; push is a no-op until set */
+  APNS_TEAM_ID?: string
+  APNS_KEY_ID?: string
+  APNS_P8?: string
+  APNS_TOPIC?: string
+  APNS_ENV?: string
+}
+
 /**
  * One RelayDO per deviceId. Holds the desktop's WebSocket and up to
  * MAX_CLIENTS phone sockets, and pumps frames between the two sides verbatim.
@@ -56,9 +65,12 @@ export class RelayDO extends DurableObject {
     return new Response(null, { status: 101, webSocket: pair[0] })
   }
 
-  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const role = this.roleOf(ws)
-    if (typeof message === 'string') return // text is relay-control only; peers never send it
+    if (typeof message === 'string') {
+      await this.onControlFrame(role, message)
+      return
+    }
     for (const target of this.sockets(role === 'desktop' ? 'client' : 'desktop')) {
       try {
         target.send(message)
@@ -66,6 +78,95 @@ export class RelayDO extends DurableObject {
         // target went away mid-send; its close handler will fire
       }
     }
+  }
+
+  /** The plaintext channel: content-free push signals + APNs token registration. */
+  private async onControlFrame(role: Role, message: string): Promise<void> {
+    let frame: { t?: string; kind?: string; token?: string }
+    try {
+      frame = JSON.parse(message)
+    } catch {
+      return
+    }
+    if (role === 'client' && frame.t === 'apns' && typeof frame.token === 'string') {
+      await this.ctx.storage.put('apnsToken', frame.token.slice(0, 200))
+      return
+    }
+    if (role === 'desktop' && frame.t === 'notify' && typeof frame.kind === 'string') {
+      if (this.sockets('client').length > 0) return // phone is live; it saw the real event
+      await this.pushNotify(frame.kind)
+    }
+  }
+
+  private async pushNotify(kind: string): Promise<void> {
+    const env = this.env as RelayEnv
+    if (!env.APNS_TEAM_ID || !env.APNS_KEY_ID || !env.APNS_P8 || !env.APNS_TOPIC) return
+    const token = await this.ctx.storage.get<string>('apnsToken')
+    if (!token) return
+    const last = (await this.ctx.storage.get<number>('lastPushAt')) ?? 0
+    if (Date.now() - last < 15_000) return // batch storms of turn-completes
+    await this.ctx.storage.put('lastPushAt', Date.now())
+
+    const body =
+      kind === 'needs-approval'
+        ? 'An agent is waiting for your approval'
+        : kind === 'turn-error'
+          ? 'An agent turn failed'
+          : 'An agent finished — ready for review'
+    const host =
+      env.APNS_ENV === 'sandbox' ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com'
+    try {
+      await fetch(`${host}/3/device/${token}`, {
+        method: 'POST',
+        headers: {
+          authorization: `bearer ${await this.apnsJwt(env)}`,
+          'apns-topic': env.APNS_TOPIC,
+          'apns-push-type': 'alert',
+          'apns-priority': '10'
+        },
+        body: JSON.stringify({ aps: { alert: { title: 'hang4r', body }, sound: 'default' } })
+      })
+    } catch {
+      // push is best-effort; never let it disturb frame routing
+    }
+  }
+
+  /** APNs provider JWTs are valid 20-60 min; mint at most once per 40 min. */
+  private async apnsJwt(env: RelayEnv): Promise<string> {
+    const cached = await this.ctx.storage.get<{ jwt: string; at: number }>('apnsJwt')
+    if (cached && Date.now() - cached.at < 40 * 60_000) return cached.jwt
+    const b64url = (data: ArrayBuffer | Uint8Array | string): string => {
+      const bytes =
+        typeof data === 'string'
+          ? new TextEncoder().encode(data)
+          : data instanceof Uint8Array
+            ? data
+            : new Uint8Array(data)
+      let bin = ''
+      for (const b of bytes) bin += String.fromCharCode(b)
+      return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+    const pem = env.APNS_P8!.replace(/-----[A-Z ]+-----|\s/g, '')
+    const der = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0))
+    const key = await crypto.subtle.importKey(
+      'pkcs8',
+      der,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['sign']
+    )
+    const header = b64url(JSON.stringify({ alg: 'ES256', kid: env.APNS_KEY_ID }))
+    const payload = b64url(
+      JSON.stringify({ iss: env.APNS_TEAM_ID, iat: Math.floor(Date.now() / 1000) })
+    )
+    const sig = await crypto.subtle.sign(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      key,
+      new TextEncoder().encode(`${header}.${payload}`)
+    )
+    const jwt = `${header}.${payload}.${b64url(sig)}`
+    await this.ctx.storage.put('apnsJwt', { jwt, at: Date.now() })
+    return jwt
   }
 
   webSocketClose(ws: WebSocket): void {

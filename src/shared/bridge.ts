@@ -59,11 +59,18 @@ export type BridgeDesktopFrame =
   | { t: 'event'; channel: 'session-updated'; payload: SessionMeta }
   | { t: 'ping' }
 
-/** The relay's own presence notices — the only plaintext (text) frames on the wire. */
-export interface RelayControlFrame {
-  t: 'peer'
-  connected: boolean
-}
+/**
+ * Plaintext (text) frames — the deliberately relay-VISIBLE channel. Only
+ * content-free signals live here; everything else rides the E2E binary frames.
+ * - peer: relay → both sides, presence.
+ * - notify: desktop → relay when no phone is connected; the relay turns it
+ *   into an APNs push (generic text only — never session content).
+ * - apns: phone → relay, registers its push token with the device's DO.
+ */
+export type RelayControlFrame =
+  | { t: 'peer'; connected: boolean }
+  | { t: 'notify'; kind: 'turn-complete' | 'needs-approval' | 'turn-error' }
+  | { t: 'apns'; token: string }
 
 /**
  * The Hang4rApi subset a phone may call. Deliberately excludes anything that

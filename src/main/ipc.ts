@@ -29,7 +29,9 @@ import type {
   SessionMeta
 } from '../shared/protocol'
 import { SessionManager } from './services/sessionManager'
+import { BridgeService } from './services/bridgeService'
 import { BrowserControlService } from './services/browserControlService'
+import QRCode from 'qrcode'
 import { CursorImport } from './services/cursorImport'
 import { ClaudeImport } from './services/claudeImport'
 import { CodexImport } from './services/codexImport'
@@ -56,6 +58,11 @@ export function getPtyService(): PtyService | null {
 let browserControl: BrowserControlService | null = null
 export function getBrowserControl(): BrowserControlService | null {
   return browserControl
+}
+
+let bridgeService: BridgeService | null = null
+export function getBridge(): BridgeService | null {
+  return bridgeService
 }
 
 /**
@@ -228,6 +235,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send('agent-event', ev)
       }
+      bridgeService?.onAgentEvent(ev)
       // persist the environment snapshot so the Env panel has it after an app
       // restart (sessions are idle until the next turn — no live init event)
       if (ev.event.kind === 'init') {
@@ -243,10 +251,76 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send('session-updated', session)
       }
+      bridgeService?.onSessionUpdated(session)
     }
     },
     (sessionId: string) => browserControl!.sessionEnv(sessionId)
   )
+
+  // ---- mobile bridge: a phone drives a narrow slice of this surface through
+  // the relay (docs/mobile/design.md). Constructed here because the api map
+  // needs sessions/store/settings in scope.
+  const usagePersist = {
+    get: (k: string) => settings.getSetting(k),
+    set: (k: string, v: string) => settings.setSetting(k, v)
+  }
+  bridgeService = new BridgeService(
+    settings,
+    {
+      listProjects: () => store.listProjects(),
+      listSessions: () => store.listSessions(),
+      listArchivedSessions: () => store.listArchivedSessions(),
+      getSessionEvents: (sessionId: string) => store.getEvents(sessionId),
+      prompt: (sessionId: string, text: string) => sessions.prompt(sessionId, text),
+      interrupt: (sessionId: string) => sessions.interrupt(sessionId),
+      createSession: (req: NewSessionRequest) => sessions.createSession(req),
+      respondPermission: (sessionId: string, requestId: string, decision: string) =>
+        sessions.respondPermission(sessionId, requestId, decision),
+      respondQuestion: (sessionId: string, requestId: string, answers: QuestionAnswer[]) =>
+        sessions.respondQuestion(sessionId, requestId, answers),
+      renameSession: (sessionId: string, title: string) => sessions.rename(sessionId, title),
+      archiveSession: (sessionId: string) => sessions.archive(sessionId),
+      unarchiveSession: (sessionId: string) => store.updateSession(sessionId, { status: 'idle' }),
+      retrySession: (sessionId: string) => sessions.retry(sessionId),
+      authStatus: () =>
+        AuthService.status(
+          settings.getSetting('codexBinaryPath'),
+          settings.getSetting('cursorBinaryPath')
+        ),
+      listCodexModels: () => CodexModelService.list(settings.getSetting('codexBinaryPath')),
+      listCursorModels: () => CursorModelService.list(settings.getSetting('cursorBinaryPath')),
+      resolveAgentDefault: (backend: BackendId, field: 'model' | 'permissionMode', projectId?: string) =>
+        settings.resolveAgentDefault(backend, field, projectId),
+      scopeSummary: (sessionId: string) => sessions.scopeSummary(sessionId),
+      scopedFiles: (sessionId: string, scope: DiffScope) => sessions.scopedFiles(sessionId, scope),
+      scopedDiff: (sessionId: string, scope: DiffScope, path: string, ignoreWs?: boolean) =>
+        sessions.scopedDiff(sessionId, scope, path, ignoreWs),
+      claudeUsage: (force?: boolean) =>
+        UsageService.claudeUsage(settings.getSetting('claudeBinaryPath'), force, usagePersist),
+      codexUsage: (force?: boolean) =>
+        UsageService.codexUsage(settings.getSetting('codexBinaryPath'), force, usagePersist),
+      cursorUsage: (force?: boolean) =>
+        UsageService.cursorUsage(settings.getSetting('cursorBinaryPath'), force, usagePersist),
+      appVersion: () => app.getVersion(),
+      agentAlive: (sessionId: string) => sessions.agentAlive(sessionId),
+      currentBranch: (sessionId: string) => sessions.currentBranch(sessionId),
+      resyncSession: (sessionId: string) => sessions.resyncAndRecover(sessionId)
+    },
+    app.getVersion(),
+    (s) => {
+      for (const win of BrowserWindow.getAllWindows()) win.webContents.send('bridge:status', s)
+    }
+  )
+  ipcMain.handle('bridge:status', () => bridgeService!.status())
+  ipcMain.handle('bridge:set-enabled', (_e, on: boolean) => bridgeService!.setEnabled(on))
+  ipcMain.handle('bridge:pairing', async () => {
+    const url = bridgeService!.pairingUrl()
+    return { url, qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 560 }) }
+  })
+  ipcMain.handle('bridge:repair', async () => {
+    const url = bridgeService!.repair()
+    return { url, qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 560 }) }
+  })
 
   ipcMain.handle('projects:pick-folder', async () => {
     const result = await dialog.showOpenDialog({

@@ -21,6 +21,15 @@ import type {
 } from '../shared/protocol'
 
 const api: Hang4rApi = {
+  bridgeStatus: () => ipcRenderer.invoke('bridge:status'),
+  bridgeSetEnabled: (on: boolean) => ipcRenderer.invoke('bridge:set-enabled', on),
+  bridgePairing: () => ipcRenderer.invoke('bridge:pairing'),
+  bridgeRepair: () => ipcRenderer.invoke('bridge:repair'),
+  onBridgeStatus: (cb) => {
+    const handler = (_e: unknown, s: Parameters<typeof cb>[0]): void => cb(s)
+    ipcRenderer.on('bridge:status', handler)
+    return () => ipcRenderer.removeListener('bridge:status', handler)
+  },
   pickProjectFolder: () => ipcRenderer.invoke('projects:pick-folder'),
   createProject: (path: string) => ipcRenderer.invoke('projects:create', path),
   listProjects: () => ipcRenderer.invoke('projects:list'),

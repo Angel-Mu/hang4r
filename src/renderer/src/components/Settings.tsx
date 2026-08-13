@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent
 import { useHang4r } from '../state/store'
 import { THEMES, type Theme } from '../theme'
 import type { ModelChoice, SettingsScope, UpdateStatus } from '../../../shared/protocol'
+import type { BridgeStatus } from '../../../shared/bridge'
 import { CLAUDE_MODELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
 import { SettingsJsonEditor } from './SettingsJsonEditor'
 import {
@@ -377,6 +378,7 @@ type Category =
   | 'Agents'
   | 'Worktrees'
   | 'Remote'
+  | 'Phone'
   | 'Plugins'
   | 'Rules & Skills'
   | 'Tools & MCPs'
@@ -390,6 +392,7 @@ const CATEGORIES: Category[] = [
   'Agents',
   'Worktrees',
   'Remote',
+  'Phone',
   'Plugins',
   'Rules & Skills',
   'Tools & MCPs',
@@ -778,6 +781,7 @@ export function Settings(): JSX.Element | null {
             )}
 
             {cat === 'Remote' && <RemoteHosts />}
+            {cat === 'Phone' && <PhoneBridge />}
 
             {cat === 'Worktrees' && (
               <>
@@ -990,6 +994,108 @@ export function Settings(): JSX.Element | null {
         </div>
       </div>
     </div>
+  )
+}
+
+function PhoneBridge(): JSX.Element {
+  const [status, setStatus] = useState<BridgeStatus | null>(null)
+  const [pairing, setPairing] = useState<{ url: string; qrDataUrl: string } | null>(null)
+  const [showSecret, setShowSecret] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    void window.hang4r.bridgeStatus().then(setStatus)
+    return window.hang4r.onBridgeStatus(setStatus)
+  }, [])
+
+  useEffect(() => {
+    if (status?.enabled && !pairing) void window.hang4r.bridgePairing().then(setPairing)
+    if (status && !status.enabled && pairing) setPairing(null)
+  }, [status, pairing])
+
+  const toggle = async (on: boolean): Promise<void> => {
+    setStatus(await window.hang4r.bridgeSetEnabled(on))
+  }
+  const repair = async (): Promise<void> => {
+    setPairing(await window.hang4r.bridgeRepair())
+  }
+  const copyUrl = async (): Promise<void> => {
+    if (!pairing) return
+    await navigator.clipboard.writeText(pairing.url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <>
+      <p className="settings-note">
+        <strong>hang4r on your phone.</strong> Pair the mobile app to view and drive these
+        sessions from anywhere — the desktop and your phone both connect out to the hang4r
+        relay, so it works across networks with zero setup. Everything is end-to-end encrypted;
+        the relay only routes bytes it can&apos;t read.
+      </p>
+      <Field label="Phone access">
+        <div className="notify-option">
+          <label className="notify-toggle">
+            <input
+              type="checkbox"
+              checked={status?.enabled ?? false}
+              onChange={(e) => void toggle(e.target.checked)}
+            />
+            Allow a paired phone to connect to this computer
+          </label>
+        </div>
+      </Field>
+      {status?.enabled && (
+        <>
+          <Field label="Status">
+            <p className="settings-note">
+              Relay: {status.relayConnected ? '🟢 connected' : '🔴 connecting…'} · Phone:{' '}
+              {status.phoneConnected ? '🟢 online' : '⚪ not connected'}
+            </p>
+          </Field>
+          <Field label="Pair a phone">
+            <>
+              {pairing ? (
+                <div className="bridge-pairing">
+                  {showSecret ? (
+                    <img
+                      className="bridge-qr"
+                      src={pairing.qrDataUrl}
+                      alt="Pairing QR code"
+                      width={280}
+                      height={280}
+                    />
+                  ) : (
+                    <button className="ghost-btn" onClick={() => setShowSecret(true)}>
+                      Show pairing QR code
+                    </button>
+                  )}
+                  {showSecret && (
+                    <>
+                      <p className="settings-note">
+                        Scan with the hang4r app. This code is the key to your sessions — treat
+                        it like a password.
+                      </p>
+                      <div className="bridge-pairing-actions">
+                        <button className="ghost-btn" onClick={() => void copyUrl()}>
+                          {copied ? 'Copied ✓' : 'Copy pairing link'}
+                        </button>
+                        <button className="ghost-btn" onClick={() => void repair()}>
+                          Re-pair (cuts off paired phones)
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <p className="settings-note">Generating pairing code…</p>
+              )}
+            </>
+          </Field>
+        </>
+      )}
+    </>
   )
 }
 

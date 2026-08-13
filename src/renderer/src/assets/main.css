@@ -875,8 +875,10 @@ button:disabled {
 }
 
 .dialog {
-  width: 480px;
-  max-width: 90vw;
+  width: 640px;
+  max-width: 92vw;
+  max-height: 88vh;
+  overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
@@ -918,7 +920,8 @@ button:disabled {
 
 .dialog-prompt {
   resize: vertical;
-  min-height: 80px;
+  min-height: 120px;
+  line-height: 1.5;
 }
 
 .dialog-attach-row {

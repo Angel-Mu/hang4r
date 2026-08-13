@@ -73,9 +73,9 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   phone = await browser.newPage({ viewport: { width: 390, height: 844 } })
   await phone.goto(`http://localhost:${PREVIEW_PORT}/`)
 
-  // pair
+  // pair (by paste — the scan button is a separate primary action)
   await phone.fill('.pair-input', pairing.url)
-  await phone.click('.btn-primary')
+  await phone.click('button:has-text("Pair with this computer")')
 
   // home: connected + the session listed
   await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })

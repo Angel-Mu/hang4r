@@ -15,6 +15,25 @@ if (Capacitor.isNativePlatform()) {
   void CapApp.getLaunchUrl().then((launch) => {
     if (launch?.url.startsWith('hang4r://pair')) useApp.getState().pair(launch.url)
   })
+
+  // push registration only once a computer is paired — an unpaired app has
+  // nothing to be notified about, so no cold-open permission prompt
+  let pushArmed = false
+  const armPush = (): void => {
+    if (pushArmed || !useApp.getState().pairingUrl) return
+    pushArmed = true
+    void import('@capacitor/push-notifications').then(async ({ PushNotifications }) => {
+      await PushNotifications.addListener('registration', ({ value }) => {
+        useApp.getState().setApnsToken(value)
+      })
+      const perm = await PushNotifications.requestPermissions()
+      if (perm.receive === 'granted') await PushNotifications.register()
+    })
+  }
+  armPush()
+  useApp.subscribe((s, prev) => {
+    if (s.pairingUrl && !prev.pairingUrl) armPush()
+  })
 }
 
 createRoot(document.getElementById('root')!).render(

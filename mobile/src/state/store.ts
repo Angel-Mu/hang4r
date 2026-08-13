@@ -4,6 +4,7 @@ import { BridgeClient, type ConnectionState } from '../bridge/client'
 import { applyEvent, emptyTranscript, type Transcript } from './transcript'
 
 const PAIRING_KEY = 'h4.pairing'
+const APNS_KEY = 'h4.apnsToken'
 
 export type Screen = 'home' | 'new' | 'usage' | 'settings'
 
@@ -21,6 +22,7 @@ interface AppState {
 
   pair(url: string): boolean
   unpair(): void
+  setApnsToken(token: string): void
   setScreen(screen: Screen): void
   refresh(): Promise<void>
   openSession(id: string): Promise<void>
@@ -46,6 +48,7 @@ export function bridge(): BridgeClient {
 }
 
 function startClient(url: string): BridgeClient | null {
+  const savedToken = localStorage.getItem(APNS_KEY)
   const c = BridgeClient.fromUrl(url, {
     onState: (conn) => {
       useApp.setState({ conn })
@@ -76,6 +79,7 @@ function startClient(url: string): BridgeClient | null {
       }))
     }
   })
+  if (c && savedToken) c.setApnsToken(savedToken)
   c?.start()
   return c
 }
@@ -93,6 +97,11 @@ export const useApp = create<AppState>((set, get) => ({
 
   setScreen(screen: Screen): void {
     set({ screen })
+  },
+
+  setApnsToken(token: string): void {
+    localStorage.setItem(APNS_KEY, token)
+    client?.setApnsToken(token)
   },
 
   async startSession(req): Promise<void> {

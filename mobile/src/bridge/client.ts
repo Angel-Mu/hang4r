@@ -27,6 +27,7 @@ const BACKOFF_MAX_MS = 15_000
 export class BridgeClient {
   private ws: WebSocket | null = null
   private keys: BridgeKeys | null = null
+  private apnsToken: string | null = null
   private nextId = 1
   private waiters = new Map<
     number,
@@ -79,6 +80,22 @@ export class BridgeClient {
     })
   }
 
+  /** Registers the APNs token with the relay DO. Plaintext by design: the
+   *  relay needs it to address pushes; it reveals nothing about sessions. */
+  setApnsToken(token: string): void {
+    this.apnsToken = token
+    this.sendApnsToken()
+  }
+
+  private sendApnsToken(): void {
+    if (!this.apnsToken || !this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    try {
+      this.ws.send(JSON.stringify({ t: 'apns', token: this.apnsToken }))
+    } catch {
+      // resent on next connect
+    }
+  }
+
   sub(sessionId: string): void {
     this.subs.add(sessionId)
     void this.send({ t: 'sub', sessionId })
@@ -110,6 +127,7 @@ export class BridgeClient {
       this.backoffMs = BACKOFF_MIN_MS
       this.setState('relay')
       void this.send({ t: 'hello', role: 'client', appVersion: '0.1.0' })
+      this.sendApnsToken()
       this.pingTimer = window.setInterval(() => void this.send({ t: 'ping' }), PING_MS)
     }
     ws.onmessage = (e: MessageEvent): void => {

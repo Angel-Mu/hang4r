@@ -122,11 +122,14 @@ export class BridgeService {
     this.maybeNotify(ev)
   }
 
-  /** Content-free push signal for a phone that is NOT connected right now.
+  /** Content-free push signal, sent on EVERY notify-worthy event. The relay
+   *  decides whether to convert it to APNs based on proven client liveness —
+   *  gating here on phoneConnected was wrong: iOS freezes the app's socket
+   *  without closing it, so "connected" lied exactly when push mattered.
    *  Rides the plaintext control channel on purpose: the relay must read it
    *  to call APNs, so it never carries session content. */
   private maybeNotify(ev: SessionEvent): void {
-    if (this.phoneConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
     const kind = ev.event.kind
     const mapped =
       kind === 'permission-request' || kind === 'question-request'
@@ -282,8 +285,11 @@ export class BridgeService {
       case 'unsub':
         this.subs.delete(frame.sessionId)
         break
-      case 'hello':
       case 'ping':
+        // echo so the phone's resume liveness probe gets a fast answer
+        this.send({ t: 'ping' })
+        break
+      case 'hello':
         break
     }
   }

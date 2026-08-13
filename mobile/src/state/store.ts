@@ -20,11 +20,17 @@ interface AppState {
   /** sessions that hit permission/question/turn-complete while not open */
   attention: Record<string, boolean>
   error: string | null
+  /** push registration outcome, surfaced in Settings so failures aren't silent */
+  pushStatus: string
 
   pair(url: string): boolean
   unpair(): void
   setApnsToken(token: string): void
+  setPushStatus(status: string): void
   setScreen(screen: Screen): void
+  /** replay the open session after resume/reconnect — events streamed while
+   *  iOS had the app frozen were broadcast-only and are gone from the wire */
+  reloadOpenTranscript(): Promise<void>
   refresh(): Promise<void>
   openSession(id: string): Promise<void>
   closeSession(): void
@@ -47,13 +53,19 @@ export function bridge(): BridgeClient {
   if (!client) throw new Error('not paired')
   return client
 }
+export function tryBridge(): BridgeClient | null {
+  return client
+}
 
 function startClient(url: string): BridgeClient | null {
   const savedToken = localStorage.getItem(APNS_KEY)
   const c = BridgeClient.fromUrl(url, {
     onState: (conn) => {
       useApp.setState({ conn })
-      if (conn === 'online') void useApp.getState().refresh()
+      if (conn === 'online') {
+        void useApp.getState().refresh()
+        void useApp.getState().reloadOpenTranscript()
+      }
     },
     onAgentEvent: (ev: SessionEvent) => {
       useApp.setState((s) => {
@@ -96,6 +108,7 @@ export const useApp = create<AppState>((set, get) => ({
   transcriptLoading: false,
   attention: {},
   error: null,
+  pushStatus: 'not requested',
 
   setScreen(screen: Screen): void {
     set({ screen })
@@ -104,6 +117,30 @@ export const useApp = create<AppState>((set, get) => ({
   setApnsToken(token: string): void {
     localStorage.setItem(APNS_KEY, token)
     client?.setApnsToken(token)
+    set({ pushStatus: 'registered ✓' })
+  },
+
+  setPushStatus(status: string): void {
+    set({ pushStatus: status })
+  },
+
+  async reloadOpenTranscript(): Promise<void> {
+    const id = get().openSessionId
+    if (!id) return
+    try {
+      await bridge()
+        .call('resyncSession', id)
+        .catch(() => {})
+      const events = await bridge().call<SessionEvent[]>('getSessionEvents', id)
+      set((s) => {
+        if (s.openSessionId !== id) return {}
+        const t = emptyTranscript()
+        for (const ev of events) applyEvent(t, ev)
+        return { transcripts: { ...s.transcripts, [id]: t }, transcriptLoading: false }
+      })
+    } catch {
+      // resume with no connection yet — the reconnect's 'online' retriggers this
+    }
   },
 
   async startSession(req): Promise<void> {

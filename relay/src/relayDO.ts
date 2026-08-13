@@ -67,6 +67,9 @@ export class RelayDO extends DurableObject {
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const role = this.roleOf(ws)
+    // liveness watermark: an iOS-frozen client socket stays "open" while
+    // sending nothing — only actual frames prove a phone is really there
+    if (role === 'client') await this.ctx.storage.put('clientSeenAt', Date.now())
     if (typeof message === 'string') {
       await this.onControlFrame(role, message)
       return
@@ -93,7 +96,11 @@ export class RelayDO extends DurableObject {
       return
     }
     if (role === 'desktop' && frame.t === 'notify' && typeof frame.kind === 'string') {
-      if (this.sockets('client').length > 0) return // phone is live; it saw the real event
+      // a phone counts as "watching" only when it PROVED liveness recently
+      // (awake phones ping every 25s); a merely-open socket is not enough
+      const seenAt = (await this.ctx.storage.get<number>('clientSeenAt')) ?? 0
+      const clientLive = this.sockets('client').length > 0 && Date.now() - seenAt < 40_000
+      if (clientLive) return
       await this.pushNotify(frame.kind)
     }
   }

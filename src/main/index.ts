@@ -82,6 +82,10 @@ function createWindow(): void {
       sandbox: false,
       // the in-tile embedded browser pane uses <webview>
       webviewTag: true,
+      // Chromium's built-in PDF viewer (PDFium) — without this, the editor's
+      // <embed type="application/pdf"> just spins on a blank tab (Angel: "IDE
+      // cannot preview pdf files"). No Flash/NPAPI risk; this is the PDF plugin.
+      plugins: true,
       // hang4r is an agent MONITOR — keep the renderer live while backgrounded so
       // a turn that completes while you're in another app still commits to the
       // conversation. Default throttling deferred the React commit, so you'd get

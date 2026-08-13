@@ -1,0 +1,17 @@
+{
+  "name": "hang4r-relay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "hang4r mobile bridge relay — Cloudflare Worker + Durable Object that pumps E2E-encrypted frames between a desktop and its paired phones",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260813.1",
+    "typescript": "^5.8.0",
+    "wrangler": "^4.107.0"
+  }
+}

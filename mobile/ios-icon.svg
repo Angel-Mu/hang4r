@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    iOS app icon variant of build/icon.svg: FULL-BLEED square, no alpha —
+    iOS applies its own corner mask, so the background must reach the edges
+    (a macOS-style transparent squircle renders as a double-rounded postage
+    stamp inside the iOS mask). Art unchanged, centered in the safe area.
+    Regenerate the PNG with: node render-icon.mjs (uses playwright chromium).
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1c2a"/>
+      <stop offset="1" stop-color="#0d0d13"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.62" r="0.55">
+      <stop offset="0" stop-color="#9a9aff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#9a9aff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#glow)"/>
+  <!-- hang4r arch -->
+  <path d="M 296 752 L 296 512 A 216 216 0 0 1 728 512 L 728 752"
+        fill="none" stroke="#7d7df0" stroke-width="74" stroke-linecap="round"/>
+  <!-- agent caret, glowing -->
+  <path d="M 424 548 L 518 628 L 424 708" fill="none" stroke="#dcdcff" stroke-width="60"
+        stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)" opacity="0.55"/>
+  <path d="M 424 548 L 518 628 L 424 708" fill="none" stroke="#e8e8ff" stroke-width="56"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- live cursor block -->
+  <rect x="566" y="660" width="64" height="48" rx="10" fill="#50fa7b"/>
+</svg>

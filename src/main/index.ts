@@ -3,7 +3,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { registerIpc, getPtyService, getBrowserControl } from './ipc'
+import { registerIpc, getPtyService, getBrowserControl, getBridge } from './ipc'
 import { Store } from './services/store'
 import { SettingsService } from './services/settingsService'
 import { UpdateService } from './services/updateService'
@@ -414,6 +414,7 @@ app.on('before-quit', (event) => {
     sessionManager?.disposeAll()
     getPtyService()?.disposeAll()
     getBrowserControl()?.dispose()
+    getBridge()?.dispose()
   } catch {
     // best-effort — we're terminating regardless; a disposal error must not
     // fall through to the graceful teardown that crashes (below)

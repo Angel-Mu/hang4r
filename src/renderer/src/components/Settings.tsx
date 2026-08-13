@@ -1008,10 +1008,17 @@ function PhoneBridge(): JSX.Element {
     return window.hang4r.onBridgeStatus(setStatus)
   }, [])
 
+  const enabled = status?.enabled ?? false
   useEffect(() => {
-    if (status?.enabled && !pairing) void window.hang4r.bridgePairing().then(setPairing)
-    if (status && !status.enabled && pairing) setPairing(null)
-  }, [status, pairing])
+    if (!enabled) return undefined
+    let cancelled = false
+    void window.hang4r.bridgePairing().then((p) => {
+      if (!cancelled) setPairing(p)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [enabled])
 
   const toggle = async (on: boolean): Promise<void> => {
     setStatus(await window.hang4r.bridgeSetEnabled(on))

@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { mdComponents } from './MarkdownBlocks'
 
-export type MediaKind = 'image' | 'pdf' | 'markdown' | 'html' | 'code'
+export type MediaKind = 'image' | 'pdf' | 'markdown' | 'html' | 'csv' | 'code'
 
 export function mediaKind(path: string): MediaKind {
   const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
@@ -12,6 +12,8 @@ export function mediaKind(path: string): MediaKind {
   if (ext === 'pdf') return 'pdf'
   if (ext === 'md' || ext === 'mdx' || ext === 'markdown') return 'markdown'
   if (ext === 'html' || ext === 'htm') return 'html'
+  // csv/tsv stay editable text (→ CodeEditor), but get a Table preview toggle
+  if (ext === 'csv' || ext === 'tsv') return 'csv'
   return 'code'
 }
 

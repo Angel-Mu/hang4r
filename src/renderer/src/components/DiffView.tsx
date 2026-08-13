@@ -11,7 +11,7 @@ import type {
 import { useHang4r } from '../state/store'
 import { onForgetSession } from '../sessionUiMemos'
 import { Icon } from './Icon'
-import { mediaKind } from './MediaViewer'
+import { mediaKind, type MediaKind } from './MediaViewer'
 
 /** DiffView navigation + view state, kept per session so switching panels (which
  *  UNMOUNTS the Diff panel — SessionTile conditionally renders it) doesn't reset
@@ -1308,7 +1308,7 @@ function MediaDiffPane({
   deleted
 }: {
   side: MediaSide
-  kind: 'image' | 'pdf' | 'markdown' | 'html' | 'code'
+  kind: MediaKind
   label: string
   deleted?: boolean
 }): JSX.Element {

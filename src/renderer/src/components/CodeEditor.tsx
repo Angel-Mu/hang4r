@@ -6,6 +6,7 @@ import { mdComponents } from './MarkdownBlocks'
 import { useHang4r } from '../state/store'
 import { onForgetSession } from '../sessionUiMemos'
 import { htmlDataUrl } from '../htmlPreview'
+import { CsvTable } from './CsvTable'
 import { ensureModel, loadProject, tsDefinition } from '../monacoProject'
 import { isDarkTheme, resolveTheme, cssToken } from '../theme'
 import { mediaKind } from './MediaViewer'
@@ -138,6 +139,38 @@ function ensureIdeNavKeybindings(): void {
   ])
 }
 
+// A vibrant, high-contrast token palette so EVERY language reads well on the dark
+// ground — Angel: "syntax highlight is a good thing we should always have… in some
+// cases it's difficult to read" (vs-dark's defaults are muted). Original hues (not
+// a copy of Dracula/Sublime, just the same readable spirit). Matched by token
+// PREFIX, so `string` also colors `string.html`, `string.value.json`, etc.
+const HANG4R_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
+  { token: 'comment', foreground: '6b7394', fontStyle: 'italic' },
+  { token: 'keyword', foreground: 'cc93f0' },
+  { token: 'operator', foreground: '9aa4c2' },
+  { token: 'delimiter', foreground: '9aa4c2' },
+  { token: 'string', foreground: '8fdf9f' },
+  { token: 'string.key', foreground: '7ec8ff' }, // JSON keys distinct from values
+  { token: 'string.escape', foreground: 'ff9d6a' },
+  { token: 'number', foreground: 'ff9d6a' },
+  { token: 'constant', foreground: 'ff9d6a' },
+  { token: 'regexp', foreground: 'ff85b8' },
+  { token: 'type', foreground: '59d1e6' },
+  { token: 'namespace', foreground: '59d1e6' },
+  { token: 'tag', foreground: 'cc93f0' },
+  { token: 'metatag', foreground: 'cc93f0' },
+  { token: 'attribute.name', foreground: '7ec8ff' },
+  { token: 'attribute.value', foreground: '8fdf9f' },
+  { token: 'annotation', foreground: '7ec8ff' },
+  { token: 'variable.predefined', foreground: 'ff9d6a' },
+  // CSV/TSV source mode (Table preview does the heavy lifting; these keep the raw
+  // text from being a wall of white — the delimiters get color so columns read).
+  { token: 'delimiter.csv', foreground: '7ec8ff' },
+  { token: 'string.csv', foreground: '8fdf9f' },
+  { token: 'number.csv', foreground: 'ff9d6a' },
+  { token: 'identifier.csv', foreground: 'd6dbe8' }
+]
+
 /** (re)define the dark Monaco theme from the ACTIVE theme's tokens — called on
  *  every theme application, so dark and nord each get their own ground instead
  *  of a baked-in hex that matches neither. */
@@ -146,7 +179,7 @@ function ensureTheme(): void {
   monaco.editor.defineTheme(HANG4R_DARK, {
     base: 'vs-dark',
     inherit: true,
-    rules: [],
+    rules: HANG4R_TOKEN_RULES,
     colors: {
       'editor.background': bg,
       'editorGutter.background': bg,
@@ -154,6 +187,32 @@ function ensureTheme(): void {
     }
   })
 }
+
+// Monaco has no built-in CSV language, so a .csv opened as-is is untokenized —
+// all white, hard to read (Angel). Register a light tokenizer: quoted fields,
+// numbers, and the delimiters themselves get color even in Source mode.
+let csvRegistered = false
+function ensureCsvLang(): void {
+  if (csvRegistered) return
+  csvRegistered = true
+  monaco.languages.register({ id: 'csv' })
+  monaco.languages.setMonarchTokensProvider('csv', {
+    tokenizer: {
+      root: [
+        [/"/, { token: 'string.csv', next: '@qstring' }],
+        [/[,\t;]/, 'delimiter.csv'],
+        [/-?\d+(?:\.\d+)?(?=$|[,\t;])/, 'number.csv'],
+        [/[^",\t;]+/, 'identifier.csv']
+      ],
+      qstring: [
+        [/""/, 'string.csv'],
+        [/[^"]+/, 'string.csv'],
+        [/"/, { token: 'string.csv', next: '@pop' }]
+      ]
+    }
+  })
+}
+ensureCsvLang()
 
 /** the quoted string containing 1-based `column`, or null (for cmd-click imports) */
 function quotedStringAt(line: string, column: number): string | null {
@@ -179,7 +238,7 @@ function langForPath(path: string): string {
     ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', mjs: 'javascript',
     json: 'json', css: 'css', scss: 'scss', less: 'less', html: 'html', md: 'markdown',
     py: 'python', rs: 'rust', go: 'go', sh: 'shell', yml: 'yaml', yaml: 'yaml', toml: 'ini',
-    sql: 'sql', java: 'java', c: 'c', cpp: 'cpp', rb: 'ruby', php: 'php'
+    sql: 'sql', java: 'java', c: 'c', cpp: 'cpp', rb: 'ruby', php: 'php', csv: 'csv', tsv: 'csv'
   }
   return map[ext] ?? 'plaintext'
 }
@@ -344,8 +403,10 @@ export function CodeEditor({
   // Preview/Source segmented control (md/html only) — default is source, like
   // VS Code; the choice is remembered per doc so leaving the tab and coming
   // back doesn't snap Preview back to Source.
+  // CSV defaults to the Table view (the whole point — raw CSV is hard to read);
+  // markdown/html default to Source. The choice is still remembered per doc.
   const [previewMode, setPreviewModeState] = useState(
-    previewModeMemo.get(`${sessionId}:${path}`) ?? false
+    previewModeMemo.get(`${sessionId}:${path}`) ?? mediaKind(path) === 'csv'
   )
   const setPreviewMode = (v: boolean): void => {
     previewModeMemo.set(`${sessionId}:${path}`, v)
@@ -353,13 +414,13 @@ export function CodeEditor({
   }
   // same component instance can be re-pointed at another file — re-read memo
   useEffect(() => {
-    setPreviewModeState(previewModeMemo.get(`${sessionId}:${path}`) ?? false)
+    setPreviewModeState(previewModeMemo.get(`${sessionId}:${path}`) ?? mediaKind(path) === 'csv')
   }, [sessionId, path])
   const [previewText, setPreviewText] = useState('')
   const [previewSrc, setPreviewSrc] = useState('')
   const previewNonce = useRef(0)
   const kind = mediaKind(path)
-  const previewable = kind === 'markdown' || kind === 'html'
+  const previewable = kind === 'markdown' || kind === 'html' || kind === 'csv'
   // refs mirror live state so the unmount cleanup (deps []) sees current values
   const dirtyRef = useRef(false)
   dirtyRef.current = dirty
@@ -1061,7 +1122,7 @@ export function CodeEditor({
               className={'preview-source-tab' + (previewMode ? ' preview-source-tab-active' : '')}
               onClick={() => setPreviewMode(true)}
             >
-              Preview
+              {kind === 'csv' ? 'Table' : 'Preview'}
             </button>
             <button
               type="button"
@@ -1099,12 +1160,18 @@ export function CodeEditor({
       {previewable && previewMode && (
         <div
           ref={previewRef}
-          className={'code-editor-preview' + (kind === 'html' ? ' code-editor-preview-html' : '')}
+          className={
+            'code-editor-preview' +
+            (kind === 'html' ? ' code-editor-preview-html' : '') +
+            (kind === 'csv' ? ' code-editor-preview-csv' : '')
+          }
         >
           {kind === 'markdown' ? (
             <div className="markdown-body">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents(sessionId, path)}>{previewText}</ReactMarkdown>
             </div>
+          ) : kind === 'csv' ? (
+            <CsvTable text={previewText} />
           ) : previewSrc ? (
             <webview
               // eslint-disable-next-line react/no-unknown-property

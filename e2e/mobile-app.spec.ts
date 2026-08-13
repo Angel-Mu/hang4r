@@ -138,6 +138,6 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
 
   // settings screen shows the paired computer online
   await phone.click('.topbar .btn-ghost') // back home
-  await phone.click('.topbar-action:has-text("⚙")')
+  await phone.click('[aria-label="Settings"]')
   await expect(phone.locator('.usage-card').first()).toContainText('online', { timeout: 15_000 })
 })

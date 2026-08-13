@@ -7,6 +7,18 @@ import { useApp } from './state/store'
 import './styles.css'
 
 if (Capacitor.isNativePlatform()) {
+  // Keyboard.resize='body' shrinks the webview, but the layout still pads for
+  // the (now hidden) home-indicator safe area — that stack-up is the visible
+  // gap between the composer and the keyboard. Drop the inset while open.
+  void import('@capacitor/keyboard').then(({ Keyboard }) => {
+    void Keyboard.addListener('keyboardWillShow', () => {
+      document.documentElement.classList.add('kb-open')
+    })
+    void Keyboard.addListener('keyboardWillHide', () => {
+      document.documentElement.classList.remove('kb-open')
+    })
+  })
+
   // hang4r://pair?… deep link: tapping the pairing link (or simctl openurl)
   // pairs without the camera — both warm-start and cold-start paths
   void CapApp.addListener('appUrlOpen', ({ url }) => {

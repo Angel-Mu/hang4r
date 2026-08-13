@@ -5,7 +5,9 @@ import type {
   CursorUsageSnapshot,
   UsageWindow
 } from '@shared/protocol'
+import { Icon } from '@shared/icons'
 import { bridge, useApp } from '../state/store'
+import { useSwipeBack } from '../hooks/useSwipeBack'
 
 function Windows({ windows }: { windows: UsageWindow[] }): JSX.Element {
   return (
@@ -31,6 +33,7 @@ function Windows({ windows }: { windows: UsageWindow[] }): JSX.Element {
 }
 
 export function UsageScreen(): JSX.Element {
+  const rootRef = useSwipeBack<HTMLDivElement>(() => useApp.getState().setScreen('home'))
   const setScreen = useApp((s) => s.setScreen)
   const [claude, setClaude] = useState<ClaudeUsageSnapshot | null>(null)
   const [codex, setCodex] = useState<CodexUsageSnapshot | null>(null)
@@ -54,14 +57,14 @@ export function UsageScreen(): JSX.Element {
   useEffect(load, [])
 
   return (
-    <div className="screen">
+    <div className="screen" ref={rootRef}>
       <header className="topbar">
         <button className="btn btn-ghost" onClick={() => setScreen('home')}>
           ‹ Back
         </button>
         <span className="topbar-title">Usage</span>
-        <button className="btn btn-ghost" onClick={load}>
-          ↻
+        <button className="btn btn-ghost topbar-action" aria-label="Refresh" onClick={load}>
+          <Icon name="refresh" size={17} />
         </button>
       </header>
       <main className="form-screen">

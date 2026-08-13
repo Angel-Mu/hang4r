@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli'
+import { KeyboardResize } from '@capacitor/keyboard'
 
 const config: CapacitorConfig = {
   appId: 'dev.hang4r.mobile',
@@ -11,7 +12,7 @@ const config: CapacitorConfig = {
       backgroundColor: '#0d0d14',
       showSpinner: false
     },
-    Keyboard: { resize: 'body' }
+    Keyboard: { resize: KeyboardResize.Body }
   }
 }
 

@@ -875,6 +875,10 @@ test.describe('agent session flow', () => {
     await tile.locator('.terminal-list-row').first().click({ button: 'right' })
     await expect(page.locator('.ctx-item', { hasText: 'Split right' })).toBeVisible()
     await page.keyboard.press('Escape')
+    // ⌘D splits the FOCUSED terminal — dismissing the context menu drops focus to
+    // <body>, so click into the terminal first (a real split has it focused;
+    // shortcuts now route by focus, not by which tile is focused).
+    await tile.locator('.terminal-slot:visible .terminal-view').first().click()
     await page.keyboard.press('Meta+d')
     await expect(tile.locator('.terminal-list-row')).toHaveCount(2)
     await expect(tile.locator('.terminal-stack-split')).toBeVisible()

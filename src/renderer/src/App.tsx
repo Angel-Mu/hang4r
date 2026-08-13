@@ -18,6 +18,7 @@ import { SidebarRail } from './components/SidebarRail'
 import { Icon } from './components/Icon'
 import { useHang4r } from './state/store'
 import { applyTheme } from './theme'
+import { focusPane } from './focusScope'
 
 /** Titlebar update pill — surfaces the update state (auto-check or a manual
  *  "Check for Updates"). Downloads happen in the background; this offers a
@@ -99,21 +100,21 @@ function UpdatePill(): JSX.Element | null {
 }
 
 /**
- * ⌘W / File → Close. scopedClose closes the focused-TILE's active editor file /
- * terminal tab / browser tab — but it's registered per focused TILE, not per
- * focused PANE, so when you're typing in the conversation it would still fire and
- * close a background panel's file, leaving the tile in a blank state instead of
- * closing the session (Angel). Gate it on where DOM focus actually is: only run
- * scopedClose when focus is inside a pane; otherwise close the whole session tile.
+ * ⌘W / File → Close. Each context pane registers a "close top scope" fn KEYED by
+ * pane (editor file / terminal tab / browser tab). Route by where DOM focus
+ * actually is (focusPane), then dispatch to THAT pane's fn — never a single
+ * shared slot, whose last-writer-wins let a background browser tab hijack the
+ * editor's ⌘W, and never by focused-TILE, which fired while you typed in the
+ * conversation and blanked a panel. No pane focused → close the whole tile.
  */
 function closeFocusedScope(): void {
   const s = useHang4r.getState()
-  const a = document.activeElement as HTMLElement | null
-  const inPane =
-    !!a?.closest('.context-panel') ||
-    !!a?.closest('.terminal-view') ||
-    !!a?.closest('.browser-pane')
-  const closed = inPane ? s.scopedClose?.() : false
+  // Route by where DOM focus actually is (focusPane), NOT which tile is focused,
+  // and dispatch to THAT pane's own close fn — so ⌘W in the editor always closes
+  // the editor file, never a background browser tab that happened to register last.
+  const pane = focusPane()
+  const fn = pane !== 'other' ? s.scopedClose[pane] : undefined
+  const closed = fn ? fn() : false
   if (!closed && s.focusedSessionId) s.closeTile(s.focusedSessionId)
 }
 
@@ -231,9 +232,12 @@ export default function App(): JSX.Element {
           void s.interrupt(s.focusedSessionId)
         }
       } else if (k === 'n') {
-        // in the Files panel, ⌘N makes a new untitled file (VS Code); otherwise
-        // it opens the new-session dialog
-        if (s.scopedNewFile?.()) {
+        // ⌘N makes a new untitled file when the Files pane is what you're working
+        // in (its tree/editor is focused, OR you just opened it and its tab has
+        // focus); anywhere else — the conversation, <body>, a terminal, the
+        // browser — it opens the new-agent dialog. focusPane() encodes exactly
+        // that, so ⌘N no longer makes a file while you type in the chat (Angel).
+        if (focusPane() === 'editor' && s.scopedNewFile?.()) {
           e.preventDefault()
           return
         }

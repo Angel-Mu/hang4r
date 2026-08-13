@@ -4,6 +4,7 @@ import { useHang4r } from '../state/store'
 import { TerminalView } from './TerminalView'
 import { Icon } from './Icon'
 import { onForgetSession } from '../sessionUiMemos'
+import { focusPane } from '../focusScope'
 
 /** two terminals shown side by side (or stacked). Cap is 2 visible at once —
  *  matches the editor/workspace split model without the extra nesting a 3rd
@@ -180,22 +181,24 @@ export function TerminalPanel({ sessionId }: { sessionId: string }): JSX.Element
   const isFocused = useHang4r((s) => s.focusedSessionId === sessionId)
   useEffect(() => {
     if (!isFocused) return
-    useHang4r.getState().setScopedClose(() => {
+    useHang4r.getState().setScopedClose('terminal', () => {
       if (terms.length > 1) {
         closeTerm(active)
         return true
       }
       return false
     })
-    return () => useHang4r.getState().setScopedClose(null)
+    return () => useHang4r.getState().setScopedClose('terminal', null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFocused, active, terms.length])
 
   // ⌘D new side pane · ⌘⇧D new bottom pane · ⌘[ / ⌘] move between panes/terminals
-  // (iTerm), all when this terminal panel is focused
+  // (iTerm) — only when DOM focus is actually in the terminal (focusPane), never
+  // while you're typing in the conversation with the Terminal panel merely open.
   useEffect(() => {
     if (!isFocused) return
     const onKey = (e: KeyboardEvent): void => {
+      if (focusPane() !== 'terminal') return
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault()
         splitWithNew(e.shiftKey ? 'bottom' : 'side')

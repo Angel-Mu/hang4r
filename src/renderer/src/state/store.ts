@@ -563,9 +563,13 @@ interface Hang4rState {
   /** bumped after any git mutation (stage/revert/commit) so views re-read status */
   gitNonce: number
   bumpGit(): void
-  /** the focused tile's active panel registers a "close top scope" fn for ⌘W */
-  scopedClose: (() => boolean) | null
-  setScopedClose(fn: (() => boolean) | null): void
+  /** each context pane registers a "close top scope" fn for ⌘W, KEYED by which
+   *  pane it is. closeFocusedScope (App) dispatches to the entry matching where
+   *  DOM focus actually is (focusPane) — not a single shared slot, whose
+   *  last-writer-wins let a persistently-mounted BrowserPane hijack the editor's
+   *  ⌘W and close a browser tab instead of the focused file. */
+  scopedClose: Partial<Record<'editor' | 'terminal' | 'browser', () => boolean>>
+  setScopedClose(pane: 'editor' | 'terminal' | 'browser', fn: (() => boolean) | null): void
   /** the Files panel registers a "new untitled file" fn for ⌘N (returns true if
    *  it handled the key, so App skips the global new-session dialog) */
   scopedNewFile: (() => boolean) | null
@@ -1420,9 +1424,14 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   bumpGit() {
     set({ gitNonce: get().gitNonce + 1 })
   },
-  scopedClose: null,
-  setScopedClose(fn) {
-    set({ scopedClose: fn })
+  scopedClose: {},
+  setScopedClose(pane, fn) {
+    set((s) => {
+      const next = { ...s.scopedClose }
+      if (fn) next[pane] = fn
+      else delete next[pane]
+      return { scopedClose: next }
+    })
   },
   scopedNewFile: null,
   setScopedNewFile(fn) {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { useHang4r, type BrowserTab } from '../state/store'
 import { FindBar } from './FindBar'
+import { focusPane } from '../focusScope'
 
 /** the subset of Electron's WebviewTag API we drive from the toolbar + report */
 interface WebviewEl extends HTMLElement {
@@ -251,6 +252,14 @@ export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
    * guest focus → main before-input-event; host focus → this window handler.
    */
   const handleBrowserKey = (e: KeyboardEvent): void => {
+    // Only act when DOM focus is genuinely inside the browser pane (its address
+    // bar, find bar, tabs, or the guest webview) — NOT merely because this tile
+    // is focused and has a browser tab. BrowserPane stays mounted (display:none)
+    // whenever the tile has any browser tab, so without this gate ⌘T/⌘L/⌘R/⌘[/⌘]
+    // fired while the Files/Terminal panel was showing or while focus sat on the
+    // conversation (clicking chat text drops focus to <body>). focusPane() can
+    // only be 'browser' when the browser is the visible, focused pane.
+    if (focusPane() !== 'browser') return
     const el = document.activeElement as HTMLElement | null
     const inOwnInput = el === urlInputRef.current || el === findInputRef.current
     // never hijack a key typed into some OTHER text field (e.g. the chat
@@ -563,7 +572,7 @@ export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
   }, [])
   useEffect(() => {
     if (!isFocused) return
-    useHang4r.getState().setScopedClose(() => {
+    useHang4r.getState().setScopedClose('browser', () => {
       const cur = useHang4r.getState().browserTabs[sessionId]
       if (!cur || !cur.tabs.length) return false
       const act = cur.tabs.find((t) => t.id === cur.activeId)
@@ -572,7 +581,7 @@ export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
       closeTab(cur.activeId)
       return true
     })
-    return () => useHang4r.getState().setScopedClose(null)
+    return () => useHang4r.getState().setScopedClose('browser', null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFocused, sessionId])
 

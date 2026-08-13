@@ -8,6 +8,7 @@ import { Icon } from './Icon'
 import { SearchPanel } from './SearchPanel'
 import { CodeEditor, type EditorHandle } from './CodeEditor'
 import { MediaViewer, mediaKind } from './MediaViewer'
+import { focusPane } from '../focusScope'
 
 /** one editor group in the viewer: its own tab list + active tab. `id` is a
  *  stable identity (NOT an array index) so React never remounts a group's
@@ -524,7 +525,7 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
   // ⌘W scoped close: close the focused leaf's active file
   useEffect(() => {
     if (!isFocused) return
-    useHang4r.getState().setScopedClose(() => {
+    useHang4r.getState().setScopedClose('editor', () => {
       const active = findGroup(layoutRef.current, focusedGroupIdRef.current)?.active
       if (active) {
         void closeFile(focusedGroupIdRef.current, active)
@@ -532,7 +533,7 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
       }
       return false
     })
-    return () => useHang4r.getState().setScopedClose(null)
+    return () => useHang4r.getState().setScopedClose('editor', null)
   }, [isFocused, closeFile])
 
   // ⌘N scoped new-file: while the Files panel is the focused tile's live panel,
@@ -546,11 +547,14 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     return () => useHang4r.getState().setScopedNewFile(null)
   }, [isFocused, newUntitledFile])
 
-  // ⌘\ splits the focused leaf to the right (only while this tile is focused)
+  // ⌘\ splits the focused leaf to the right — only when DOM focus is actually in
+  // the Files/editor pane (focusPane), never while you're typing in the
+  // conversation with the Files panel merely open in this tile.
   useEffect(() => {
     if (!isFocused) return
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        if (focusPane() !== 'editor') return
         e.preventDefault()
         doSplit('h')
       }

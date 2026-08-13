@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">hang4r</string>
+    <string name="title_activity_main">hang4r</string>
+    <string name="package_name">dev.hang4r.mobile</string>
+    <string name="custom_url_scheme">hang4r</string>
+</resources>

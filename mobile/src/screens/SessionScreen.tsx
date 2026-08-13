@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { Icon } from '@shared/icons'
 import { useApp } from '../state/store'
 import type { Block, Item } from '../state/transcript'
 import { Markdown } from '../components/Markdown'
+import { useSwipeBack } from '../hooks/useSwipeBack'
 import { DiffPanel } from './DiffPanel'
 
 function ToolChip({ block }: { block: Extract<Block, { type: 'tool' }> }): JSX.Element {
@@ -166,23 +168,61 @@ function TranscriptItem({ item, sessionId }: { item: Item; sessionId: string }):
   }
 }
 
+function TranscriptSkeleton(): JSX.Element {
+  return (
+    <div className="skeleton-stack" aria-label="Loading conversation">
+      <div className="skeleton skeleton-user" />
+      <div className="skeleton" style={{ width: '85%' }} />
+      <div className="skeleton" style={{ width: '70%' }} />
+      <div className="skeleton skeleton-user" style={{ width: '45%' }} />
+      <div className="skeleton" style={{ width: '78%' }} />
+      <div className="skeleton" style={{ width: '60%' }} />
+    </div>
+  )
+}
+
 export function SessionScreen(): JSX.Element {
   const id = useApp((s) => s.openSessionId)!
   const session = useApp((s) => s.sessions.find((x) => x.id === id))
   const transcript = useApp((s) => s.transcripts[id])
+  const loading = useApp((s) => s.transcriptLoading)
   const close = useApp((s) => s.closeSession)
   const sendPrompt = useApp((s) => s.sendPrompt)
   const interrupt = useApp((s) => s.interrupt)
   const conn = useApp((s) => s.conn)
   const [draft, setDraft] = useState('')
   const [view, setView] = useState<'chat' | 'diff'>('chat')
+  const [nearBottom, setNearBottom] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const rootRef = useSwipeBack<HTMLDivElement>(close)
   const itemCount = transcript?.items.length ?? 0
 
-  useEffect(() => {
+  const scrollToBottom = (smooth = false): void => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [itemCount, transcript])
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+  }
+
+  // follow the stream only while the user is at the bottom — jumping them
+  // mid-read on every delta is what the nearBottom check prevents
+  useEffect(() => {
+    if (nearBottom) scrollToBottom()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemCount, transcript, loading])
+
+  const onScroll = (): void => {
+    const el = scrollRef.current
+    if (!el) return
+    setNearBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120)
+  }
+
+  // Slack-style auto-grow: content height up to the CSS max-height cap
+  const autoGrow = (): void => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }
 
   const running = session?.status === 'running' || session?.status === 'starting'
 
@@ -190,19 +230,39 @@ export function SessionScreen(): JSX.Element {
     const text = draft.trim()
     if (!text) return
     setDraft('')
+    requestAnimationFrame(autoGrow)
     void sendPrompt(text)
   }
 
   return (
-    <div className="screen session-screen">
-      <header className="topbar">
-        <button className="btn btn-ghost" onClick={close}>
+    <div className="screen session-screen" ref={rootRef}>
+      <header className="topbar" onClick={() => scrollToBottom(false)}>
+        <button
+          className="btn btn-ghost back-btn"
+          onClick={(e) => {
+            e.stopPropagation()
+            close()
+          }}
+        >
           ‹ Back
         </button>
-        <span className="topbar-title topbar-session">{session?.title ?? '…'}</span>
+        <button
+          className="topbar-title topbar-session topbar-title-btn"
+          title="Scroll to top"
+          onClick={(e) => {
+            e.stopPropagation()
+            scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+        >
+          {session?.title ?? '…'}
+        </button>
         <button
           className={'btn btn-ghost view-toggle' + (view === 'diff' ? ' view-toggle-active' : '')}
-          onClick={() => setView(view === 'chat' ? 'diff' : 'chat')}
+          aria-label="Diff review"
+          onClick={(e) => {
+            e.stopPropagation()
+            setView(view === 'chat' ? 'diff' : 'chat')
+          }}
         >
           ±
         </button>
@@ -211,37 +271,63 @@ export function SessionScreen(): JSX.Element {
       {view === 'diff' ? (
         <DiffPanel sessionId={id} />
       ) : (
-        <div className="transcript" ref={scrollRef}>
-          {!transcript && <p className="empty-note">Loading conversation…</p>}
-          {transcript?.items.map((item, i) => (
-            <TranscriptItem key={i} item={item} sessionId={id} />
-          ))}
-          {running && <div className="working-note">agent is working…</div>}
+        <div className="transcript-wrap">
+          <div className="transcript" ref={scrollRef} onScroll={onScroll}>
+            {loading && itemCount === 0 && <TranscriptSkeleton />}
+            {!loading && itemCount === 0 && (
+              <p className="empty-note">
+                Nothing recorded in this conversation yet. If it was driven outside hang4r, its
+                history syncs in the next time the agent takes a turn.
+              </p>
+            )}
+            {transcript?.items.map((item, i) => (
+              <TranscriptItem key={i} item={item} sessionId={id} />
+            ))}
+            {running && <div className="working-note">agent is working…</div>}
+          </div>
+          {!nearBottom && (
+            <button
+              className="jump-bottom"
+              aria-label="Jump to latest"
+              onClick={() => scrollToBottom(true)}
+            >
+              <Icon name="arrow-down" size={17} />
+            </button>
+          )}
         </div>
       )}
       {view === 'chat' && (
-      <footer className="composer">
-        <textarea
-          className="composer-input"
-          placeholder={conn === 'online' ? 'Message the agent…' : 'desktop offline'}
-          disabled={conn !== 'online'}
-          value={draft}
-          rows={1}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()
-          }}
-        />
-        {running ? (
-          <button className="btn btn-danger" onClick={() => void interrupt()}>
-            Stop
-          </button>
-        ) : (
-          <button className="btn btn-primary" disabled={!draft.trim() || conn !== 'online'} onClick={send}>
-            Send
-          </button>
-        )}
-      </footer>
+        <footer className="composer">
+          <textarea
+            ref={inputRef}
+            className="composer-input"
+            placeholder={conn === 'online' ? 'Message the agent…' : 'desktop offline'}
+            disabled={conn !== 'online'}
+            value={draft}
+            rows={1}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              autoGrow()
+            }}
+            onFocus={() => setTimeout(() => scrollToBottom(false), 250)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()
+            }}
+          />
+          {running ? (
+            <button className="btn btn-danger" onClick={() => void interrupt()}>
+              Stop
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary"
+              disabled={!draft.trim() || conn !== 'online'}
+              onClick={send}
+            >
+              Send
+            </button>
+          )}
+        </footer>
       )}
     </div>
   )

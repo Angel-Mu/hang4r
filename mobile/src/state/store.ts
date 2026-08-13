@@ -16,6 +16,7 @@ interface AppState {
   sessions: SessionMeta[]
   openSessionId: string | null
   transcripts: Record<string, Transcript>
+  transcriptLoading: boolean
   /** sessions that hit permission/question/turn-complete while not open */
   attention: Record<string, boolean>
   error: string | null
@@ -92,6 +93,7 @@ export const useApp = create<AppState>((set, get) => ({
   sessions: [],
   openSessionId: null,
   transcripts: {},
+  transcriptLoading: false,
   attention: {},
   error: null,
 
@@ -157,20 +159,27 @@ export const useApp = create<AppState>((set, get) => ({
     if (prev && prev !== id) bridge().unsub(prev)
     set((s) => ({
       openSessionId: id,
+      transcriptLoading: true,
       attention: { ...s.attention, [id]: false },
       transcripts: { ...s.transcripts, [id]: emptyTranscript() }
     }))
     bridge().sub(id)
     try {
+      // resync first, exactly like the desktop's loadTranscriptData: sessions
+      // driven externally (or imported) have nothing in the store until their
+      // jsonl is pulled in — skipping this is what showed empty conversations
+      await bridge()
+        .call('resyncSession', id)
+        .catch(() => {})
       const events = await bridge().call<SessionEvent[]>('getSessionEvents', id)
       set((s) => {
         if (s.openSessionId !== id) return {}
         const t = emptyTranscript()
         for (const ev of events) applyEvent(t, ev)
-        return { transcripts: { ...s.transcripts, [id]: t } }
+        return { transcripts: { ...s.transcripts, [id]: t }, transcriptLoading: false }
       })
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) })
+      set({ error: err instanceof Error ? err.message : String(err), transcriptLoading: false })
     }
   },
 

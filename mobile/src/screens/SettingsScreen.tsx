@@ -1,8 +1,10 @@
 import { useEffect, useState, type JSX } from 'react'
 import { parsePairingUrl } from '@shared/bridge'
 import { bridge, useApp } from '../state/store'
+import { useSwipeBack } from '../hooks/useSwipeBack'
 
 export function SettingsScreen(): JSX.Element {
+  const rootRef = useSwipeBack<HTMLDivElement>(() => useApp.getState().setScreen('home'))
   const setScreen = useApp((s) => s.setScreen)
   const unpair = useApp((s) => s.unpair)
   const conn = useApp((s) => s.conn)
@@ -21,7 +23,7 @@ export function SettingsScreen(): JSX.Element {
   }, [conn])
 
   return (
-    <div className="screen">
+    <div className="screen" ref={rootRef}>
       <header className="topbar">
         <button className="btn btn-ghost" onClick={() => setScreen('home')}>
           ‹ Back

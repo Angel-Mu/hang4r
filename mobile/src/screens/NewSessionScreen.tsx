@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import type { ModelChoice } from '@shared/protocol'
 import { CLAUDE_MODELS, CURRENT_CLAUDE_VERSIONS } from '@shared/claudeModels'
 import { bridge, useApp } from '../state/store'
+import { useSwipeBack } from '../hooks/useSwipeBack'
 
 const BACKENDS = ['claude', 'codex', 'cursor'] as const
 type Backend = (typeof BACKENDS)[number]
@@ -19,6 +20,7 @@ const claudeChoices: ModelChoice[] = CLAUDE_MODELS.map((m) => ({
 }))
 
 export function NewSessionScreen(): JSX.Element {
+  const rootRef = useSwipeBack<HTMLDivElement>(() => useApp.getState().setScreen('home'))
   const projects = useApp((s) => s.projects)
   const setScreen = useApp((s) => s.setScreen)
   const startSession = useApp((s) => s.startSession)
@@ -84,7 +86,7 @@ export function NewSessionScreen(): JSX.Element {
   }
 
   return (
-    <div className="screen">
+    <div className="screen" ref={rootRef}>
       <header className="topbar">
         <button className="btn btn-ghost" onClick={() => setScreen('home')}>
           ‹ Back

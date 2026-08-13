@@ -38,6 +38,7 @@ export class BridgeClient {
   private reconnectTimer: number | null = null
   private pingTimer: number | null = null
   private stopped = true
+  private lastRxAt = 0
   state: ConnectionState = 'idle'
 
   constructor(
@@ -96,6 +97,24 @@ export class BridgeClient {
     }
   }
 
+  /** Resume probe: iOS thaws the webview with the socket sometimes dead but
+   *  still reporting OPEN. Ping; if nothing at all arrives within 3s, close —
+   *  onclose then drives the normal reconnect + replay path. */
+  checkAlive(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    const before = this.lastRxAt
+    void this.send({ t: 'ping' })
+    window.setTimeout(() => {
+      if (this.lastRxAt === before && this.ws) {
+        try {
+          this.ws.close()
+        } catch {
+          // close on an already-dead socket still fires onclose
+        }
+      }
+    }, 3000)
+  }
+
   sub(sessionId: string): void {
     this.subs.add(sessionId)
     void this.send({ t: 'sub', sessionId })
@@ -131,6 +150,7 @@ export class BridgeClient {
       this.pingTimer = window.setInterval(() => void this.send({ t: 'ping' }), PING_MS)
     }
     ws.onmessage = (e: MessageEvent): void => {
+      this.lastRxAt = Date.now()
       if (typeof e.data === 'string') {
         try {
           const ctl = JSON.parse(e.data) as { t?: string; connected?: boolean }

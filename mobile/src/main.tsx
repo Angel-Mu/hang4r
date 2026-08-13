@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { Capacitor } from '@capacitor/core'
 import { App as CapApp } from '@capacitor/app'
 import { App } from './App'
-import { useApp } from './state/store'
+import { useApp, tryBridge } from './state/store'
 import './styles.css'
 
 if (Capacitor.isNativePlatform()) {
@@ -29,22 +29,50 @@ if (Capacitor.isNativePlatform()) {
   })
 
   // push registration only once a computer is paired — an unpaired app has
-  // nothing to be notified about, so no cold-open permission prompt
+  // nothing to be notified about, so no cold-open permission prompt. Every
+  // failure lands in pushStatus (Settings shows it): the first field test
+  // failed with zero symptoms because errors were swallowed here.
   let pushArmed = false
   const armPush = (): void => {
     if (pushArmed || !useApp.getState().pairingUrl) return
     pushArmed = true
-    void import('@capacitor/push-notifications').then(async ({ PushNotifications }) => {
-      await PushNotifications.addListener('registration', ({ value }) => {
-        useApp.getState().setApnsToken(value)
-      })
-      const perm = await PushNotifications.requestPermissions()
-      if (perm.receive === 'granted') await PushNotifications.register()
-    })
+    void (async () => {
+      try {
+        const { PushNotifications } = await import('@capacitor/push-notifications')
+        await PushNotifications.addListener('registration', ({ value }) => {
+          useApp.getState().setApnsToken(value)
+        })
+        await PushNotifications.addListener('registrationError', (err) => {
+          useApp.getState().setPushStatus(`registration failed: ${JSON.stringify(err)}`)
+        })
+        const perm = await PushNotifications.requestPermissions()
+        useApp.getState().setPushStatus(`permission ${perm.receive}`)
+        if (perm.receive === 'granted') await PushNotifications.register()
+      } catch (err) {
+        pushArmed = false
+        useApp.getState().setPushStatus(`error: ${err instanceof Error ? err.message : err}`)
+      }
+    })()
   }
   armPush()
   useApp.subscribe((s, prev) => {
     if (s.pairingUrl && !prev.pairingUrl) armPush()
+  })
+
+  // resume: iOS froze the webview — the socket is dead and everything that
+  // streamed meanwhile is gone from the wire. Reconnect + replay immediately
+  // instead of waiting for the stale socket to time out.
+  void CapApp.addListener('appStateChange', ({ isActive }) => {
+    if (!isActive) return
+    armPush()
+    tryBridge()?.checkAlive()
+    const app = useApp.getState()
+    if (app.conn === 'online') {
+      void app.refresh()
+      void app.reloadOpenTranscript()
+    }
+    // dead-socket case: checkAlive closes the corpse, onclose reconnects, and
+    // the 'online' transition re-runs the same refresh + replay
   })
 }
 

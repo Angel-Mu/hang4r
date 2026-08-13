@@ -9,6 +9,7 @@ export function SettingsScreen(): JSX.Element {
   const unpair = useApp((s) => s.unpair)
   const conn = useApp((s) => s.conn)
   const pairingUrl = useApp((s) => s.pairingUrl)
+  const pushStatus = useApp((s) => s.pushStatus)
   const [desktopVersion, setDesktopVersion] = useState<string | null>(null)
   const [confirmUnpair, setConfirmUnpair] = useState(false)
 
@@ -50,6 +51,7 @@ export function SettingsScreen(): JSX.Element {
         <section className="usage-card">
           <h2 className="usage-title">This app</h2>
           <p className="usage-line usage-dim">hang4r mobile 0.1.0</p>
+          <p className="usage-line usage-dim">Push notifications: {pushStatus}</p>
         </section>
         {confirmUnpair ? (
           <section className="usage-card">

@@ -1,0 +1,15 @@
+name = "hang4r-relay"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+# SQLite-backed DO class: required for the free Workers plan.
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "RelayDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayDO"]
+
+[observability]
+enabled = true

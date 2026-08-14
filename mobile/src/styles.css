@@ -23,6 +23,7 @@ html,
 body,
 #root {
   height: 100%;
+  position: relative;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
@@ -697,7 +698,7 @@ body,
 
 /* ---- QR scan overlay ---- */
 .qr-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: #000;
   z-index: 50;
@@ -908,7 +909,10 @@ html.kb-open .screen {
 /* pushed panels slide over the (still-mounted) home screen like a native
    navigation stack; the drag handler writes transform inline mid-gesture */
 .push-screen {
-  position: fixed;
+  /* absolute, not fixed: the iOS keyboard shrinks the BODY (Capacitor
+     resize=body); a fixed panel keeps viewport height and its composer
+     ends up underneath the keyboard */
+  position: absolute;
   inset: 0;
   z-index: 20;
   background: var(--bg);
@@ -1043,7 +1047,7 @@ textarea {
 
 /* drawer */
 .drawer-scrim {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
   opacity: 0;
@@ -1056,7 +1060,7 @@ textarea {
   pointer-events: auto;
 }
 .drawer {
-  position: fixed;
+  position: absolute;
   top: 0;
   bottom: 0;
   left: 0;

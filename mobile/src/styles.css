@@ -1335,3 +1335,10 @@ html[data-theme='light'] .jump-bottom {
   display: flex;
   align-items: center;
 }
+
+/* ---- round 9: unseen bell (desktop parity) ---- */
+.session-bell {
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+}

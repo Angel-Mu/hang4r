@@ -75,6 +75,8 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   // turn while hang4r is in the background, raise a native notification and
   // a dock badge; clicking it focuses the session. Toggle in Settings.
   const finishedUnseen = new Set<string>()
+  // retained so a remote (phone) markSeen can dismiss the macOS banners too
+  const liveNotes = new Map<string, Notification[]>()
   const updateBadge = (): void => {
     if (process.platform === 'darwin' && app.dock)
       app.dock.setBadge(finishedUnseen.size ? String(finishedUnseen.size) : '')
@@ -135,6 +137,11 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
         win.webContents.send('focus-session', ev.sessionId)
       }
     })
+    note.on('close', () => {
+      const list = liveNotes.get(ev.sessionId)
+      if (list) liveNotes.set(ev.sessionId, list.filter((n) => n !== note))
+    })
+    liveNotes.set(ev.sessionId, [...(liveNotes.get(ev.sessionId) ?? []), note])
     note.show()
     // bounce the dock icon so a pending session keeps drawing your eye AFTER the
     // macOS notification banner auto-dismisses — otherwise it's easy to lose
@@ -306,12 +313,30 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       appVersion: () => app.getVersion(),
       agentAlive: (sessionId: string) => sessions.agentAlive(sessionId),
       currentBranch: (sessionId: string) => sessions.currentBranch(sessionId),
-      resyncSession: (sessionId: string) => sessions.resyncAndRecover(sessionId)
+      resyncSession: (sessionId: string) => sessions.resyncAndRecover(sessionId),
+      // the phone opened this session — clear every "come look" signal here:
+      // dock badge, sidebar bell, and the macOS notification banners
+      markSeen: (sessionId: string) => {
+        finishedUnseen.delete(sessionId)
+        updateBadge()
+        for (const n of liveNotes.get(sessionId) ?? []) {
+          try {
+            n.close()
+          } catch {
+            /* already gone */
+          }
+        }
+        liveNotes.delete(sessionId)
+        for (const win of BrowserWindow.getAllWindows()) {
+          win.webContents.send('session-seen', sessionId)
+        }
+      }
     },
     app.getVersion(),
     (s) => {
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send('bridge:status', s)
-    }
+    },
+    (sessionId) => store.getSession(sessionId)?.title ?? null
   )
   ipcMain.handle('bridge:status', () => bridgeService!.status())
   ipcMain.handle('bridge:set-enabled', (_e, on: boolean) => bridgeService!.setEnabled(on))

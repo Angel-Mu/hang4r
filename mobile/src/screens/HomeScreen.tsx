@@ -32,16 +32,24 @@ function dotClass(session: SessionMeta, pending: number, unseen: boolean): strin
   )
 }
 
-/** Trailing text only for states that need words; the dot carries the rest. */
+/** Trailing text/glyphs; the dot carries the base state. */
 function RowState({
   session,
-  pending
+  pending,
+  unseen
 }: {
   session: SessionMeta
   pending: number
+  unseen: boolean
 }): JSX.Element | null {
   if (pending > 0) return <span className="session-status needs-you">needs you</span>
   if (session.status === 'error') return <span className="session-status errored">error</span>
+  if (unseen && session.status === 'idle')
+    return (
+      <span className="session-bell" title="Finished — open to view">
+        <Icon name="bell" size={13} />
+      </span>
+    )
   return null
 }
 
@@ -216,7 +224,11 @@ export function HomeScreen(): JSX.Element {
                           <Icon name="pin" size={12} />
                         </span>
                       )}
-                      <RowState session={s} pending={pendingApprovals[s.id] ?? 0} />
+                      <RowState
+                        session={s}
+                        pending={pendingApprovals[s.id] ?? 0}
+                        unseen={!!attention[s.id] || s.updatedAt > (seenAt[s.id] ?? s.updatedAt)}
+                      />
                     </button>
                   ))}
                   {own.length > limit && !filterLower && (

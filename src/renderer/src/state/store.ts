@@ -1003,6 +1003,14 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     })
 
     // clicked a completion notification → bring that session front & center
+    window.hang4r.onSessionSeen((sessionId) => {
+      useHang4r.setState((s) => {
+        if (!s.finishedUnseen.has(sessionId)) return {}
+        const finishedUnseen = new Set(s.finishedUnseen)
+        finishedUnseen.delete(sessionId)
+        return { finishedUnseen }
+      })
+    })
     window.hang4r.onFocusSession((sessionId) => {
       void get().openSession(sessionId)
     })

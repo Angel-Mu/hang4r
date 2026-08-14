@@ -95,7 +95,7 @@ export class RelayDO extends DurableObject {
 
   /** The plaintext channel: content-free push signals + APNs token registration. */
   private async onControlFrame(role: Role, message: string): Promise<void> {
-    let frame: { t?: string; kind?: string; token?: string; sessionId?: string }
+    let frame: { t?: string; kind?: string; token?: string; sessionId?: string; title?: string }
     try {
       frame = JSON.parse(message)
     } catch {
@@ -107,16 +107,17 @@ export class RelayDO extends DurableObject {
     }
     if (role === 'desktop' && frame.t === 'notify' && typeof frame.kind === 'string') {
       const sessionId = typeof frame.sessionId === 'string' ? frame.sessionId.slice(0, 64) : undefined
+      const title = typeof frame.title === 'string' ? frame.title.slice(0, 80) : undefined
       // a phone counts as "watching" only when it PROVED liveness recently
       // (awake phones ping every 25s); a merely-open socket is not enough
       const seenAt = (await this.ctx.storage.get<number>('clientSeenAt')) ?? 0
       const clientLive = this.sockets('client').length > 0 && Date.now() - seenAt < 40_000
       if (clientLive) return
-      await this.pushNotify(frame.kind, sessionId)
+      await this.pushNotify(frame.kind, sessionId, title)
     }
   }
 
-  private async pushNotify(kind: string, sessionId?: string): Promise<void> {
+  private async pushNotify(kind: string, sessionId?: string, title?: string): Promise<void> {
     const env = this.env as RelayEnv
     if (!env.APNS_TEAM_ID || !env.APNS_KEY_ID || !env.APNS_P8 || !env.APNS_TOPIC) return
     const token = await this.ctx.storage.get<string>('apnsToken')
@@ -125,12 +126,13 @@ export class RelayDO extends DurableObject {
     if (Date.now() - last < 15_000) return // batch storms of turn-completes
     await this.ctx.storage.put('lastPushAt', Date.now())
 
+    const who = title ? `“${title}”` : 'An agent'
     const body =
       kind === 'needs-approval'
-        ? 'An agent is waiting for your approval'
+        ? `${who} is waiting for your approval`
         : kind === 'turn-error'
-          ? 'An agent turn failed'
-          : 'An agent finished — ready for review'
+          ? `${who} failed`
+          : `${who} finished — ready for review`
     const host =
       env.APNS_ENV === 'sandbox' ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com'
     try {

@@ -368,6 +368,10 @@ export const useApp = create<AppState>((set, get) => ({
       transcripts: cached ? s.transcripts : { ...s.transcripts, [id]: emptyTranscript() }
     }))
     get().markSeen(id)
+    // clear the desktop's bell/badge/banners too (older desktops: no-op)
+    void bridge()
+      .call('markSeen', id)
+      .catch(() => {})
     bridge().sub(id)
     try {
       // resync first, exactly like the desktop's loadTranscriptData: sessions
@@ -403,6 +407,10 @@ export const useApp = create<AppState>((set, get) => ({
     if (id) {
       bridge().unsub(id)
       get().markSeen(id)
+    // clear the desktop's bell/badge/banners too (older desktops: no-op)
+    void bridge()
+      .call('markSeen', id)
+      .catch(() => {})
     }
     set({ openSessionId: null })
   },

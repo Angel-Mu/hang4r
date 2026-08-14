@@ -72,8 +72,12 @@ export type RelayControlFrame =
   | {
       t: 'notify'
       kind: 'turn-complete' | 'needs-approval' | 'turn-error'
-      /** opaque UUID so a push tap can deep-open the session; never a title */
+      /** opaque UUID so a push tap can deep-open the session */
       sessionId?: string
+      /** session title for the push text — a DELIBERATE privacy tradeoff
+       *  (Angel's call): the relay can read this frame, so the title
+       *  transits unencrypted. Truncated; never message content. */
+      title?: string
     }
   | { t: 'apns'; token: string }
 
@@ -104,6 +108,7 @@ export const BRIDGE_METHODS = [
   'scopedFiles',
   'scopedDiff',
   'submitReview',
+  'markSeen',
   'claudeUsage',
   'codexUsage',
   'cursorUsage',

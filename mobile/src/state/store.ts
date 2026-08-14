@@ -6,6 +6,16 @@ import { applyEvent, emptyTranscript, type Transcript } from './transcript'
 const PAIRING_KEY = 'h4.pairing'
 const APNS_KEY = 'h4.apnsToken'
 const TEXT_KEY = 'h4.textScale'
+const THEME_KEY = 'h4.theme'
+const PUSH_KEY = 'h4.pushEnabled'
+
+export type ThemePref = 'system' | 'dark' | 'light'
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)')
+function applyTheme(pref: ThemePref): void {
+  const dark = pref === 'dark' || (pref === 'system' && systemDark.matches)
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+}
+systemDark.addEventListener('change', () => applyTheme(useApp.getState().theme))
 const HOME_CACHE_KEY = 'h4.homeCache'
 
 /** last successful projects+sessions snapshot — the home screen must show
@@ -46,6 +56,12 @@ interface AppState {
   pushStatus: string
   textScale: TextScale
   setTextScale(scale: TextScale): void
+  theme: ThemePref
+  setTheme(pref: ThemePref): void
+  pushEnabled: boolean
+  setPushEnabled(on: boolean): void
+  /** pull-to-refresh / manual refresh in flight */
+  refreshing: boolean
 
   pair(url: string): boolean
   unpair(): void
@@ -148,6 +164,26 @@ export const useApp = create<AppState>((set, get) => ({
   error: null,
   pushStatus: 'not requested',
   textScale: (localStorage.getItem(TEXT_KEY) as TextScale) || 'm',
+  theme: (localStorage.getItem(THEME_KEY) as ThemePref) || 'system',
+  pushEnabled: localStorage.getItem(PUSH_KEY) !== '0',
+  refreshing: false,
+
+  setTheme(pref: ThemePref): void {
+    localStorage.setItem(THEME_KEY, pref)
+    applyTheme(pref)
+    set({ theme: pref })
+  },
+
+  setPushEnabled(on: boolean): void {
+    localStorage.setItem(PUSH_KEY, on ? '1' : '0')
+    set({ pushEnabled: on, pushStatus: on ? get().pushStatus : 'disabled' })
+    if (!on) {
+      client?.setApnsToken('')
+    } else {
+      const saved = localStorage.getItem(APNS_KEY)
+      if (saved) client?.setApnsToken(saved)
+    }
+  },
 
   setTextScale(scale: TextScale): void {
     localStorage.setItem(TEXT_KEY, scale)
@@ -227,6 +263,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   async refresh(): Promise<void> {
+    set({ refreshing: true })
     try {
       const [projects, sessions] = await Promise.all([
         bridge().call<Project[]>('listProjects'),
@@ -238,7 +275,9 @@ export const useApp = create<AppState>((set, get) => ({
       } catch {
         // cache write is best-effort (quota)
       }
+      set({ refreshing: false })
     } catch (err) {
+      set({ refreshing: false })
       // a failed refresh while the desktop is unreachable is the EXPECTED
       // state, already communicated by the offline banner — an error line
       // ("listProjects timed out") on top of it is just noise
@@ -328,3 +367,4 @@ if (savedPairing) {
   if (!client) localStorage.removeItem(PAIRING_KEY)
 }
 applyTextScale(useApp.getState().textScale)
+applyTheme(useApp.getState().theme)

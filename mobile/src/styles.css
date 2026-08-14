@@ -993,3 +993,221 @@ html[data-textscale='l'] {
   color: var(--amber);
   font-weight: 600;
 }
+
+/* ---- UX round 5: drawer, PTR, selection, statuses, themes, split ---- */
+
+/* native feel: nothing selectable except conversation content */
+* {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.md,
+.md *,
+.msg-user,
+.msg-thinking,
+.tool-detail,
+.perm-detail,
+.perm-summary,
+.diff-view,
+.diff-view *,
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* brand title = desktop sidebar (accent wordmark + muted block) */
+.brand-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  padding: 6px 4px;
+  min-height: 44px;
+  color: var(--text-dim);
+}
+.brand-mark {
+  color: var(--text-dim);
+  font-size: 13px;
+  letter-spacing: -2px;
+}
+.brand-name {
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  font-size: 17px;
+  color: var(--accent);
+}
+
+/* drawer */
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+  z-index: 40;
+}
+.drawer-scrim-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(78vw, 300px);
+  background: var(--bg-raise);
+  border-right: 1px solid var(--border);
+  transform: translateX(-102%);
+  transition: transform 240ms cubic-bezier(0.32, 0.72, 0.28, 1);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  padding: calc(env(safe-area-inset-top) + 10px) 10px calc(env(safe-area-inset-bottom) + 10px);
+}
+.drawer-open {
+  transform: translateX(0);
+}
+.drawer-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px 18px;
+}
+.drawer-brand .brand-name {
+  font-size: 19px;
+}
+.drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 16px;
+  padding: 13px 12px;
+  border-radius: 10px;
+  text-align: left;
+  min-height: 48px;
+}
+.drawer-item:active {
+  background: var(--bg-card);
+}
+.drawer-item:disabled {
+  opacity: 0.4;
+}
+.drawer-item-icon {
+  width: 18px;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 700;
+}
+.drawer-item svg {
+  color: var(--text-dim);
+}
+.drawer-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* pull-to-refresh */
+.ptr {
+  height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transition: height 160ms ease;
+}
+.ptr-visible {
+  height: 44px;
+}
+.ptr-spinner {
+  color: var(--text-dim);
+  padding: 10px;
+  transition: transform 160ms ease, color 160ms ease;
+}
+.ptr-armed {
+  color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* row states: silence is idle */
+.session-status.working {
+  color: var(--amber);
+}
+.session-status.errored {
+  color: var(--red);
+}
+.session-bell {
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+}
+.session-status {
+  min-width: 0;
+}
+
+/* light theme — same tokens, resolved by html[data-theme] */
+html[data-theme='light'] {
+  --bg: #f4f4f8;
+  --bg-raise: #ffffff;
+  --bg-card: #ebebf2;
+  --border: #d9d9e3;
+  --text: #1b1b26;
+  --text-dim: #6b6b7a;
+  --accent: #6a5ae0;
+  --accent-soft: #e4e0fa;
+  --green: #1fa06a;
+  --amber: #b57d00;
+  --red: #d43f3f;
+  --user-bubble: #e4e0fa;
+}
+html[data-theme='light'] .bridge-qr {
+  background: #fff;
+}
+html[data-theme='light'] .jump-bottom {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+/* iPad / wide split view */
+.split {
+  display: flex;
+  height: 100%;
+}
+.split-master {
+  width: 380px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+.split-master .screen {
+  height: 100%;
+}
+.split-detail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.split-detail .screen {
+  height: 100%;
+}
+.split-placeholder {
+  margin: auto;
+}

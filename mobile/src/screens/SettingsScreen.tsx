@@ -11,6 +11,10 @@ export function SettingsScreen(): JSX.Element {
   const pushStatus = useApp((s) => s.pushStatus)
   const textScale = useApp((s) => s.textScale)
   const setTextScale = useApp((s) => s.setTextScale)
+  const theme = useApp((s) => s.theme)
+  const setTheme = useApp((s) => s.setTheme)
+  const pushEnabled = useApp((s) => s.pushEnabled)
+  const setPushEnabled = useApp((s) => s.setPushEnabled)
   const [desktopVersion, setDesktopVersion] = useState<string | null>(null)
   const [confirmUnpair, setConfirmUnpair] = useState(false)
 
@@ -50,6 +54,32 @@ export function SettingsScreen(): JSX.Element {
           )}
         </section>
         <section className="usage-card">
+          <h2 className="usage-title">Appearance</h2>
+          <div className="segment">
+            {(['system', 'dark', 'light'] as const).map((t) => (
+              <button
+                key={t}
+                className={'segment-item' + (theme === t ? ' segment-active' : '')}
+                onClick={() => setTheme(t)}
+              >
+                {t === 'system' ? 'System' : t === 'dark' ? 'Dark' : 'Light'}
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="usage-card">
+          <h2 className="usage-title">Notifications</h2>
+          <label className="push-toggle">
+            <input
+              type="checkbox"
+              checked={pushEnabled}
+              onChange={(e) => setPushEnabled(e.target.checked)}
+            />
+            Push when an agent finishes or needs approval
+          </label>
+          <p className="usage-line usage-dim">Status: {pushStatus}</p>
+        </section>
+        <section className="usage-card">
           <h2 className="usage-title">Text size</h2>
           <div className="segment">
             {(['s', 'm', 'l'] as const).map((t) => (
@@ -66,7 +96,6 @@ export function SettingsScreen(): JSX.Element {
         <section className="usage-card">
           <h2 className="usage-title">This app</h2>
           <p className="usage-line usage-dim">hang4r mobile 0.1.0</p>
-          <p className="usage-line usage-dim">Push notifications: {pushStatus}</p>
         </section>
         {confirmUnpair ? (
           <section className="usage-card">

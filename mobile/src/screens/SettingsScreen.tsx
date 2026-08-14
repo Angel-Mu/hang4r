@@ -1,15 +1,16 @@
 import { useEffect, useState, type JSX } from 'react'
 import { parsePairingUrl } from '@shared/bridge'
 import { bridge, useApp } from '../state/store'
-import { useSwipeBack } from '../hooks/useSwipeBack'
+import { useNav } from '../components/PushScreen'
 
 export function SettingsScreen(): JSX.Element {
-  const rootRef = useSwipeBack<HTMLDivElement>(() => useApp.getState().setScreen('home'))
-  const setScreen = useApp((s) => s.setScreen)
+  const nav = useNav()
   const unpair = useApp((s) => s.unpair)
   const conn = useApp((s) => s.conn)
   const pairingUrl = useApp((s) => s.pairingUrl)
   const pushStatus = useApp((s) => s.pushStatus)
+  const textScale = useApp((s) => s.textScale)
+  const setTextScale = useApp((s) => s.setTextScale)
   const [desktopVersion, setDesktopVersion] = useState<string | null>(null)
   const [confirmUnpair, setConfirmUnpair] = useState(false)
 
@@ -24,9 +25,9 @@ export function SettingsScreen(): JSX.Element {
   }, [conn])
 
   return (
-    <div className="screen" ref={rootRef}>
+    <div className="screen">
       <header className="topbar">
-        <button className="btn btn-ghost" onClick={() => setScreen('home')}>
+        <button className="btn btn-ghost" onClick={nav.back}>
           ‹ Back
         </button>
         <span className="topbar-title">Settings</span>
@@ -47,6 +48,20 @@ export function SettingsScreen(): JSX.Element {
               <p className="usage-line usage-dim">{pairing.relay.replace('wss://', '')}</p>
             </>
           )}
+        </section>
+        <section className="usage-card">
+          <h2 className="usage-title">Text size</h2>
+          <div className="segment">
+            {(['s', 'm', 'l'] as const).map((t) => (
+              <button
+                key={t}
+                className={'segment-item' + (textScale === t ? ' segment-active' : '')}
+                onClick={() => setTextScale(t)}
+              >
+                {t === 's' ? 'Small' : t === 'm' ? 'Default' : 'Large'}
+              </button>
+            ))}
+          </div>
         </section>
         <section className="usage-card">
           <h2 className="usage-title">This app</h2>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732">
+  <!-- boot splash: brand arch small and centered on the app background so the
+       transition into the dark UI is seamless. Regenerate PNGs with
+       scratchpad/render-splash.mjs + npx @capacitor/assets generate. -->
+  <rect width="2732" height="2732" fill="#0d0d14"/>
+  <g transform="translate(1366 1366) scale(0.55) translate(-512 -512)">
+    <path d="M 296 752 L 296 512 A 216 216 0 0 1 728 512 L 728 752"
+          fill="none" stroke="#7d7df0" stroke-width="74" stroke-linecap="round"/>
+    <path d="M 424 548 L 518 628 L 424 708" fill="none" stroke="#e8e8ff" stroke-width="56"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="566" y="660" width="64" height="48" rx="10" fill="#50fa7b"/>
+  </g>
+</svg>

@@ -7,7 +7,7 @@ import type {
 } from '@shared/protocol'
 import { Icon } from '@shared/icons'
 import { bridge, useApp } from '../state/store'
-import { useSwipeBack } from '../hooks/useSwipeBack'
+import { useNav } from '../components/PushScreen'
 
 function Windows({ windows }: { windows: UsageWindow[] }): JSX.Element {
   return (
@@ -33,8 +33,7 @@ function Windows({ windows }: { windows: UsageWindow[] }): JSX.Element {
 }
 
 export function UsageScreen(): JSX.Element {
-  const rootRef = useSwipeBack<HTMLDivElement>(() => useApp.getState().setScreen('home'))
-  const setScreen = useApp((s) => s.setScreen)
+  const nav = useNav()
   const [claude, setClaude] = useState<ClaudeUsageSnapshot | null>(null)
   const [codex, setCodex] = useState<CodexUsageSnapshot | null>(null)
   const [cursor, setCursor] = useState<CursorUsageSnapshot | null>(null)
@@ -57,9 +56,9 @@ export function UsageScreen(): JSX.Element {
   useEffect(load, [])
 
   return (
-    <div className="screen" ref={rootRef}>
+    <div className="screen">
       <header className="topbar">
-        <button className="btn btn-ghost" onClick={() => setScreen('home')}>
+        <button className="btn btn-ghost" onClick={nav.back}>
           ‹ Back
         </button>
         <span className="topbar-title">Usage</span>

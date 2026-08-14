@@ -5,6 +5,12 @@ import { applyEvent, emptyTranscript, type Transcript } from './transcript'
 
 const PAIRING_KEY = 'h4.pairing'
 const APNS_KEY = 'h4.apnsToken'
+const TEXT_KEY = 'h4.textScale'
+
+export type TextScale = 's' | 'm' | 'l'
+function applyTextScale(scale: TextScale): void {
+  document.documentElement.dataset.textscale = scale
+}
 
 export type Screen = 'home' | 'new' | 'usage' | 'settings'
 
@@ -22,6 +28,8 @@ interface AppState {
   error: string | null
   /** push registration outcome, surfaced in Settings so failures aren't silent */
   pushStatus: string
+  textScale: TextScale
+  setTextScale(scale: TextScale): void
 
   pair(url: string): boolean
   unpair(): void
@@ -109,6 +117,13 @@ export const useApp = create<AppState>((set, get) => ({
   attention: {},
   error: null,
   pushStatus: 'not requested',
+  textScale: (localStorage.getItem(TEXT_KEY) as TextScale) || 'm',
+
+  setTextScale(scale: TextScale): void {
+    localStorage.setItem(TEXT_KEY, scale)
+    applyTextScale(scale)
+    set({ textScale: scale })
+  },
 
   setScreen(screen: Screen): void {
     set({ screen })
@@ -194,11 +209,15 @@ export const useApp = create<AppState>((set, get) => ({
   async openSession(id: string): Promise<void> {
     const prev = get().openSessionId
     if (prev && prev !== id) bridge().unsub(prev)
+    // cached transcript shows instantly; the fetch below replaces it when it
+    // lands. Only a first-ever open gets the skeleton — reopening a slow
+    // conversation must never cost the full load twice.
+    const cached = get().transcripts[id]
     set((s) => ({
       openSessionId: id,
-      transcriptLoading: true,
+      transcriptLoading: !cached,
       attention: { ...s.attention, [id]: false },
-      transcripts: { ...s.transcripts, [id]: emptyTranscript() }
+      transcripts: cached ? s.transcripts : { ...s.transcripts, [id]: emptyTranscript() }
     }))
     bridge().sub(id)
     try {
@@ -256,3 +275,4 @@ if (savedPairing) {
   client = startClient(savedPairing)
   if (!client) localStorage.removeItem(PAIRING_KEY)
 }
+applyTextScale(useApp.getState().textScale)

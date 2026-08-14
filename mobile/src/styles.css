@@ -902,3 +902,70 @@ html.kb-open .screen {
   align-items: center;
   gap: 6px;
 }
+
+/* ---- UX round 3: stacked navigation, splash, text size ---- */
+
+/* pushed panels slide over the (still-mounted) home screen like a native
+   navigation stack; the drag handler writes transform inline mid-gesture */
+.push-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--bg);
+  animation: push-in 260ms cubic-bezier(0.32, 0.72, 0.28, 1);
+  transition: transform 220ms cubic-bezier(0.32, 0.72, 0.28, 1);
+  will-change: transform;
+  display: flex;
+  flex-direction: column;
+}
+.push-screen > .screen {
+  flex: 1;
+  min-height: 0;
+}
+.push-leave {
+  transform: translateX(100%);
+}
+@keyframes push-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .push-screen {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* invisible tap target covering the status-bar zone — restores iOS's native
+   tap-to-scroll-top, which WKWebView can't provide for DOM scrollers */
+.statusbar-tap {
+  position: absolute;
+  top: 0;
+  left: 60px;
+  right: 60px;
+  height: env(safe-area-inset-top);
+  background: none;
+  border: none;
+  z-index: 30;
+}
+
+/* text size (Settings): scales conversation + list text, not chrome */
+html[data-textscale='s'] {
+  font-size: 14px;
+}
+html[data-textscale='m'] {
+  font-size: 16px;
+}
+html[data-textscale='l'] {
+  font-size: 18px;
+}
+.msg,
+.msg-user,
+.md,
+.session-title {
+  font-size: 0.95rem;
+}

@@ -2,7 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import type { ModelChoice } from '@shared/protocol'
 import { CLAUDE_MODELS, CURRENT_CLAUDE_VERSIONS } from '@shared/claudeModels'
 import { bridge, useApp } from '../state/store'
-import { useSwipeBack } from '../hooks/useSwipeBack'
+import { useNav } from '../components/PushScreen'
 
 const BACKENDS = ['claude', 'codex', 'cursor'] as const
 type Backend = (typeof BACKENDS)[number]
@@ -20,9 +20,8 @@ const claudeChoices: ModelChoice[] = CLAUDE_MODELS.map((m) => ({
 }))
 
 export function NewSessionScreen(): JSX.Element {
-  const rootRef = useSwipeBack<HTMLDivElement>(() => useApp.getState().setScreen('home'))
+  const nav = useNav()
   const projects = useApp((s) => s.projects)
-  const setScreen = useApp((s) => s.setScreen)
   const startSession = useApp((s) => s.startSession)
 
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '')
@@ -86,9 +85,9 @@ export function NewSessionScreen(): JSX.Element {
   }
 
   return (
-    <div className="screen" ref={rootRef}>
+    <div className="screen">
       <header className="topbar">
-        <button className="btn btn-ghost" onClick={() => setScreen('home')}>
+        <button className="btn btn-ghost" onClick={nav.back}>
           ‹ Back
         </button>
         <span className="topbar-title">New agent</span>

@@ -57,6 +57,9 @@ export type BridgeDesktopFrame =
   | { t: 'res'; id: number; ok: false; error: string }
   | { t: 'event'; channel: 'agent-event'; payload: SessionEvent }
   | { t: 'event'; channel: 'session-updated'; payload: SessionMeta }
+  /** this session was seen SOMEWHERE (desktop or another phone) — clear its
+   *  unseen markers locally */
+  | { t: 'seen'; sessionId: string }
   | { t: 'ping' }
 
 /**

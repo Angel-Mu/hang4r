@@ -517,6 +517,8 @@ export interface Hang4rApi {
   onBridgeStatus(cb: (s: BridgeStatus) => void): () => void
   /** the phone opened this session — clear its bell/badge here too */
   onSessionSeen(cb: (sessionId: string) => void): () => void
+  /** renderer opened a session — clear its come-look signals everywhere */
+  notifySessionOpened(sessionId: string): Promise<void>
   pickProjectFolder(): Promise<string | null>
   createProject(path: string): Promise<Project>
   listProjects(): Promise<Project[]>

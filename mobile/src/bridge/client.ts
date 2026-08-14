@@ -13,6 +13,8 @@ export interface BridgeCallbacks {
   onState(state: ConnectionState): void
   onAgentEvent(ev: SessionEvent): void
   onSessionUpdated(session: SessionMeta): void
+  /** seen somewhere else (desktop or another phone) — clear local markers */
+  onSeen(sessionId: string): void
 }
 
 const PING_MS = 25_000
@@ -238,6 +240,9 @@ export class BridgeClient {
       case 'event':
         if (frame.channel === 'agent-event') this.cb.onAgentEvent(frame.payload)
         else this.cb.onSessionUpdated(frame.payload)
+        break
+      case 'seen':
+        this.cb.onSeen(frame.sessionId)
         break
       case 'hello':
         this.setState('online')

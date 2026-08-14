@@ -1196,6 +1196,8 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       if (finishedUnseen.has(sessionId)) {
         finishedUnseen = new Set(finishedUnseen)
         finishedUnseen.delete(sessionId)
+        // …and everywhere else: phones' bells + any held push for it
+        void window.hang4r.notifySessionOpened(sessionId)
       }
       return {
         transcripts: { ...s.transcripts, [sessionId]: loaded.transcript },

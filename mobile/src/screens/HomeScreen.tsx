@@ -21,26 +21,27 @@ function ConnDot(): JSX.Element {
   )
 }
 
-/** Only exceptional states speak; a healthy idle session is just its green dot. */
+/** Desktop dot semantics: idle = invisible, green pulse = WORKING, amber
+ *  pulse = awaiting your response, accent = finished unseen, red = error. */
+function dotClass(session: SessionMeta, pending: number, attention: boolean): string {
+  const unseenDone = attention && session.status === 'idle' && pending === 0
+  return (
+    `status-dot status-${session.status}` +
+    (pending > 0 ? ' status-awaiting' : '') +
+    (unseenDone ? ' status-unseen' : '')
+  )
+}
+
+/** Trailing text only for states that need words; the dot carries the rest. */
 function RowState({
   session,
-  pending,
-  attention
+  pending
 }: {
   session: SessionMeta
   pending: number
-  attention: boolean
 }): JSX.Element | null {
   if (pending > 0) return <span className="session-status needs-you">needs you</span>
-  if (session.status === 'running' || session.status === 'starting')
-    return <span className="session-status working">working</span>
   if (session.status === 'error') return <span className="session-status errored">error</span>
-  if (attention)
-    return (
-      <span className="session-bell" title="Finished while you were away">
-        <Icon name="bell" size={13} />
-      </span>
-    )
   return null
 }
 
@@ -168,16 +169,14 @@ export function HomeScreen(): JSX.Element {
                       className="session-row"
                       onClick={() => void openSession(s.id)}
                     >
-                      <span className={`status-dot status-${s.status}`} />
-                      <span className="session-title">{s.title}</span>
+                      <span
+                        className={dotClass(s, pendingApprovals[s.id] ?? 0, !!attention[s.id])}
+                      />
                       <span className={`backend-glyph backend-${s.backend}`} title={s.backend}>
                         <Icon name={s.backend} size={15} />
                       </span>
-                      <RowState
-                        session={s}
-                        pending={pendingApprovals[s.id] ?? 0}
-                        attention={!!attention[s.id]}
-                      />
+                      <span className="session-title">{s.title}</span>
+                      <RowState session={s} pending={pendingApprovals[s.id] ?? 0} />
                     </button>
                   ))}
                   {own.length > limit && !filterLower && (

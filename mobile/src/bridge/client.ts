@@ -75,6 +75,7 @@ export class BridgeClient {
     return new Promise<T>((resolve, reject) => {
       const timer = window.setTimeout(() => {
         this.waiters.delete(id)
+        this.checkAlive()
         reject(new Error(`${method} timed out`))
       }, 20_000)
       this.waiters.set(id, { resolve: resolve as (v: unknown) => void, reject, timer })

@@ -1262,3 +1262,69 @@ html[data-theme='light'] .jump-bottom {
 .split-restore {
   color: var(--accent);
 }
+
+/* ---- round 7: desktop-true status dots ---- */
+.status-dot {
+  background: transparent; /* idle: invisible, kept for alignment */
+}
+.status-idle {
+  background: transparent;
+  animation: none;
+}
+.status-running,
+.status-starting {
+  background: var(--green);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.status-error {
+  background: var(--red);
+  animation: none;
+}
+.status-dot.status-awaiting {
+  background: var(--amber);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.status-dot.status-unseen {
+  background: var(--accent);
+  animation: none;
+}
+
+/* ---- round 7: diff review comments ---- */
+.diff-line-tappable {
+  cursor: pointer;
+}
+.diff-line-tappable:active {
+  background: var(--accent-soft);
+}
+.diff-line-commented {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  margin-left: -3px;
+}
+.diff-comment-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.diff-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg-raise);
+}
+.diff-compose-line {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.review-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 8px 8px 8px 14px;
+  background: var(--bg-raise);
+}

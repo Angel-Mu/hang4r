@@ -69,7 +69,12 @@ export type BridgeDesktopFrame =
  */
 export type RelayControlFrame =
   | { t: 'peer'; connected: boolean }
-  | { t: 'notify'; kind: 'turn-complete' | 'needs-approval' | 'turn-error' }
+  | {
+      t: 'notify'
+      kind: 'turn-complete' | 'needs-approval' | 'turn-error'
+      /** opaque UUID so a push tap can deep-open the session; never a title */
+      sessionId?: string
+    }
   | { t: 'apns'; token: string }
 
 /**

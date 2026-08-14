@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { SessionMeta } from '@shared/protocol'
 import { Icon } from '@shared/icons'
 import { useApp } from '../state/store'
@@ -23,8 +23,8 @@ function ConnDot(): JSX.Element {
 
 /** Desktop dot semantics: idle = invisible, green pulse = WORKING, amber
  *  pulse = awaiting your response, accent = finished unseen, red = error. */
-function dotClass(session: SessionMeta, pending: number, attention: boolean): string {
-  const unseenDone = attention && session.status === 'idle' && pending === 0
+function dotClass(session: SessionMeta, pending: number, unseen: boolean): string {
+  const unseenDone = unseen && session.status === 'idle' && pending === 0
   return (
     `status-dot status-${session.status}` +
     (pending > 0 ? ' status-awaiting' : '') +
@@ -64,6 +64,22 @@ export function HomeScreen(): JSX.Element {
   const setScreen = useApp((s) => s.setScreen)
   const error = useApp((s) => s.error)
   const pendingApprovals = useApp((s) => s.pendingApprovals)
+  const pinned = useApp((s) => s.pinned)
+  const togglePin = useApp((s) => s.togglePin)
+  const seenAt = useApp((s) => s.seenAt)
+  // long-press pins; the synthetic click that follows must not open the row
+  const suppressClick = useRef(false)
+  const pressTimer = useRef<number | null>(null)
+  const startPress = (sessionId: string): void => {
+    pressTimer.current = window.setTimeout(() => {
+      suppressClick.current = true
+      togglePin(sessionId)
+    }, 500)
+  }
+  const endPress = (): void => {
+    if (pressTimer.current) clearTimeout(pressTimer.current)
+    pressTimer.current = null
+  }
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed)
   const [pageLimits, setPageLimits] = useState<Record<string, number>>({})
   const [filter, setFilter] = useState('')
@@ -146,7 +162,12 @@ export function HomeScreen(): JSX.Element {
         {orderedProjects.map((p) => {
           const own = live
             .filter((s) => s.projectId === p.id)
-            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .sort((a, b) => {
+              const pa = pinned.includes(a.id) ? 1 : 0
+              const pb = pinned.includes(b.id) ? 1 : 0
+              if (pa !== pb) return pb - pa
+              return b.updatedAt - a.updatedAt
+            })
           const isCollapsed = collapsed.has(p.id) && !filterLower
           const limit = pageLimits[p.id] ?? SESSIONS_PAGE
           const visible = filterLower ? own : own.slice(0, limit)
@@ -167,15 +188,34 @@ export function HomeScreen(): JSX.Element {
                     <button
                       key={s.id}
                       className="session-row"
-                      onClick={() => void openSession(s.id)}
+                      onClick={() => {
+                        if (suppressClick.current) {
+                          suppressClick.current = false
+                          return
+                        }
+                        void openSession(s.id)
+                      }}
+                      onTouchStart={() => startPress(s.id)}
+                      onTouchEnd={endPress}
+                      onTouchMove={endPress}
+                      onContextMenu={(e) => e.preventDefault()}
                     >
                       <span
-                        className={dotClass(s, pendingApprovals[s.id] ?? 0, !!attention[s.id])}
+                        className={dotClass(
+                          s,
+                          pendingApprovals[s.id] ?? 0,
+                          !!attention[s.id] || s.updatedAt > (seenAt[s.id] ?? s.updatedAt)
+                        )}
                       />
                       <span className={`backend-glyph backend-${s.backend}`} title={s.backend}>
                         <Icon name={s.backend} size={15} />
                       </span>
                       <span className="session-title">{s.title}</span>
+                      {pinned.includes(s.id) && (
+                        <span className="session-pin" title="Pinned — hold to unpin">
+                          <Icon name="pin" size={12} />
+                        </span>
+                      )}
                       <RowState session={s} pending={pendingApprovals[s.id] ?? 0} />
                     </button>
                   ))}

@@ -1328,3 +1328,10 @@ html[data-theme='light'] .jump-bottom {
   padding: 8px 8px 8px 14px;
   background: var(--bg-raise);
 }
+
+/* ---- round 8: pins ---- */
+.session-pin {
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+}

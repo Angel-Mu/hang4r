@@ -170,7 +170,7 @@ export class BridgeService {
           : null
     if (!mapped) return
     try {
-      this.ws.send(JSON.stringify({ t: 'notify', kind: mapped }))
+      this.ws.send(JSON.stringify({ t: 'notify', kind: mapped, sessionId: ev.sessionId }))
     } catch {
       // best-effort; a lost push signal is not worth a reconnect cycle
     }

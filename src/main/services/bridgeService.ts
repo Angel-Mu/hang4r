@@ -57,7 +57,8 @@ export class BridgeService {
     private settings: SettingsLike,
     private api: Record<string, (...args: never[]) => unknown>,
     private appVersion: string,
-    private onStatus: (s: BridgeStatus) => void
+    private onStatus: (s: BridgeStatus) => void,
+    private titleFor: (sessionId: string) => string | null = () => null
   ) {
     if (this.enabled) this.connect()
     this.syncKeepAwake()
@@ -170,7 +171,10 @@ export class BridgeService {
           : null
     if (!mapped) return
     try {
-      this.ws.send(JSON.stringify({ t: 'notify', kind: mapped, sessionId: ev.sessionId }))
+      const title = this.titleFor(ev.sessionId)?.slice(0, 60)
+      this.ws.send(
+        JSON.stringify({ t: 'notify', kind: mapped, sessionId: ev.sessionId, ...(title ? { title } : {}) })
+      )
     } catch {
       // best-effort; a lost push signal is not worth a reconnect cycle
     }

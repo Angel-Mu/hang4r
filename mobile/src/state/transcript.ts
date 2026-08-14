@@ -15,7 +15,7 @@ export type Block =
   | { type: 'tool'; call: ToolCall }
 
 export type Item =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; images?: { base64: string; mediaType: string }[] }
   | { kind: 'assistant'; messageId: string; blocks: Block[] }
   | { kind: 'note'; text: string; isError?: boolean }
   | {
@@ -40,6 +40,9 @@ export interface Transcript {
   items: Item[]
   lastSeq: number
   plan: { step: string; status: 'pending' | 'inProgress' | 'completed' }[]
+  /** latest context-window occupancy (from usage / turn-complete events) */
+  ctxTokens?: number
+  ctxWindow?: number
 }
 
 export function emptyTranscript(): Transcript {
@@ -69,7 +72,7 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
   const e = ev.event
   switch (e.kind) {
     case 'user-text':
-      t.items.push({ kind: 'user', text: e.text })
+      t.items.push({ kind: 'user', text: e.text, images: e.images })
       return true
     case 'external-turn':
       if (e.role === 'user') t.items.push({ kind: 'user', text: e.text })
@@ -165,6 +168,8 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
       }
       return false
     case 'turn-complete':
+      if (e.contextTokens) t.ctxTokens = e.contextTokens
+      if (e.contextWindowTokens) t.ctxWindow = e.contextWindowTokens
       t.items.push({
         kind: 'turn-end',
         isError: e.isError,
@@ -177,6 +182,10 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
       return true
     case 'plan':
       t.plan = e.entries
+      return true
+    case 'usage':
+      if (e.contextTokens) t.ctxTokens = e.contextTokens
+      if (e.contextWindowTokens) t.ctxWindow = e.contextWindowTokens
       return true
     default:
       return false

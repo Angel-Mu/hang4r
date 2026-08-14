@@ -80,6 +80,7 @@ export type RelayControlFrame =
       title?: string
     }
   | { t: 'apns'; token: string }
+  | { t: 'apns-remove'; token: string }
 
 /**
  * The Hang4rApi subset a phone may call. Deliberately excludes anything that

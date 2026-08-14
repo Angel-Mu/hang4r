@@ -102,7 +102,18 @@ export class RelayDO extends DurableObject {
       return
     }
     if (role === 'client' && frame.t === 'apns' && typeof frame.token === 'string') {
-      await this.ctx.storage.put('apnsToken', frame.token.slice(0, 200))
+      if (frame.token) {
+        const tokens = await this.apnsTokens()
+        if (!tokens.includes(frame.token)) {
+          tokens.push(frame.token.slice(0, 200))
+          await this.ctx.storage.put('apnsTokens', tokens.slice(-8))
+        }
+      }
+      return
+    }
+    if (role === 'client' && frame.t === 'apns-remove' && typeof frame.token === 'string') {
+      const tokens = (await this.apnsTokens()).filter((t) => t !== frame.token)
+      await this.ctx.storage.put('apnsTokens', tokens)
       return
     }
     if (role === 'desktop' && frame.t === 'notify' && typeof frame.kind === 'string') {
@@ -120,8 +131,8 @@ export class RelayDO extends DurableObject {
   private async pushNotify(kind: string, sessionId?: string, title?: string): Promise<void> {
     const env = this.env as RelayEnv
     if (!env.APNS_TEAM_ID || !env.APNS_KEY_ID || !env.APNS_P8 || !env.APNS_TOPIC) return
-    const token = await this.ctx.storage.get<string>('apnsToken')
-    if (!token) return
+    const tokens = await this.apnsTokens()
+    if (tokens.length === 0) return
     const last = (await this.ctx.storage.get<number>('lastPushAt')) ?? 0
     if (Date.now() - last < 15_000) return // batch storms of turn-completes
     await this.ctx.storage.put('lastPushAt', Date.now())
@@ -135,23 +146,50 @@ export class RelayDO extends DurableObject {
           : `${who} finished — ready for review`
     const host =
       env.APNS_ENV === 'sandbox' ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com'
-    try {
-      await fetch(`${host}/3/device/${token}`, {
-        method: 'POST',
-        headers: {
-          authorization: `bearer ${await this.apnsJwt(env)}`,
-          'apns-topic': env.APNS_TOPIC,
-          'apns-push-type': 'alert',
-          'apns-priority': '10'
-        },
-        body: JSON.stringify({
-          aps: { alert: { title: 'hang4r', body }, sound: 'default' },
-          ...(sessionId ? { sessionId } : {})
+    // every paired device gets the push (iPhone AND iPad); tokens APNs
+    // declares dead are pruned so the set stays clean
+    const jwt = await this.apnsJwt(env)
+    const dead: string[] = []
+    for (const token of tokens) {
+      try {
+        const res = await fetch(`${host}/3/device/${token}`, {
+          method: 'POST',
+          headers: {
+            authorization: `bearer ${jwt}`,
+            'apns-topic': env.APNS_TOPIC,
+            'apns-push-type': 'alert',
+            'apns-priority': '10'
+          },
+          body: JSON.stringify({
+            aps: { alert: { title: 'hang4r', body }, sound: 'default' },
+            ...(sessionId ? { sessionId } : {})
+          })
         })
-      })
-    } catch {
-      // push is best-effort; never let it disturb frame routing
+        if (res.status === 410 || res.status === 400) dead.push(token)
+      } catch {
+        // push is best-effort; never let it disturb frame routing
+      }
     }
+    if (dead.length) {
+      await this.ctx.storage.put(
+        'apnsTokens',
+        tokens.filter((t) => !dead.includes(t))
+      )
+    }
+  }
+
+  /** token set, folding in the legacy single-token slot once */
+  private async apnsTokens(): Promise<string[]> {
+    const tokens = (await this.ctx.storage.get<string[]>('apnsTokens')) ?? []
+    const legacy = await this.ctx.storage.get<string>('apnsToken')
+    if (legacy) {
+      await this.ctx.storage.delete('apnsToken')
+      if (!tokens.includes(legacy)) {
+        tokens.push(legacy)
+        await this.ctx.storage.put('apnsTokens', tokens)
+      }
+    }
+    return tokens
   }
 
   /** APNs provider JWTs are valid 20-60 min; mint at most once per 40 min. */

@@ -89,6 +89,16 @@ export class BridgeClient {
     this.sendApnsToken()
   }
 
+  removeApnsToken(token: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    try {
+      this.ws.send(JSON.stringify({ t: 'apns-remove', token }))
+    } catch {
+      // best-effort; APNs pruning cleans up eventually
+    }
+    if (this.apnsToken === token) this.apnsToken = null
+  }
+
   private sendApnsToken(): void {
     // empty string is a deliberate CLEAR (push disabled) — only null skips
     if (this.apnsToken === null || !this.ws || this.ws.readyState !== WebSocket.OPEN) return

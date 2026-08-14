@@ -1346,3 +1346,12 @@ html[data-theme='light'] .jump-bottom {
   display: flex;
   align-items: center;
 }
+
+/* ---- round 11: keyboard-focused split (iPad) ---- */
+/* typing deserves the full width: while the keyboard is up, the sessions
+   column tucks away (same transition as the manual hide) and returns on
+   dismiss — the cramped half-height split Angel flagged */
+html.kb-open .split-master {
+  width: 0;
+  border-right-color: transparent;
+}

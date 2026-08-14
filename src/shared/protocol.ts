@@ -420,7 +420,14 @@ export type AgentEvent =
       kind: 'turn-complete'
       isError: boolean
       result?: string
+      /** short, human-classified error label (e.g. "Claude API overloaded (529)")
+       *  — the CLI's opaque error_during_execution catch-all is classified before
+       *  it reaches the renderer; also drives the session's lastError badge */
       errorMessage?: string
+      /** the RAW failure detail behind errorMessage — the CLI result subtype plus
+       *  the captured stderr tail — shown in an expandable disclosure so the real
+       *  reason is recoverable, not hidden behind the opaque label */
+      errorDetail?: string
       costUsd?: number
       inputTokens?: number
       outputTokens?: number

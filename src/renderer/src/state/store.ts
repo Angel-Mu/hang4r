@@ -111,6 +111,9 @@ export type TranscriptItem =
       type: 'turn-info'
       isError: boolean
       errorMessage?: string
+      /** raw failure detail behind errorMessage (stderr tail + result), shown in
+       *  an expandable disclosure on the error row */
+      errorDetail?: string
       costUsd?: number
       durationMs?: number
     }
@@ -330,6 +333,7 @@ export function applyEvent(t: Transcript, ev: AgentEvent): void {
         type: 'turn-info',
         isError: ev.isError,
         errorMessage: ev.errorMessage,
+        errorDetail: ev.errorDetail,
         costUsd: ev.costUsd,
         durationMs: ev.durationMs
       })

@@ -716,6 +716,43 @@ button:disabled {
 .turn-info-error {
   color: var(--red);
 }
+/* expandable error row: the classified label is the summary, the raw stderr /
+   result detail sits in a collapsed <pre> (click to reveal) */
+.turn-info-error-expandable {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.turn-info-error-expandable > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.turn-info-error-expandable > summary::-webkit-details-marker {
+  display: none;
+}
+.turn-info-error-expandable > summary::before {
+  content: '▸ ';
+  color: var(--text-faint);
+}
+.turn-info-error-expandable[open] > summary::before {
+  content: '▾ ';
+}
+.turn-error-detail {
+  text-align: left;
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg-elevated, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.2));
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* Settings → About */
 .about-block { display: flex; flex-direction: column; gap: 6px; }

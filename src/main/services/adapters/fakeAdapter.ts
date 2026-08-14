@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentEvent, PromptImage, QuestionAnswer } from '../../../shared/protocol'
 import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
+import { enrichClaudeError } from './claudeAdapter'
 
 /**
  * Deterministic in-process agent for end-to-end tests. Enabled via the
@@ -53,8 +54,23 @@ export class FakeAdapter implements AgentAdapter {
     // Async (like the real turn-complete below) so it lands AFTER prompt()'s
     // caller sets status:'running' — a sync emit would be overwritten.
     if (text.includes('trigger error')) {
+      // mirror a real Claude failure: the opaque error_during_execution on the
+      // result, with the REAL reason on stderr — run it through the same
+      // enrichment the claude adapter uses so the classified label + expandable
+      // detail path is exercised end-to-end
+      const stderrTail =
+        'API Error: 529 {"type":"error","error":{"type":"overloaded_error",' +
+        '"message":"Overloaded"}}'
+      this.emit({ kind: 'stderr', text: stderrTail })
       setTimeout(() => {
-        this.emit({ kind: 'turn-complete', isError: true, errorMessage: 'error_during_execution' })
+        const errEv: Extract<AgentEvent, { kind: 'turn-complete' }> = {
+          kind: 'turn-complete',
+          isError: true,
+          result: 'error_during_execution',
+          errorMessage: 'error_during_execution'
+        }
+        enrichClaudeError(errEv, stderrTail)
+        this.emit(errEv)
       }, 20)
       return
     }

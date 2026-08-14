@@ -25,6 +25,9 @@ const BROWSER_CLI_NOTE =
   '`hang4r browser goto <url>` opens the browser pane by itself — you do NOT need the ' +
   'user to open it first.'
 
+/** how much trailing stderr to retain per turn for error surfacing (bytes) */
+const STDERR_TAIL_CAP = 4096
+
 /**
  * Wraps the user's locally installed, subscription-authenticated `claude` CLI.
  *
@@ -45,6 +48,14 @@ export class ClaudeAdapter implements AgentAdapter {
   private proc: ChildProcessWithoutNullStreams | null = null
   private listeners: Array<(ev: AgentEvent) => void> = []
   private stdoutBuf = ''
+  /**
+   * Rolling tail of the CLI's stderr for THIS turn (reset on each prompt). The
+   * CLI reports failures as an opaque `error_during_execution` on stdout but
+   * writes the real reason (429/529, API error, tool crash) to stderr — we keep
+   * the last few KB so an error turn-complete can surface it instead of the bare
+   * catch-all. Capped so a chatty run can't grow it unbounded.
+   */
+  private stderrTail = ''
   /** message id of the in-flight streamed assistant message (from message_start) */
   private currentMessageId: string | null = null
   private currentParent: string | null = null
@@ -177,7 +188,11 @@ export class ClaudeAdapter implements AgentAdapter {
     })
 
     proc.stderr.on('data', (chunk: Buffer) => {
-      this.emit({ kind: 'stderr', text: chunk.toString() })
+      const text = chunk.toString()
+      // keep a bounded rolling tail so an error turn-complete can surface the
+      // real reason the CLI wrote here (429/529, API error, tool crash)
+      this.stderrTail = (this.stderrTail + text).slice(-STDERR_TAIL_CAP)
+      this.emit({ kind: 'stderr', text })
     })
 
     proc.on('exit', (code) => {
@@ -215,6 +230,9 @@ export class ClaudeAdapter implements AgentAdapter {
     }
     content.push({ type: 'text', text })
     this.turnInFlight = true
+    // fresh turn → forget the previous turn's stderr so the tail we surface on an
+    // error reflects THIS turn only
+    this.stderrTail = ''
     this.proc?.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n')
   }
 
@@ -314,10 +332,19 @@ export class ClaudeAdapter implements AgentAdapter {
     }
     if (raw.type === 'control_response' || raw.type === 'keep_alive') return
     for (const ev of translateClaudeEvent(raw, this)) {
-      // relabel a turn we interrupted ourselves — see interrupt()
       if (ev.kind === 'turn-complete') {
         this.turnInFlight = false
-        if (this.interruptRequested && ev.isError) ev.errorMessage = 'interrupted'
+        if (ev.isError) {
+          if (this.interruptRequested) {
+            // a turn WE interrupted — keep the exact 'interrupted' sentinel that
+            // sessionManager keys on to treat this as a stop, not a failure
+            ev.errorMessage = 'interrupted'
+          } else {
+            // enrich the CLI's opaque error_during_execution: a short classified
+            // label + the raw stderr tail / result detail behind it
+            enrichClaudeError(ev, this.stderrTail)
+          }
+        }
         this.interruptRequested = false
       }
       this.emit(ev)
@@ -676,6 +703,47 @@ export function translateClaudeEvent(
   }
 
   return []
+}
+
+/**
+ * Classify the Claude CLI's opaque error into a short human label. The CLI
+ * reports almost every failure as a bare `error_during_execution`; the real
+ * cause lives in the result text and (mostly) the stderr tail. Best-effort
+ * substring matching over the combined text — order matters (most specific
+ * first). Exported for fixture testing.
+ */
+export function classifyClaudeError(text: string): string {
+  const t = text.toLowerCase()
+  if (/\binterrupt|\babort/.test(t)) return 'Interrupted mid-command (recovered on next turn)'
+  if (/overloaded|\b529\b/.test(t)) return 'Claude API overloaded (529)'
+  if (/rate.?limit|\b429\b|too many requests/.test(t)) return 'Rate limited'
+  if (/prompt is too long|context (?:length|window)|max(?:imum)? tokens|token.{0,12}limit/.test(t))
+    return 'Context length exceeded'
+  return 'The CLI errored'
+}
+
+/**
+ * Enrich an error turn-complete IN PLACE: replace the opaque errorMessage with a
+ * classified label and attach the raw detail (CLI result subtype + stderr tail)
+ * as `errorDetail` for the renderer's expandable disclosure. Purely additive —
+ * does not touch recovery/heal behaviour.
+ */
+export function enrichClaudeError(
+  ev: { errorMessage?: string; result?: string; errorDetail?: string },
+  stderrTail: string
+): void {
+  const subtype = (ev.errorMessage ?? '').trim() // e.g. 'error_during_execution'
+  const resultText = (ev.result ?? '').trim()
+  const tail = (stderrTail ?? '').trim()
+  // classify over everything we know about the failure
+  ev.errorMessage = classifyClaudeError(`${subtype}\n${resultText}\n${tail}`)
+  // build the raw detail: the CLI's own subtype/result line + the stderr tail
+  const parts: string[] = []
+  if (subtype) parts.push(subtype)
+  if (resultText && resultText !== subtype) parts.push(resultText)
+  if (tail) parts.push('stderr:\n' + tail)
+  const detail = parts.join('\n\n').trim()
+  ev.errorDetail = detail || undefined
 }
 
 /** One AskUserQuestion question as it arrives inside a can_use_tool input. */

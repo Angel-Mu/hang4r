@@ -470,6 +470,16 @@ function TranscriptItemView({
         </div>
       )
     }
+    // the raw reason (stderr tail / CLI result) hides in an expandable
+    // disclosure so the label stays compact but the real failure is one click away
+    if (item.errorDetail) {
+      return (
+        <details className="turn-info turn-info-error turn-info-error-expandable">
+          <summary>⚠ {item.errorMessage ?? 'turn failed'}</summary>
+          <pre className="turn-error-detail">{item.errorDetail}</pre>
+        </details>
+      )
+    }
     return <div className="turn-info turn-info-error">⚠ {item.errorMessage ?? 'turn failed'}</div>
   }
   if (item.type === 'subagent-note') return null // Subagents-thread fuel only

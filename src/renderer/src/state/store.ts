@@ -625,6 +625,8 @@ interface Hang4rState {
   sendReview(sessionId: string, comments: ReviewComment[]): Promise<void>
   interrupt(sessionId: string): Promise<void>
   archiveSession(sessionId: string): Promise<void>
+  /** permanent, unrecoverable delete (asks for confirmation first) */
+  deleteSession(sessionId: string): Promise<void>
   setDraft(sessionId: string, text: string): void
   appendToDraft(sessionId: string, text: string): void
   addAttachment(sessionId: string, att: Attachment): void
@@ -1652,6 +1654,22 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     await window.hang4r.archiveSession(sessionId)
     // its worktree is gone — drop the per-session UI memos (view state, tab
     // layout, dirty flags) held in component modules
+    forgetSessionUiState(sessionId)
+    set((s) => {
+      const { [sessionId]: _drop, ...messageQueue } = s.messageQueue
+      return {
+        sessions: s.sessions.filter((x) => x.id !== sessionId),
+        openSessionIds: s.openSessionIds.filter((id) => id !== sessionId),
+        messageQueue
+      }
+    })
+  },
+  async deleteSession(sessionId) {
+    const ok = await get().showConfirm(
+      'Delete this session permanently? Its conversation and worktree will be removed. This cannot be undone.'
+    )
+    if (!ok) return
+    await window.hang4r.deleteSession(sessionId)
     forgetSessionUiState(sessionId)
     set((s) => {
       const { [sessionId]: _drop, ...messageQueue } = s.messageQueue

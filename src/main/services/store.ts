@@ -271,6 +271,17 @@ export class Store {
     return row ? rowToSession(row) : undefined
   }
 
+  /** Permanently remove a session: transcript, the row, and every setting
+   *  namespaced to it (`sessionUi:<id>`, `sessionInitV1:<id>`, …). Worktree +
+   *  adapter teardown is the caller's job — this only owns the DB. */
+  deleteSession(id: string): void {
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM session_events WHERE session_id = ?').run(id)
+      this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+      this.db.prepare("DELETE FROM settings WHERE key LIKE ('%:' || ?)").run(id)
+    })()
+  }
+
   /* ---------- transcript events ---------- */
 
   appendEvent(sessionId: string, event: AgentEvent): SessionEvent {

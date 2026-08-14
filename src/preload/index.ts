@@ -48,6 +48,7 @@ const api: Hang4rApi = {
   releaseForExternal: (sessionId: string) =>
     ipcRenderer.invoke('sessions:release-external', sessionId),
   archiveSession: (sessionId: string) => ipcRenderer.invoke('sessions:archive', sessionId),
+  deleteSession: (sessionId: string) => ipcRenderer.invoke('sessions:delete', sessionId),
   dropWorktree: (sessionId: string) => ipcRenderer.invoke('sessions:drop-worktree', sessionId),
   recreateWorktree: (sessionId: string) =>
     ipcRenderer.invoke('sessions:recreate-worktree', sessionId),

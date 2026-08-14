@@ -534,6 +534,9 @@ export interface Hang4rApi {
    *  stop hang4r's own agent so it isn't a second writer on the same session */
   releaseForExternal(sessionId: string): Promise<void>
   archiveSession(sessionId: string): Promise<void>
+  /** permanently remove a session — transcript, row, namespaced settings, and
+   *  worktree. Unlike archive, nothing is recoverable. */
+  deleteSession(sessionId: string): Promise<void>
   /** worktree sessions: remove the worktree from disk but KEEP the session live
    *  and its conversation searchable; hang4r won't rebuild it on open. */
   dropWorktree(sessionId: string): Promise<SessionMeta | undefined>

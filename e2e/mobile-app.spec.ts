@@ -1,8 +1,14 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
+
+// Real-relay, real-mobile-build full-system test (not part of the fake-agent
+// regression gate). It needs the mobile app built (vite preview serves its dist)
+// and the deployed relay reachable — self-skip when the build is absent so the
+// desktop suite stays deterministic instead of failing on a missing precondition.
+const MOBILE_BUILT = existsSync(join(__dirname, '..', 'mobile', 'dist', 'index.html'))
 
 /**
  * Full-system test: the REAL mobile web app (built dist, served by vite
@@ -17,6 +23,7 @@ let browser: Browser
 let phone: Page
 
 test.beforeAll(async () => {
+  if (!MOBILE_BUILT) return
   preview = spawn('npx', ['vite', 'preview', '--port', String(PREVIEW_PORT), '--strictPort'], {
     cwd: join(__dirname, '..', 'mobile'),
     stdio: 'ignore'
@@ -43,6 +50,7 @@ test.afterAll(async () => {
 })
 
 test('phone app pairs, sees sessions, drives a conversation, approves', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built — run `cd mobile && npm run build` (real-relay full-system test)')
   test.setTimeout(180_000)
   launched = await launchApp()
   const desktop = launched.page

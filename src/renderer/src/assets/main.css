@@ -2164,6 +2164,14 @@ button:disabled {
   gap: 12px;
 }
 
+/* Browser-native virtualization: off-screen messages skip layout/paint, so a
+   huge transcript no longer pegs the renderer. `auto` intrinsic size remembers
+   each unit's real height once measured, keeping scroll position stable. */
+.chat-unit {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
+}
+
 .msg-user-card {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -3897,6 +3905,16 @@ button:disabled {
   border-radius: 5px;
   padding: 3px 10px;
   font-size: 11px;
+}
+.archived-delete {
+  color: var(--danger, #ff5c5c);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 11px;
+}
+.archived-delete:hover {
+  border-color: var(--danger, #ff5c5c);
 }
 
 /* sidebar toggle + resize */

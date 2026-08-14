@@ -1039,6 +1039,38 @@ export class SessionManager {
     }
   }
 
+  /** Permanent delete (vs archive, which keeps the conversation): same adapter +
+   *  environment teardown as archive, then drop the session from the DB entirely.
+   *  For a wedged session, archive isn't enough — the transcript (and whatever
+   *  wedged it) stays and can be restored. */
+  async deleteSession(sessionId: string): Promise<void> {
+    const session = this.store.getSession(sessionId)
+    this.adapters.get(sessionId)?.dispose()
+    this.adapters.delete(sessionId)
+    this.spawnedPermissionMode.delete(sessionId)
+    if (session?.environment === 'worktree') {
+      const project = this.store.getProject(session.projectId)
+      if (project) void GitService.removeWorktree(project.path, session.cwd)
+    }
+    if (session?.environment === 'ssh') {
+      const host = this.remoteHost(session.remoteHostId)?.host
+      if (host) {
+        const stillUsed = this.store
+          .listSessions()
+          .some(
+            (s) =>
+              s.id !== sessionId &&
+              s.environment === 'ssh' &&
+              s.status !== 'archived' &&
+              this.remoteHost(s.remoteHostId)?.host === host
+          )
+        if (!stillUsed) void closeMaster(host)
+      }
+      closeTunnels(sessionId)
+    }
+    this.store.deleteSession(sessionId)
+  }
+
   disposeAll(): void {
     for (const adapter of this.adapters.values()) adapter.dispose()
     this.adapters.clear()

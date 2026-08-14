@@ -1211,3 +1211,54 @@ html[data-theme='light'] .jump-bottom {
 .split-placeholder {
   margin: auto;
 }
+
+/* ---- round 6: iPad polish ---- */
+
+/* title left, status + primary action pinned right (phone and split) */
+.brand-btn {
+  margin-right: auto;
+}
+
+/* split: both topbars the same fixed height, contents centered */
+.split .topbar {
+  height: 58px;
+  padding-top: 0;
+  padding-bottom: 0;
+  align-items: center;
+}
+
+/* the pane-bottom seam: the safe-area inset lives INSIDE the composer/list,
+   so both columns run flush to the same bottom edge */
+.split .screen {
+  padding-bottom: 0;
+}
+.split .composer {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+.split .home-list {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+/* hideable sessions column */
+.split-master {
+  transition: width 240ms cubic-bezier(0.32, 0.72, 0.28, 1), border-color 240ms ease;
+  overflow: hidden;
+}
+.split-master-hidden {
+  width: 0;
+  border-right-color: transparent;
+}
+.panel-toggle-on {
+  color: var(--accent);
+}
+.split-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.split-restore {
+  color: var(--accent);
+}

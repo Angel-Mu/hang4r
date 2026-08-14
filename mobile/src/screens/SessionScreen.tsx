@@ -181,7 +181,14 @@ function TranscriptSkeleton(): JSX.Element {
   )
 }
 
-export function SessionScreen(): JSX.Element {
+export function SessionScreen({
+  onToggleSidebar,
+  sidebarHidden
+}: {
+  /** split view only: toggles the sessions column; replaces Back there */
+  onToggleSidebar?: () => void
+  sidebarHidden?: boolean
+} = {}): JSX.Element {
   const id = useApp((s) => s.openSessionId)!
   const session = useApp((s) => s.sessions.find((x) => x.id === id))
   const transcript = useApp((s) => s.transcripts[id])
@@ -243,15 +250,28 @@ export function SessionScreen(): JSX.Element {
           outside the header — this strip restores iOS's tap-to-top there */}
       <button className="statusbar-tap" aria-hidden="true" tabIndex={-1} onClick={scrollToTop} />
       <header className="topbar" onClick={scrollToTop}>
-        <button
-          className="btn btn-ghost back-btn"
-          onClick={(e) => {
-            e.stopPropagation()
-            nav.back()
-          }}
-        >
-          ‹ Back
-        </button>
+        {onToggleSidebar ? (
+          <button
+            className={'btn btn-ghost back-btn' + (sidebarHidden ? '' : ' panel-toggle-on')}
+            aria-label="Toggle sessions column"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleSidebar()
+            }}
+          >
+            <Icon name="panel-left" size={19} />
+          </button>
+        ) : (
+          <button
+            className="btn btn-ghost back-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              nav.back()
+            }}
+          >
+            ‹ Back
+          </button>
+        )}
         <button className="topbar-title topbar-session topbar-title-btn" onClick={scrollToTop}>
           {session?.title ?? '…'}
         </button>

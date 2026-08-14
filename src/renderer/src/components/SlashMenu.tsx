@@ -1,4 +1,4 @@
-import { useMemo, type JSX } from 'react'
+import { useEffect, useMemo, useRef, type JSX } from 'react'
 
 export interface SlashItem {
   kind: 'command' | 'skill' | 'mode'
@@ -44,6 +44,12 @@ export function SlashMenu({
   onHover: (i: number) => void
 }): JSX.Element | null {
   const results = useMemo(() => slashResults(items, query), [items, query])
+  // arrow-key nav only moves `active`; without this the highlighted item scrolls
+  // out of view in a long list (Angel) — keep it visible.
+  const activeRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [active])
   if (results.length === 0) return null
 
   // group headers by kind, preserving order
@@ -57,6 +63,7 @@ export function SlashMenu({
           <div key={it.kind + it.name}>
             {header && <div className="slash-cat">{header}</div>}
             <button
+              ref={i === active ? activeRef : undefined}
               className={'mention-item slash-item' + (i === active ? ' mention-item-active' : '')}
               onMouseEnter={() => onHover(i)}
               onMouseDown={(e) => {

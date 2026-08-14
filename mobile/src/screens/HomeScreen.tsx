@@ -2,18 +2,12 @@ import { useEffect, useState, type JSX } from 'react'
 import type { SessionMeta } from '@shared/protocol'
 import { Icon } from '@shared/icons'
 import { useApp } from '../state/store'
+import { Drawer } from '../components/Drawer'
+import { usePullToRefresh } from '../hooks/usePullToRefresh'
 
 /** Mirrors the desktop sidebar: 10 sessions per workspace, then "Show more". */
 const SESSIONS_PAGE = 10
 const COLLAPSED_KEY = 'h4.collapsedProjects'
-
-const STATUS_LABEL: Record<SessionMeta['status'], string> = {
-  starting: 'starting',
-  running: 'working',
-  idle: 'idle',
-  error: 'error',
-  archived: 'archived'
-}
 
 function ConnDot(): JSX.Element {
   const conn = useApp((s) => s.conn)
@@ -25,6 +19,29 @@ function ConnDot(): JSX.Element {
       {label}
     </span>
   )
+}
+
+/** Only exceptional states speak; a healthy idle session is just its green dot. */
+function RowState({
+  session,
+  pending,
+  attention
+}: {
+  session: SessionMeta
+  pending: number
+  attention: boolean
+}): JSX.Element | null {
+  if (pending > 0) return <span className="session-status needs-you">needs you</span>
+  if (session.status === 'running' || session.status === 'starting')
+    return <span className="session-status working">working</span>
+  if (session.status === 'error') return <span className="session-status errored">error</span>
+  if (attention)
+    return (
+      <span className="session-bell" title="Finished while you were away">
+        <Icon name="bell" size={13} />
+      </span>
+    )
+  return null
 }
 
 function loadCollapsed(): Set<string> {
@@ -41,6 +58,7 @@ export function HomeScreen(): JSX.Element {
   const sessions = useApp((s) => s.sessions)
   const attention = useApp((s) => s.attention)
   const refresh = useApp((s) => s.refresh)
+  const refreshing = useApp((s) => s.refreshing)
   const openSession = useApp((s) => s.openSession)
   const setScreen = useApp((s) => s.setScreen)
   const error = useApp((s) => s.error)
@@ -48,7 +66,9 @@ export function HomeScreen(): JSX.Element {
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed)
   const [pageLimits, setPageLimits] = useState<Record<string, number>>({})
   const [filter, setFilter] = useState('')
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const filterLower = filter.trim().toLowerCase()
+  const { ref: listRef, pull, active: ptrActive } = usePullToRefresh<HTMLDivElement>(refresh)
 
   useEffect(() => {
     if (conn === 'online') void refresh()
@@ -75,25 +95,17 @@ export function HomeScreen(): JSX.Element {
     .filter((p) => live.some((s) => s.projectId === p.id))
     .sort((a, b) => lastActivity(b.id) - lastActivity(a.id))
 
+  const spinning = refreshing || ptrActive
+
   return (
     <div className="screen home-screen">
       <header className="topbar">
-        <span className="topbar-title">hang4r</span>
+        <button className="brand-btn" onClick={() => setDrawerOpen(true)} aria-label="Menu">
+          <span className="brand-mark">▐</span>
+          <span className="brand-name">hang4r</span>
+          <Icon name="chevron-down" size={13} />
+        </button>
         <ConnDot />
-        <button
-          className="btn btn-ghost topbar-action"
-          aria-label="Usage"
-          onClick={() => setScreen('usage')}
-        >
-          <Icon name="gauge" size={19} />
-        </button>
-        <button
-          className="btn btn-ghost topbar-action"
-          aria-label="Settings"
-          onClick={() => setScreen('settings')}
-        >
-          <Icon name="settings" size={19} />
-        </button>
         <button
           className="btn btn-primary topbar-new"
           aria-label="New agent"
@@ -121,7 +133,15 @@ export function HomeScreen(): JSX.Element {
           autoCorrect="off"
         />
       </div>
-      <main className="home-list">
+      <div
+        className={'ptr' + (spinning || pull > 0 ? ' ptr-visible' : '')}
+        style={pull > 0 ? { height: pull } : undefined}
+      >
+        <span className={'ptr-spinner' + (spinning || pull >= 60 ? ' ptr-armed' : '')}>
+          <Icon name="refresh" size={17} />
+        </span>
+      </div>
+      <main className="home-list" ref={listRef}>
         {orderedProjects.map((p) => {
           const own = live
             .filter((s) => s.projectId === p.id)
@@ -130,19 +150,15 @@ export function HomeScreen(): JSX.Element {
           const limit = pageLimits[p.id] ?? SESSIONS_PAGE
           const visible = filterLower ? own : own.slice(0, limit)
           const needsYou = own.filter((s) => (pendingApprovals[s.id] ?? 0) > 0).length
-          const awaiting = own.filter((s) => attention[s.id]).length
           return (
             <section key={p.id} className="project-group">
               <button className="project-header" onClick={() => toggleCollapsed(p.id)}>
                 <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={14} />
                 <span className="project-name">{p.name}</span>
-                <span className="project-count">
-                  {isCollapsed && needsYou > 0 && (
-                    <b className="needs-you-count">{needsYou} need you · </b>
-                  )}
-                  {own.length}
-                  {isCollapsed && awaiting > 0 && <i className="attention-dot"> ●</i>}
-                </span>
+                {isCollapsed && needsYou > 0 && (
+                  <span className="needs-you-count">{needsYou} need you</span>
+                )}
+                <span className="project-count">{own.length}</span>
               </button>
               {!isCollapsed && (
                 <>
@@ -154,18 +170,17 @@ export function HomeScreen(): JSX.Element {
                     >
                       <span className={`status-dot status-${s.status}`} />
                       <span className="session-title">{s.title}</span>
-                      {attention[s.id] && <span className="attention-dot">●</span>}
                       <span className={`backend-glyph backend-${s.backend}`} title={s.backend}>
                         <Icon name={s.backend} size={15} />
                       </span>
-                      {(pendingApprovals[s.id] ?? 0) > 0 ? (
-                        <span className="session-status needs-you">needs you</span>
-                      ) : (
-                        <span className="session-status">{STATUS_LABEL[s.status]}</span>
-                      )}
+                      <RowState
+                        session={s}
+                        pending={pendingApprovals[s.id] ?? 0}
+                        attention={!!attention[s.id]}
+                      />
                     </button>
                   ))}
-                  {own.length > limit && (
+                  {own.length > limit && !filterLower && (
                     <button
                       className="show-more"
                       onClick={() =>
@@ -182,15 +197,13 @@ export function HomeScreen(): JSX.Element {
         })}
         {conn === 'online' && live.length === 0 && (
           <p className="empty-note">
-            No live sessions. Start one here with ＋ or on your computer — it shows up instantly.
+            {filterLower
+              ? 'No sessions match your search.'
+              : 'No live sessions. Start one with ＋ or on your computer — it shows up instantly.'}
           </p>
         )}
       </main>
-      <footer className="home-footer">
-        <button className="btn btn-ghost home-refresh" onClick={() => void refresh()}>
-          <Icon name="refresh" size={15} /> Refresh
-        </button>
-      </footer>
+      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </div>
   )
 }

@@ -144,8 +144,9 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
     .poll(async () => (await desktop.evaluate(() => window.hang4r.listSessions())).length)
     .toBe(2)
 
-  // settings screen shows the paired computer online
+  // settings screen shows the paired computer online (via the drawer now)
   await phone.click('.push-screen .back-btn') // back home (panel slides out)
-  await phone.click('[aria-label="Settings"]')
+  await phone.click('.brand-btn')
+  await phone.click('.drawer [aria-label="Settings"]')
   await expect(phone.locator('.usage-card').first()).toContainText('online', { timeout: 15_000 })
 })

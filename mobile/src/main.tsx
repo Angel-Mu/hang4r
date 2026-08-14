@@ -7,6 +7,19 @@ import { useApp, tryBridge } from './state/store'
 import './styles.css'
 
 if (Capacitor.isNativePlatform()) {
+  // native status bar text follows the resolved theme
+  void import('@capacitor/status-bar').then(({ StatusBar, Style }) => {
+    const sync = (): void => {
+      const dark = document.documentElement.dataset.theme !== 'light'
+      void StatusBar.setStyle({ style: dark ? Style.Dark : Style.Light })
+    }
+    sync()
+    new MutationObserver(sync).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    })
+  })
+
   // Keyboard.resize='body' shrinks the webview, but the layout still pads for
   // the (now hidden) home-indicator safe area — that stack-up is the visible
   // gap between the composer and the keyboard. Drop the inset while open.
@@ -34,7 +47,7 @@ if (Capacitor.isNativePlatform()) {
   // failed with zero symptoms because errors were swallowed here.
   let pushArmed = false
   const armPush = (): void => {
-    if (pushArmed || !useApp.getState().pairingUrl) return
+    if (pushArmed || !useApp.getState().pairingUrl || !useApp.getState().pushEnabled) return
     pushArmed = true
     void (async () => {
       try {

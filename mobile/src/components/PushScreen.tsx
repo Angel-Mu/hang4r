@@ -19,6 +19,17 @@ export function useNav(): Nav {
   return useContext(NavContext)
 }
 
+/** Nav for screens rendered inline (iPad split view) instead of pushed. */
+export function NavProvider({
+  back,
+  children
+}: {
+  back: () => void
+  children: ReactNode
+}): JSX.Element {
+  return <NavContext.Provider value={{ back }}>{children}</NavContext.Provider>
+}
+
 const EXIT_MS = 220
 
 /**

@@ -48,6 +48,18 @@ Electron three-process split, with `src/shared/protocol.ts` as the single source
 
 Use the helpers in `e2e/helpers.ts`: `launchApp()` (fresh userData dir, fake agent, quiet mode), `makeScratchRepo()` (throwaway git repo with committed files), and `createProject(page, path)` via the IPC bridge. Real DnD needs the `dragTo` helper (Playwright's `dragTo` doesn't populate `dataTransfer`).
 
+## Mobile app + bridge
+
+`mobile/` (Capacitor iOS/Android companion app) and `relay/` (Cloudflare Worker + Durable Object, deployed with `cd relay && npx wrangler deploy`) live in this monorepo and share `src/shared/` (protocol, bridge frames, icons, claudeModels). The desktop side is `src/main/services/bridgeService.ts`. Design doc: `docs/mobile/design.md`.
+
+- **Worktrees: always via Worktrunk (`wt switch --create <branch>`)**, which puts them in `.worktrees/` (already excluded from packaging). Never `git worktree add` into sibling directories.
+- Mobile web build: `cd mobile && npm run build && npx cap sync`. Anything Xcode needs `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` (xcode-select points at CommandLineTools).
+- TestFlight: bump `CURRENT_PROJECT_VERSION` in `mobile/ios/App/App.xcodeproj` first (Apple rejects duplicate build numbers), then `xcodebuild archive` + `-exportArchive` with `destination=upload` (manual signing: "Apple Distribution" + profile "hang4r mobile App Store", auth via the App Store Connect API key from `.env.release`).
+- Android: sideload-only debug APK via `cd mobile/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew assembleDebug`. No push on Android (pipeline is APNs; FCM not built).
+- **APK distribution: the `mobile-v*` release in `Angel-Mu/hang4r-releases` must stay `--prerelease`** — that repo is the desktop auto-update feed, and a plain release on top of it breaks the updater.
+- Generated assets (`@capacitor/assets`): verify by **pixels, not filenames** — the tool can die mid-run leaving Capacitor's stock splash/icons under the exact same names.
+- Never cut a desktop release without Angel's explicit go.
+
 ## Repo notes
 
 - `landing/` is a separate Vite + GSAP coming-soon site, independent of the Electron app.

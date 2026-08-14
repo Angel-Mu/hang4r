@@ -407,14 +407,25 @@ export class SessionManager {
     // just --resumed the poison and re-errored. When idle (never a live turn), we
     // drop the stale adapter so it respawns recovering.
     const idle = session.status !== 'running' && session.status !== 'starting'
-    const needsRecovery =
-      session.status === 'error' ||
-      (!!session.backendSessionId && ClaudeImport.tailIsPoisoned(session.backendSessionId))
+    // HEAL BEFORE RESUME: a poisoned tail (a dangling tool_use) makes a plain
+    // --resume fail. PREFER repairing the jsonl in place — append the missing
+    // tool_result so the file is valid again — over fork-truncating past the
+    // poison: the fork LOSES the aborted turn, the heal KEEPS it. Only fall back
+    // to the fork-past anchor when the heal can't fix the file.
+    const poisoned =
+      session.backend === 'claude' &&
+      !!session.backendSessionId &&
+      ClaudeImport.tailIsPoisoned(session.backendSessionId)
+    const healed = poisoned && ClaudeImport.healPoison(session.backendSessionId!)
+    const needsRecovery = !healed && (session.status === 'error' || poisoned)
     const recoverAt = needsRecovery ? this.recoveryAnchor(session) : null
 
     let adapter = this.adapters.get(sessionId)
-    if (adapter && recoverAt && idle) {
-      // a live adapter would --resume the poison — drop it and respawn recovering
+    // Drop a live/idle adapter when we're going to fork-recover OR we just healed
+    // the jsonl: a live -p process holds the OLD conversation in memory and never
+    // re-reads the file, so it would --resume from the stale (poisoned) history.
+    // Respawning makes --resume re-read the repaired transcript.
+    if (adapter && (recoverAt || healed) && idle) {
       adapter.dispose()
       this.adapters.delete(sessionId)
       adapter = undefined

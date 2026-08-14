@@ -6,8 +6,10 @@ import {
   readFileSync,
   readSync,
   realpathSync,
-  statSync
+  statSync,
+  writeFileSync
 } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -260,6 +262,125 @@ export function parsePoisonAnchor(raw: string): string | null {
   return cur.parentUuid ?? null // resume-at the message BEFORE the poisoned turn
 }
 
+/**
+ * Repair a POISONED transcript so `claude --resume` accepts it again. A poisoned
+ * jsonl ends a turn with an assistant `tool_use` block that never got a matching
+ * `tool_result` (the tool was killed mid-flight — our own SIGKILL on dispose/quit,
+ * or an OS OOM/crash). Claude refuses to --resume such a file and every retry
+ * re-errors with error_during_execution.
+ *
+ * For each dangling tool_use we append ONE synthetic `type:"user"` line carrying a
+ * single `tool_result` block for that id (is_error, a short "interrupted" note),
+ * with a fresh uuid and parentUuid = the uuid of the line that carried the dangling
+ * tool_use — so the CLI's turn tree stays intact and the API messages become valid.
+ * Unlike fork-truncating past the poison, this KEEPS the aborted turn.
+ *
+ * The line shape mirrors what the CLI itself writes for an aborted tool_result
+ * (verified against real ~/.claude transcripts, Claude Code v2.1.x): the metadata
+ * fields (cwd, sessionId, version, gitBranch, userType, entrypoint, isSidechain)
+ * are copied from the carrying line so the appended line matches its neighbours.
+ *
+ * Pure: takes the raw jsonl, returns the healed jsonl (original bytes untouched,
+ * heal lines appended) or null when there was nothing to heal. Exported for tests.
+ */
+export function healPoisonedTranscript(raw: string): string | null {
+  interface Entry {
+    uuid?: string
+    parentUuid?: string | null
+    type?: string
+    sessionId?: string
+    cwd?: string
+    version?: string
+    gitBranch?: string
+    userType?: string
+    entrypoint?: string
+    isSidechain?: boolean
+    content?: unknown
+  }
+  const entries: Entry[] = []
+  const matched = new Set<string>() // tool_use ids that already have a tool_result
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    let ev: Record<string, unknown>
+    try {
+      ev = JSON.parse(line) as Record<string, unknown>
+    } catch {
+      continue
+    }
+    const content = (ev.message as { content?: unknown } | undefined)?.content
+    entries.push({
+      uuid: ev.uuid as string | undefined,
+      parentUuid: (ev.parentUuid as string | null | undefined) ?? null,
+      type: ev.type as string | undefined,
+      sessionId: ev.sessionId as string | undefined,
+      cwd: ev.cwd as string | undefined,
+      version: ev.version as string | undefined,
+      gitBranch: ev.gitBranch as string | undefined,
+      userType: ev.userType as string | undefined,
+      entrypoint: ev.entrypoint as string | undefined,
+      isSidechain: ev.isSidechain as boolean | undefined,
+      content
+    })
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (!block || typeof block !== 'object') continue
+        const b = block as { type?: string; tool_use_id?: string }
+        if (b.type === 'tool_result' && b.tool_use_id) matched.add(b.tool_use_id)
+      }
+    }
+  }
+  // newest-wins fallbacks for metadata a carrying line might lack
+  const pick = (k: keyof Entry): string | undefined => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const v = entries[i][k]
+      if (typeof v === 'string') return v
+    }
+    return undefined
+  }
+  const fSession = pick('sessionId')
+  const fCwd = pick('cwd')
+  const fVersion = pick('version')
+  const fBranch = pick('gitBranch')
+  const fUserType = pick('userType') ?? 'external'
+  const fEntrypoint = pick('entrypoint') ?? 'sdk-cli'
+
+  const NOTE = '[Tool interrupted — the session was restarted before it finished]'
+  const appended: string[] = []
+  for (const e of entries) {
+    if (!e.uuid || !Array.isArray(e.content)) continue
+    for (const block of e.content) {
+      if (!block || typeof block !== 'object') continue
+      const b = block as { type?: string; id?: string }
+      if (b.type !== 'tool_use' || typeof b.id !== 'string' || matched.has(b.id)) continue
+      const heal: Record<string, unknown> = {
+        parentUuid: e.uuid,
+        isSidechain: e.isSidechain ?? false,
+        userType: e.userType ?? fUserType,
+        cwd: e.cwd ?? fCwd,
+        sessionId: e.sessionId ?? fSession,
+        version: e.version ?? fVersion,
+        gitBranch: e.gitBranch ?? fBranch,
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: b.id, content: NOTE, is_error: true }]
+        },
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+        sourceToolAssistantUUID: e.uuid,
+        toolUseResult: NOTE,
+        entrypoint: e.entrypoint ?? fEntrypoint,
+        interruptedByShutdown: true
+      }
+      appended.push(JSON.stringify(heal))
+      matched.add(b.id) // never synthesize two results for the same id
+    }
+  }
+  if (!appended.length) return null
+  const base = raw.endsWith('\n') || raw === '' ? raw : raw + '\n'
+  return base + appended.join('\n') + '\n'
+}
+
 export const ClaudeImport = {
   available(): boolean {
     return existsSync(ROOT)
@@ -468,6 +589,33 @@ export const ClaudeImport = {
     } catch {
       return false
     }
+  },
+
+  /**
+   * Repair a poisoned tail IN PLACE: append the missing tool_result(s) so
+   * `claude --resume` accepts the file again, KEEPING the aborted turn (unlike
+   * poisonRewindAnchor, which fork-truncates it away). Returns true if it healed
+   * anything. Preferred over the fork anchor; the fork stays as a fallback when
+   * this can't fix the file (e.g. can't locate it / write fails). Claude-only —
+   * ssh transcripts aren't local, so sessionFile misses them and this no-ops.
+   */
+  healPoison(id: string): boolean {
+    const path = this.sessionFile(id)
+    if (!path) return false
+    let raw: string
+    try {
+      raw = readFileSync(path, 'utf8')
+    } catch {
+      return false
+    }
+    const healed = healPoisonedTranscript(raw)
+    if (healed === null) return false
+    try {
+      writeFileSync(path, healed)
+    } catch {
+      return false
+    }
+    return true
   },
 
   /** parentUuid to fork-truncate the poisoned turn out of this session's jsonl

@@ -57,6 +57,13 @@ export class ClaudeAdapter implements AgentAdapter {
    */
   private finalizedBlocks = new Map<string, number>()
   private disposed = false
+  /**
+   * True while a user turn is being processed by the CLI (set when we write a
+   * prompt, cleared on turn-complete). dispose() uses it to decide whether to
+   * send a graceful interrupt first: killing mid-turn strands a tool_use with no
+   * tool_result — a "poisoned" transcript the CLI later refuses to --resume.
+   */
+  private turnInFlight = false
   // spawn/retry state (Claude's binary symlink dangles briefly during auto-update)
   private spawnBinary: string | null = null
   private spawnArgs: string[] | null = null
@@ -207,6 +214,7 @@ export class ClaudeAdapter implements AgentAdapter {
       })
     }
     content.push({ type: 'text', text })
+    this.turnInFlight = true
     this.proc?.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n')
   }
 
@@ -250,15 +258,45 @@ export class ClaudeAdapter implements AgentAdapter {
 
   dispose(): void {
     this.disposed = true
-    if (this.proc) {
-      this.proc.stdin.end()
-      const p = this.proc
+    const p = this.proc
+    if (!p) return
+    this.proc = null
+    // The existing kill: close stdin, SIGTERM, then SIGKILL if it lingers.
+    const hardKill = (): void => {
+      try {
+        p.stdin.end()
+      } catch {
+        /* stdin may already be gone */
+      }
       // grace period, then hard kill
       setTimeout(() => {
         if (!p.killed) p.kill('SIGKILL')
       }, 3000)
       p.kill()
-      this.proc = null
+    }
+    if (this.turnInFlight && p.stdin.writable) {
+      // A turn is mid-flight: a SIGKILL now would strand an assistant tool_use
+      // with no tool_result — a "poisoned" transcript the CLI later refuses to
+      // --resume (→ error_during_execution on every retry). Send a control
+      // interrupt FIRST so the CLI aborts the tool and writes a proper result,
+      // then run the existing kill after a bounded wait. Best-effort: on app
+      // quit the whole process is SIGKILLed right after disposeAll (index.ts),
+      // so the wait may not elapse — the heal-before-resume path is the net.
+      try {
+        p.stdin.write(
+          JSON.stringify({
+            type: 'control_request',
+            request_id: randomUUID(),
+            request: { subtype: 'interrupt' }
+          }) + '\n'
+        )
+      } catch {
+        hardKill()
+        return
+      }
+      setTimeout(hardKill, 1800)
+    } else {
+      hardKill()
     }
   }
 
@@ -278,6 +316,7 @@ export class ClaudeAdapter implements AgentAdapter {
     for (const ev of translateClaudeEvent(raw, this)) {
       // relabel a turn we interrupted ourselves — see interrupt()
       if (ev.kind === 'turn-complete') {
+        this.turnInFlight = false
         if (this.interruptRequested && ev.isError) ev.errorMessage = 'interrupted'
         this.interruptRequested = false
       }

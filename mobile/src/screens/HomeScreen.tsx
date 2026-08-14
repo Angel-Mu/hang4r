@@ -44,8 +44,11 @@ export function HomeScreen(): JSX.Element {
   const openSession = useApp((s) => s.openSession)
   const setScreen = useApp((s) => s.setScreen)
   const error = useApp((s) => s.error)
+  const pendingApprovals = useApp((s) => s.pendingApprovals)
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed)
   const [pageLimits, setPageLimits] = useState<Record<string, number>>({})
+  const [filter, setFilter] = useState('')
+  const filterLower = filter.trim().toLowerCase()
 
   useEffect(() => {
     if (conn === 'online') void refresh()
@@ -62,7 +65,10 @@ export function HomeScreen(): JSX.Element {
   }
 
   // desktop sidebar order: workspaces by last activity, sessions by updatedAt
-  const live = sessions.filter((s) => s.status !== 'archived')
+  const live = sessions.filter(
+    (s) =>
+      s.status !== 'archived' && (!filterLower || s.title.toLowerCase().includes(filterLower))
+  )
   const lastActivity = (projectId: string): number =>
     Math.max(0, ...live.filter((s) => s.projectId === projectId).map((s) => s.updatedAt))
   const orderedProjects = [...projects]
@@ -97,19 +103,33 @@ export function HomeScreen(): JSX.Element {
         </button>
       </header>
       {error && <p className="banner banner-error">{error}</p>}
-      {conn === 'relay' && (
+      {conn !== 'online' && (
         <p className="banner">
-          Your computer is offline. Sessions appear as soon as hang4r desktop reconnects.
+          {conn === 'relay'
+            ? 'Your computer is offline — showing the last known sessions. Everything reconnects automatically.'
+            : 'Connecting… — showing the last known sessions.'}
         </p>
       )}
+      <div className="home-search">
+        <input
+          className="home-search-input"
+          type="search"
+          placeholder="Search sessions…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          autoCapitalize="none"
+          autoCorrect="off"
+        />
+      </div>
       <main className="home-list">
         {orderedProjects.map((p) => {
           const own = live
             .filter((s) => s.projectId === p.id)
             .sort((a, b) => b.updatedAt - a.updatedAt)
-          const isCollapsed = collapsed.has(p.id)
+          const isCollapsed = collapsed.has(p.id) && !filterLower
           const limit = pageLimits[p.id] ?? SESSIONS_PAGE
-          const visible = own.slice(0, limit)
+          const visible = filterLower ? own : own.slice(0, limit)
+          const needsYou = own.filter((s) => (pendingApprovals[s.id] ?? 0) > 0).length
           const awaiting = own.filter((s) => attention[s.id]).length
           return (
             <section key={p.id} className="project-group">
@@ -117,6 +137,9 @@ export function HomeScreen(): JSX.Element {
                 <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={14} />
                 <span className="project-name">{p.name}</span>
                 <span className="project-count">
+                  {isCollapsed && needsYou > 0 && (
+                    <b className="needs-you-count">{needsYou} need you · </b>
+                  )}
                   {own.length}
                   {isCollapsed && awaiting > 0 && <i className="attention-dot"> ●</i>}
                 </span>
@@ -135,7 +158,11 @@ export function HomeScreen(): JSX.Element {
                       <span className={`backend-glyph backend-${s.backend}`} title={s.backend}>
                         <Icon name={s.backend} size={15} />
                       </span>
-                      <span className="session-status">{STATUS_LABEL[s.status]}</span>
+                      {(pendingApprovals[s.id] ?? 0) > 0 ? (
+                        <span className="session-status needs-you">needs you</span>
+                      ) : (
+                        <span className="session-status">{STATUS_LABEL[s.status]}</span>
+                      )}
                     </button>
                   ))}
                   {own.length > limit && (

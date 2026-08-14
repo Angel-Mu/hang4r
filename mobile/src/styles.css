@@ -969,3 +969,27 @@ html[data-textscale='l'] {
 .session-title {
   font-size: 0.95rem;
 }
+
+/* ---- UX round 4: search, offline, needs-you ---- */
+.home-search {
+  padding: 10px 14px 2px;
+}
+.home-search-input {
+  width: 100%;
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  padding: 10px 14px;
+  appearance: none;
+}
+.needs-you {
+  color: var(--amber);
+  font-weight: 600;
+}
+.needs-you-count {
+  color: var(--amber);
+  font-weight: 600;
+}

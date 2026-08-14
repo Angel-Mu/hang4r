@@ -508,6 +508,8 @@ export interface Hang4rApi {
   // mobile bridge (docs/mobile/design.md)
   bridgeStatus(): Promise<BridgeStatus>
   bridgeSetEnabled(on: boolean): Promise<BridgeStatus>
+  /** hold/release the system-sleep block that keeps a bridged Mac reachable */
+  bridgeSetKeepAwake(on: boolean): Promise<BridgeStatus>
   /** pairing URL + a QR data: image of it — shown once in Settings → Phone */
   bridgePairing(): Promise<{ url: string; qrDataUrl: string }>
   /** rotate the pairing secret; previously paired phones are cut off */

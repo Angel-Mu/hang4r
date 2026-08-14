@@ -115,4 +115,6 @@ export interface BridgeStatus {
   phoneConnected: boolean
   deviceId: string | null
   relayUrl: string
+  /** desktop holds a system-sleep block while the bridge is on */
+  keepAwake: boolean
 }

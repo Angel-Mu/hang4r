@@ -23,6 +23,7 @@ import type {
 const api: Hang4rApi = {
   bridgeStatus: () => ipcRenderer.invoke('bridge:status'),
   bridgeSetEnabled: (on: boolean) => ipcRenderer.invoke('bridge:set-enabled', on),
+  bridgeSetKeepAwake: (on: boolean) => ipcRenderer.invoke('bridge:set-keep-awake', on),
   bridgePairing: () => ipcRenderer.invoke('bridge:pairing'),
   bridgeRepair: () => ipcRenderer.invoke('bridge:repair'),
   onBridgeStatus: (cb) => {

@@ -226,7 +226,8 @@ export const useApp = create<AppState>((set, get) => ({
     localStorage.setItem(PUSH_KEY, on ? '1' : '0')
     set({ pushEnabled: on, pushStatus: on ? get().pushStatus : 'disabled' })
     if (!on) {
-      client?.setApnsToken('')
+      const saved = localStorage.getItem(APNS_KEY)
+      if (saved) client?.removeApnsToken(saved)
     } else {
       const saved = localStorage.getItem(APNS_KEY)
       if (saved) client?.setApnsToken(saved)

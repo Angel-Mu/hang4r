@@ -278,7 +278,8 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       listSessions: () => store.listSessions(),
       listArchivedSessions: () => store.listArchivedSessions(),
       getSessionEvents: (sessionId: string) => store.getEvents(sessionId),
-      prompt: (sessionId: string, text: string) => sessions.prompt(sessionId, text),
+      prompt: (sessionId: string, text: string, images?: PromptImage[]) =>
+        sessions.prompt(sessionId, text, images),
       interrupt: (sessionId: string) => sessions.interrupt(sessionId),
       createSession: (req: NewSessionRequest) => sessions.createSession(req),
       respondPermission: (sessionId: string, requestId: string, decision: string) =>
@@ -316,6 +317,9 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       resyncSession: (sessionId: string) => sessions.resyncAndRecover(sessionId),
       // the phone opened this session — clear every "come look" signal here:
       // dock badge, sidebar bell, and the macOS notification banners
+      setSessionModel: (sessionId: string, model: string) => sessions.setModel(sessionId, model),
+      setSessionPermissionMode: (sessionId: string, mode: PermissionMode) =>
+        sessions.setPermissionMode(sessionId, mode),
       markSeen: (sessionId: string) => {
         finishedUnseen.delete(sessionId)
         updateBadge()

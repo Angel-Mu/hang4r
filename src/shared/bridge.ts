@@ -110,6 +110,8 @@ export const BRIDGE_METHODS = [
   'scopedDiff',
   'submitReview',
   'markSeen',
+  'setSessionModel',
+  'setSessionPermissionMode',
   'claudeUsage',
   'codexUsage',
   'cursorUsage',

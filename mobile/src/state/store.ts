@@ -95,7 +95,7 @@ interface AppState {
   refresh(): Promise<void>
   openSession(id: string): Promise<void>
   closeSession(): void
-  sendPrompt(text: string): Promise<void>
+  sendPrompt(text: string, images?: { base64: string; mediaType: string }[]): Promise<void>
   interrupt(): Promise<void>
   startSession(req: {
     projectId: string
@@ -416,10 +416,14 @@ export const useApp = create<AppState>((set, get) => ({
     set({ openSessionId: null })
   },
 
-  async sendPrompt(text: string): Promise<void> {
+  async sendPrompt(
+    text: string,
+    images?: { base64: string; mediaType: string }[]
+  ): Promise<void> {
     const id = get().openSessionId
     if (!id) return
-    await bridge().call('prompt', id, text)
+    if (images?.length) await bridge().call('prompt', id, text, images)
+    else await bridge().call('prompt', id, text)
   },
 
   async interrupt(): Promise<void> {

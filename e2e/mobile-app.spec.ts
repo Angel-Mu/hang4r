@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { appendFileSync, existsSync } from 'node:fs'
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
@@ -152,6 +152,37 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   await expect
     .poll(async () => (await desktop.evaluate(() => window.hang4r.listSessions())).length)
     .toBe(2)
+
+  // attach an image: picked file downscales on-device and rides the prompt
+  const pngPath = join(repo, 'tiny.png')
+  writeFileSync(
+    pngPath,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64'
+    )
+  )
+  await phone.setInputFiles('.attach-btn input[type=file]', pngPath)
+  await expect(phone.locator('.pending-image img')).toHaveCount(1, { timeout: 10_000 })
+  await phone.fill('.composer-input', 'look at this screenshot')
+  await phone.click('.composer .btn-primary')
+  await expect(phone.locator('.msg-user .msg-images img').first()).toBeVisible({
+    timeout: 30_000
+  })
+
+  // session info sheet: change the model, desktop reflects it
+  await phone.click('[aria-label="Session info"]')
+  await phone.selectOption('.sheet select', 'sonnet')
+  await expect
+    .poll(
+      async () =>
+        (await desktop.evaluate(() => window.hang4r.listSessions())).find(
+          (x) => x.title.includes('second session')
+        )?.model ?? (await desktop.evaluate(() => window.hang4r.listSessions()))[0]?.model,
+      { timeout: 15_000 }
+    )
+    .toBe('sonnet')
+  await phone.click('.sheet-scrim')
 
   // settings screen shows the paired computer online (via the drawer now)
   await phone.click('.push-screen .back-btn') // back home (panel slides out)

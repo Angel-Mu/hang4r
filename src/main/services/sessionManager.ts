@@ -24,8 +24,8 @@ import type { AgentAdapter } from './adapters/types'
 
 /** E2E/loop verification mode: use a deterministic in-process agent. */
 const FAKE_AGENT = process.env.HANG4R_FAKE_AGENT === '1'
-import { existsSync } from 'node:fs'
-import { basename } from 'node:path'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
@@ -179,12 +179,17 @@ export class SessionManager {
     this.adapters.set(session.id, adapter)
     if (firstPrompt) {
       // carry any modal-attached files/images into the first turn — same shape as
-      // SessionManager.prompt: agent-facing text + images + the display/card echo
+      // SessionManager.prompt: agent-facing text + images + the display/card echo.
+      // Materialize images to disk first so the agent gets a real file path (not
+      // just the vision block); the echo keeps the un-noted text.
+      const agentText = this.writeImageAttachments(session, firstPrompt, req.firstImages)
+      const echoDisplay =
+        req.firstDisplayText ?? (agentText !== firstPrompt ? firstPrompt : undefined)
       adapter.prompt(
-        firstPrompt,
+        agentText,
         req.firstImages,
-        req.firstFiles?.length || req.firstDisplayText !== undefined
-          ? { files: req.firstFiles, displayText: req.firstDisplayText }
+        req.firstFiles?.length || echoDisplay !== undefined
+          ? { files: req.firstFiles, displayText: echoDisplay }
           : undefined
       )
       this.updateSession(session.id, { status: 'running' })
@@ -441,12 +446,68 @@ export class SessionManager {
       this.adapters.set(sessionId, fresh)
       adapter = fresh
     }
+    // Materialize any attached images to a session-readable scratch file and add
+    // the path to the agent-facing text (the base64 vision block still goes too),
+    // so file-based tools have something to point at. The echo keeps the original
+    // (un-noted) text — the transcript already shows the image thumbnails.
+    const agentText = this.writeImageAttachments(session, text, images)
+    const echoDisplay = displayText ?? (agentText !== text ? text : undefined)
     adapter.prompt(
-      text,
+      agentText,
       images,
-      files?.length || displayText !== undefined ? { files, displayText } : undefined
+      files?.length || echoDisplay !== undefined
+        ? { files, displayText: echoDisplay }
+        : undefined
     )
     this.updateSession(sessionId, { status: 'running', lastError: null })
+  }
+
+  /**
+   * Materialize prompt image attachments to a session-readable scratch file and
+   * return the agent-facing text with a `[Attached image saved to: <path>]` note
+   * per image — while the caller STILL sends the base64 vision block. Fixes: an
+   * attached image reached the model only as rendered pixels with no file behind
+   * it, so any file-based tool (upload API, image processing) had nothing to
+   * point at (Angel, media-gen project).
+   *
+   * Files land in `<cwd>/.hang4r/attachments/` so the agent's OWN shell can read
+   * them (materialized from the base64 bytes hang4r already holds — the picked
+   * path is unreliable: Photos-library / iCloud originals aren't readable). A
+   * self-ignoring `<cwd>/.hang4r/.gitignore` ('*' matches every file, itself
+   * included) keeps the whole subtree out of `git status`, the diff review, and
+   * per-turn checkpoints without touching the user's tracked .gitignore.
+   *
+   * Scoped to LOCAL Claude sessions: ssh has no local fs on the adapter side
+   * (vision-only, matching external-attachment ssh scoping) and only the Claude
+   * backend takes base64 image blocks today. Best-effort — a write failure never
+   * blocks the turn; the vision block still flows.
+   */
+  private writeImageAttachments(
+    session: SessionMeta,
+    text: string,
+    images?: PromptImage[]
+  ): string {
+    if (!images?.length) return text
+    if (session.backend !== 'claude' || session.environment === 'ssh') return text
+    const cwd = session.cwd
+    if (!cwd || !existsSync(cwd)) return text
+    try {
+      const dir = join(cwd, '.hang4r', 'attachments')
+      mkdirSync(dir, { recursive: true })
+      const ignore = join(cwd, '.hang4r', '.gitignore')
+      if (!existsSync(ignore)) writeFileSync(ignore, '*\n')
+      const stamp = Date.now()
+      const notes: string[] = []
+      images.forEach((img, i) => {
+        const file = join(dir, `img-${stamp}-${i}.${imageExt(img.mediaType)}`)
+        writeFileSync(file, Buffer.from(img.base64, 'base64'))
+        notes.push(`[Attached image saved to: ${file}]`)
+      })
+      return notes.length ? `${text}\n\n${notes.join('\n')}` : text
+    } catch {
+      // never block a turn on an attachment write; the vision block still goes
+      return text
+    }
   }
 
   /**
@@ -924,7 +985,8 @@ export class SessionManager {
       const truncated = (await adapter.rewindTurns?.(turns)) ?? false
       if (truncated) {
         this.store.deleteEventsFrom(sessionId, target.seq)
-        adapter.prompt(newText, images)
+        const agentText = this.writeImageAttachments(session, newText, images)
+        adapter.prompt(agentText, images, agentText !== newText ? { displayText: newText } : undefined)
         this.updateSession(sessionId, { status: 'running', lastError: null })
         return
       }
@@ -988,7 +1050,8 @@ export class SessionManager {
       ? this.spawnAdapter(session, session.backendSessionId, true, anchor.parentUuid)
       : this.spawnAdapter(session)
     this.adapters.set(session.id, adapter)
-    adapter.prompt(newText, images)
+    const agentText = this.writeImageAttachments(session, newText, images)
+    adapter.prompt(agentText, images, agentText !== newText ? { displayText: newText } : undefined)
     this.updateSession(session.id, { status: 'running', lastError: null })
   }
 
@@ -1740,6 +1803,29 @@ export class SessionManager {
 function deriveTitle(prompt: string): string {
   const line = prompt.trim().split('\n')[0]
   return line.length > 60 ? line.slice(0, 57) + '…' : line || 'New session'
+}
+
+/** File extension for a materialized image attachment, from its media type. */
+function imageExt(mediaType: string | undefined): string {
+  switch ((mediaType ?? '').toLowerCase()) {
+    case 'image/png':
+      return 'png'
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg'
+    case 'image/gif':
+      return 'gif'
+    case 'image/webp':
+      return 'webp'
+    case 'image/heic':
+    case 'image/heif':
+      return 'heic'
+    case 'image/svg+xml':
+    case 'image/svg':
+      return 'svg'
+    default:
+      return 'png'
+  }
 }
 
 /**

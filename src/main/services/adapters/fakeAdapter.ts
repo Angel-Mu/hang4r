@@ -186,7 +186,9 @@ export class FakeAdapter implements AgentAdapter {
     // a tool call that writes a real file so the Diff tab has content
     const toolUseId = randomUUID()
     const filename = `hang4r-fake-${turn}.txt`
-    const content = `edit from fake agent, turn ${turn}\nprompt was: ${text.slice(0, 80)}\n`
+    // capture the FULL agent-facing text (not the display echo) so e2e can assert
+    // what actually reached the CLI — e.g. the [Attached image saved to: …] note
+    const content = `edit from fake agent, turn ${turn}\nprompt was: ${text}\n`
     this.emit({
       kind: 'block-final',
       messageId,

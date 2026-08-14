@@ -13,7 +13,12 @@ export interface LaunchedApp {
 /** Launch the built Electron app with a fresh userData dir and the fake agent.
  *  Pass an existing `userDataDir` to reuse a pre-seeded one (e.g. a hang4r.db
  *  primed before first launch, for the settings-migration test). */
-export async function launchApp(opts?: { userDataDir?: string }): Promise<LaunchedApp> {
+export async function launchApp(opts?: {
+  userDataDir?: string
+  /** extra env merged over the defaults (e.g. HANG4R_CLAUDE_PROJECTS_DIR for a
+   *  crafted claude-history root in the poisoned-tail error test) */
+  env?: Record<string, string>
+}): Promise<LaunchedApp> {
   const userDataDir = opts?.userDataDir ?? mkdtempSync(join(tmpdir(), 'hang4r-e2e-'))
   const app = await electron.launch({
     args: ['out/main/index.js', `--user-data-dir=${userDataDir}`],
@@ -22,7 +27,8 @@ export async function launchApp(opts?: { userDataDir?: string }): Promise<Launch
       HANG4R_FAKE_AGENT: '1',
       HANG4R_USER_DATA_DIR: userDataDir,
       // never steal the user's focus while tests run
-      HANG4R_QUIET_TEST: '1'
+      HANG4R_QUIET_TEST: '1',
+      ...opts?.env
     }
   })
   const page = await app.firstWindow()

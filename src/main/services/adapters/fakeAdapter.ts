@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentEvent, PromptImage, QuestionAnswer } from '../../../shared/protocol'
 import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
@@ -17,6 +17,9 @@ export class FakeAdapter implements AgentAdapter {
   private listeners: Array<(ev: AgentEvent) => void> = []
   private cwd = ''
   private turn = 0
+  /** the session id we announce at init — reused so a crafted poison transcript
+   *  (see writePoisonTranscript) is named for THIS session */
+  private backendSessionId = ''
 
   onEvent(cb: (ev: AgentEvent) => void): void {
     this.listeners.push(cb)
@@ -27,9 +30,10 @@ export class FakeAdapter implements AgentAdapter {
 
   start(opts: AdapterStartOptions): void {
     this.cwd = opts.cwd
+    this.backendSessionId = 'fake-' + randomUUID()
     this.emit({
       kind: 'init',
-      backendSessionId: 'fake-' + randomUUID(),
+      backendSessionId: this.backendSessionId,
       model: opts.model || 'fake-model',
       tools: ['Write', 'Bash'],
       mcpServers: [{ name: 'playwright', status: 'connected' }],
@@ -53,6 +57,31 @@ export class FakeAdapter implements AgentAdapter {
     // wedge-prone adapter is dropped, and the next prompt re-spawns cleanly.
     // Async (like the real turn-complete below) so it lands AFTER prompt()'s
     // caller sets status:'running' — a sync emit would be overwritten.
+    // deterministic OPAQUE-interrupt turn: simulate a turn KILLED mid-command by
+    // an external driver (session restart / "⇄ interactive CLI"). We drop a
+    // POISONED transcript (a dangling tool_use — the residue tailIsPoisoned
+    // detects) for THIS session, then report the CLI's opaque error_during_execution
+    // with EMPTY stderr — so the classifier yields the generic "The CLI errored"
+    // and sessionManager's poison-based relabel is what must produce the friendly
+    // "Interrupted mid-command — recovered on next turn" label. Checked BEFORE the
+    // 529 trigger below (this phrase doesn't contain "trigger error").
+    if (text.includes('trigger opaque interrupt')) {
+      this.writePoisonTranscript()
+      setTimeout(() => {
+        const errEv: Extract<AgentEvent, { kind: 'turn-complete' }> = {
+          kind: 'turn-complete',
+          isError: true,
+          result: 'error_during_execution',
+          errorMessage: 'error_during_execution'
+        }
+        // empty stderr → classifier falls to the generic label; detail still keeps
+        // the raw error_during_execution text for the expandable panel
+        enrichClaudeError(errEv, '')
+        this.emit(errEv)
+      }, 20)
+      return
+    }
+
     if (text.includes('trigger error')) {
       // mirror a real Claude failure: the opaque error_during_execution on the
       // result, with the REAL reason on stderr — run it through the same
@@ -382,6 +411,45 @@ export class FakeAdapter implements AgentAdapter {
    */
   async rewindTurns(turns: number): Promise<boolean> {
     return turns > 0
+  }
+
+  /**
+   * E2E only: drop a POISONED Claude transcript (an assistant `tool_use` with no
+   * matching `tool_result`) named for THIS session under HANG4R_CLAUDE_PROJECTS_DIR,
+   * so ClaudeImport.tailIsPoisoned sees the residue of a turn killed mid-command.
+   * No-op unless the e2e root is set (real runs never set it). Written
+   * synchronously from prompt() — AFTER sessionManager.prompt's heal-check has
+   * already run for this turn (the file didn't exist then), so the heal doesn't
+   * pre-empt it and the poison is present when the error turn-complete lands.
+   */
+  private writePoisonTranscript(): void {
+    const root = process.env.HANG4R_CLAUDE_PROJECTS_DIR
+    if (!root || !this.backendSessionId) return
+    try {
+      const dir = join(root, 'e2e-fake-project')
+      mkdirSync(dir, { recursive: true })
+      const jsonl =
+        [
+          JSON.stringify({
+            type: 'user',
+            uuid: 'poison-u0',
+            parentUuid: null,
+            message: { role: 'user', content: [{ type: 'text', text: 'do the thing' }] }
+          }),
+          JSON.stringify({
+            type: 'assistant',
+            uuid: 'poison-a0',
+            parentUuid: 'poison-u0',
+            message: {
+              role: 'assistant',
+              content: [{ type: 'tool_use', id: 'poison-tool-dangling', name: 'Bash', input: {} }]
+            }
+          })
+        ].join('\n') + '\n'
+      writeFileSync(join(dir, `${this.backendSessionId}.jsonl`), jsonl)
+    } catch {
+      /* best-effort test seam */
+    }
   }
 
   dispose(): void {

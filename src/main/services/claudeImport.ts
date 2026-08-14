@@ -20,7 +20,10 @@ import { join } from 'node:path'
  * engine these could even be resumed, but for parity with the Cursor importer we
  * surface them and seed a fresh session with the transcript.
  */
-const ROOT = join(homedir(), '.claude', 'projects')
+// Claude Code's session-history root. Read-only. Overridable ONLY for e2e (point
+// it at a temp dir holding a crafted transcript) via HANG4R_CLAUDE_PROJECTS_DIR —
+// real users never set it, so this stays the real ~/.claude/projects untouched.
+const ROOT = process.env.HANG4R_CLAUDE_PROJECTS_DIR || join(homedir(), '.claude', 'projects')
 
 export interface ExternalSession {
   id: string

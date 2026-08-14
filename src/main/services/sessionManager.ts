@@ -1693,6 +1693,36 @@ export class SessionManager {
     return binaryPath
   }
 
+  /**
+   * Relabel the CLI's OPAQUE `error_during_execution` (the classifier's generic
+   * "The CLI errored" — empty/unhelpful stderr) as an interrupted turn when
+   * hang4r's OWN signal proves it: the session's jsonl tail is POISONED (an
+   * assistant `tool_use` with no matching `tool_result` — the exact residue of a
+   * turn killed mid-command by a session restart or an external "⇄ interactive
+   * CLI" driver). This is the MOST COMMON error_during_execution and the heal-
+   * before-resume path already recovers it on the next prompt, so the user should
+   * see "Interrupted mid-command — recovered on next turn" instead of a scary
+   * catch-all. DISPLAY ONLY — purely additive:
+   *   - it fires only on the generic label, so the classifier's SPECIFIC labels
+   *     (Overloaded 529, Rate limited, Context length) still win when present, and
+   *   - it never touches the user-initiated 'interrupted' sentinel (that string is
+   *     set by the adapter and keys recovery), nor heal/recovery/auto-continue.
+   * `errorDetail` (the raw error_during_execution text) is preserved for the
+   * renderer's expandable panel.
+   */
+  private relabelOpaqueInterrupt(
+    sessionId: string,
+    ev: Extract<AgentEvent, { kind: 'turn-complete' }>
+  ): void {
+    // only the generic catch-all — the specific classifier labels and the
+    // user-stop 'interrupted' sentinel are NOT this string, so they pass through
+    if (ev.errorMessage !== 'The CLI errored') return
+    const session = this.store.getSession(sessionId)
+    if (!session || session.backend !== 'claude' || !session.backendSessionId) return
+    if (!ClaudeImport.tailIsPoisoned(session.backendSessionId)) return
+    ev.errorMessage = 'Interrupted mid-command — recovered on next turn'
+  }
+
   private handleAgentEvent(sessionId: string, ev: AgentEvent): void {
     // Streaming token fragments (block-delta) are TRANSIENT: broadcast them so the
     // renderer streams text LIVE, but do NOT persist. block-final carries the whole
@@ -1705,6 +1735,11 @@ export class SessionManager {
       this.broadcast.agentEvent({ sessionId, seq: 0, ts: Date.now(), event: ev })
       return
     }
+    // Relabel the CLI's OPAQUE error_during_execution as an interrupted turn when
+    // hang4r's OWN signals prove it — BEFORE persist/broadcast so the transcript
+    // and the live renderer both carry the reassuring label, not the scary
+    // catch-all. Display only (see relabelOpaqueInterrupt).
+    if (ev.kind === 'turn-complete' && ev.isError) this.relabelOpaqueInterrupt(sessionId, ev)
     const persisted = this.store.appendEvent(sessionId, ev)
     this.broadcast.agentEvent(persisted)
 

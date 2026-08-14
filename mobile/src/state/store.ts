@@ -6,6 +6,18 @@ import { applyEvent, emptyTranscript, type Transcript } from './transcript'
 const PAIRING_KEY = 'h4.pairing'
 const APNS_KEY = 'h4.apnsToken'
 const TEXT_KEY = 'h4.textScale'
+const PINS_KEY = 'h4.pinnedSessions'
+const SEEN_KEY = 'h4.seenAt'
+
+function loadJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw) return JSON.parse(raw) as T
+  } catch {
+    // corrupt — fall through
+  }
+  return fallback
+}
 const THEME_KEY = 'h4.theme'
 const PUSH_KEY = 'h4.pushEnabled'
 
@@ -51,6 +63,13 @@ interface AppState {
   /** unresolved permission/question requests per session — drives the
    *  "needs you" badge in the list without opening the conversation */
   pendingApprovals: Record<string, number>
+  /** phone-local pins: pinned sessions sort first in their workspace */
+  pinned: string[]
+  togglePin(sessionId: string): void
+  /** per-session last-seen updatedAt watermark — powers the finished-while-
+   *  away marker even when the app heard no events (iOS had it frozen) */
+  seenAt: Record<string, number>
+  markSeen(sessionId: string): void
   error: string | null
   /** push registration outcome, surfaced in Settings so failures aren't silent */
   pushStatus: string
@@ -67,6 +86,8 @@ interface AppState {
   unpair(): void
   setApnsToken(token: string): void
   setPushStatus(status: string): void
+  /** open a session as soon as the bridge is online (push-tap deep link) */
+  openSessionWhenReady(id: string): void
   setScreen(screen: Screen): void
   /** replay the open session after resume/reconnect — events streamed while
    *  iOS had the app frozen were broadcast-only and are gone from the wire */
@@ -89,6 +110,7 @@ interface AppState {
 }
 
 let client: BridgeClient | null = null
+let pendingOpen: string | null = null
 export function bridge(): BridgeClient {
   if (!client) throw new Error('not paired')
   return client
@@ -105,6 +127,11 @@ function startClient(url: string): BridgeClient | null {
       if (conn === 'online') {
         void useApp.getState().refresh()
         void useApp.getState().reloadOpenTranscript()
+        if (pendingOpen) {
+          const id = pendingOpen
+          pendingOpen = null
+          void useApp.getState().openSession(id)
+        }
       }
     },
     onAgentEvent: (ev: SessionEvent) => {
@@ -161,7 +188,28 @@ export const useApp = create<AppState>((set, get) => ({
   transcriptLoading: false,
   attention: {},
   pendingApprovals: {},
+  pinned: loadJson<string[]>(PINS_KEY, []),
+  seenAt: loadJson<Record<string, number>>(SEEN_KEY, {}),
   error: null,
+
+  togglePin(sessionId: string): void {
+    set((s) => {
+      const pinned = s.pinned.includes(sessionId)
+        ? s.pinned.filter((id) => id !== sessionId)
+        : [...s.pinned, sessionId]
+      localStorage.setItem(PINS_KEY, JSON.stringify(pinned))
+      return { pinned }
+    })
+  },
+
+  markSeen(sessionId: string): void {
+    set((s) => {
+      const session = s.sessions.find((x) => x.id === sessionId)
+      const seenAt = { ...s.seenAt, [sessionId]: Math.max(session?.updatedAt ?? 0, Date.now()) }
+      localStorage.setItem(SEEN_KEY, JSON.stringify(seenAt))
+      return { seenAt }
+    })
+  },
   pushStatus: 'not requested',
   textScale: (localStorage.getItem(TEXT_KEY) as TextScale) || 'm',
   theme: (localStorage.getItem(THEME_KEY) as ThemePref) || 'system',
@@ -203,6 +251,14 @@ export const useApp = create<AppState>((set, get) => ({
 
   setPushStatus(status: string): void {
     set({ pushStatus: status })
+  },
+
+  openSessionWhenReady(id: string): void {
+    if (get().conn === 'online') {
+      void get().openSession(id)
+    } else {
+      pendingOpen = id
+    }
   },
 
   async reloadOpenTranscript(): Promise<void> {
@@ -269,7 +325,18 @@ export const useApp = create<AppState>((set, get) => ({
         bridge().call<Project[]>('listProjects'),
         bridge().call<SessionMeta[]>('listSessions')
       ])
-      set({ projects, sessions, error: null })
+      set((s) => {
+        const seenAt = { ...s.seenAt }
+        let changed = false
+        for (const sess of sessions) {
+          if (!(sess.id in seenAt)) {
+            seenAt[sess.id] = sess.updatedAt
+            changed = true
+          }
+        }
+        if (changed) localStorage.setItem(SEEN_KEY, JSON.stringify(seenAt))
+        return { projects, sessions, error: null, seenAt }
+      })
       try {
         localStorage.setItem(HOME_CACHE_KEY, JSON.stringify({ projects, sessions }))
       } catch {
@@ -300,6 +367,7 @@ export const useApp = create<AppState>((set, get) => ({
       attention: { ...s.attention, [id]: false },
       transcripts: cached ? s.transcripts : { ...s.transcripts, [id]: emptyTranscript() }
     }))
+    get().markSeen(id)
     bridge().sub(id)
     try {
       // resync first, exactly like the desktop's loadTranscriptData: sessions
@@ -332,7 +400,10 @@ export const useApp = create<AppState>((set, get) => ({
 
   closeSession(): void {
     const id = get().openSessionId
-    if (id) bridge().unsub(id)
+    if (id) {
+      bridge().unsub(id)
+      get().markSeen(id)
+    }
     set({ openSessionId: null })
   },
 

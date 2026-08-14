@@ -55,6 +55,10 @@ if (Capacitor.isNativePlatform()) {
         await PushNotifications.addListener('registration', ({ value }) => {
           useApp.getState().setApnsToken(value)
         })
+        await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+          const sid = (action.notification.data as { sessionId?: string } | undefined)?.sessionId
+          if (sid) useApp.getState().openSessionWhenReady(sid)
+        })
         await PushNotifications.addListener('registrationError', (err) => {
           useApp.getState().setPushStatus(`registration failed: ${JSON.stringify(err)}`)
         })

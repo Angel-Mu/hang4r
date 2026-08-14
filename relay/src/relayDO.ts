@@ -95,7 +95,7 @@ export class RelayDO extends DurableObject {
 
   /** The plaintext channel: content-free push signals + APNs token registration. */
   private async onControlFrame(role: Role, message: string): Promise<void> {
-    let frame: { t?: string; kind?: string; token?: string }
+    let frame: { t?: string; kind?: string; token?: string; sessionId?: string }
     try {
       frame = JSON.parse(message)
     } catch {
@@ -106,16 +106,17 @@ export class RelayDO extends DurableObject {
       return
     }
     if (role === 'desktop' && frame.t === 'notify' && typeof frame.kind === 'string') {
+      const sessionId = typeof frame.sessionId === 'string' ? frame.sessionId.slice(0, 64) : undefined
       // a phone counts as "watching" only when it PROVED liveness recently
       // (awake phones ping every 25s); a merely-open socket is not enough
       const seenAt = (await this.ctx.storage.get<number>('clientSeenAt')) ?? 0
       const clientLive = this.sockets('client').length > 0 && Date.now() - seenAt < 40_000
       if (clientLive) return
-      await this.pushNotify(frame.kind)
+      await this.pushNotify(frame.kind, sessionId)
     }
   }
 
-  private async pushNotify(kind: string): Promise<void> {
+  private async pushNotify(kind: string, sessionId?: string): Promise<void> {
     const env = this.env as RelayEnv
     if (!env.APNS_TEAM_ID || !env.APNS_KEY_ID || !env.APNS_P8 || !env.APNS_TOPIC) return
     const token = await this.ctx.storage.get<string>('apnsToken')
@@ -141,7 +142,10 @@ export class RelayDO extends DurableObject {
           'apns-push-type': 'alert',
           'apns-priority': '10'
         },
-        body: JSON.stringify({ aps: { alert: { title: 'hang4r', body }, sound: 'default' } })
+        body: JSON.stringify({
+          aps: { alert: { title: 'hang4r', body }, sound: 'default' },
+          ...(sessionId ? { sessionId } : {})
+        })
       })
     } catch {
       // push is best-effort; never let it disturb frame routing

@@ -31,6 +31,7 @@ const api: Hang4rApi = {
     ipcRenderer.on('bridge:status', handler)
     return () => ipcRenderer.removeListener('bridge:status', handler)
   },
+  notifySessionOpened: (sessionId: string) => ipcRenderer.invoke('sessions:opened', sessionId),
   onSessionSeen: (cb) => {
     const handler = (_e: unknown, sessionId: string): void => cb(sessionId)
     ipcRenderer.on('session-seen', handler)

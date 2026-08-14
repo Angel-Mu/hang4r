@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, randomUUID } from 'crypto'
-import { powerSaveBlocker } from 'electron'
+import { BrowserWindow, powerSaveBlocker } from 'electron'
 import {
   DEFAULT_RELAY_URL,
   HKDF_INFO_E2E,
@@ -29,6 +29,10 @@ const RELAY_URL_KEY = 'bridgeRelayUrlV1'
 const KEEP_AWAKE_KEY = 'bridgeKeepAwakeV1'
 
 const PING_MS = 25_000
+/** grace before a push leaves for the phones — seen-on-desktop cancels it */
+const NOTIFY_DELAY_MS = 30_000
+/** approvals escalate even while the desktop is focused, just slower */
+const NOTIFY_DELAY_FOCUSED_APPROVAL_MS = 60_000
 const BACKOFF_MIN_MS = 1_000
 const BACKOFF_MAX_MS = 30_000
 
@@ -52,6 +56,7 @@ export class BridgeService {
   private relayConnected = false
   private phoneConnected = false
   private psbId: number | null = null
+  private pendingNotifies = new Map<string, ReturnType<typeof setTimeout>>()
 
   constructor(
     private settings: SettingsLike,
@@ -149,7 +154,31 @@ export class BridgeService {
     // phone is actually looking at; everything else drives badges/approvals
     if ((kind === 'block-delta' || kind === 'usage') && !this.subs.has(ev.sessionId)) return
     this.send({ t: 'event', channel: 'agent-event', payload: ev })
+    // an approval answered ANYWHERE makes its pending push moot
+    if (kind === 'permission-resolved' || kind === 'question-resolved') {
+      this.cancelNotify(ev.sessionId)
+    }
     this.maybeNotify(ev)
+  }
+
+  /** cancel a session's held push (or every held push) — it was seen in time */
+  cancelNotify(sessionId?: string): void {
+    if (sessionId) {
+      const t = this.pendingNotifies.get(sessionId)
+      if (t) clearTimeout(t)
+      this.pendingNotifies.delete(sessionId)
+      return
+    }
+    for (const t of this.pendingNotifies.values()) clearTimeout(t)
+    this.pendingNotifies.clear()
+  }
+
+  /** tell every phone these sessions were seen somewhere (E2E event frame) */
+  sendSeen(sessionIds: string[]): void {
+    for (const id of sessionIds) {
+      this.cancelNotify(id)
+      this.send({ t: 'seen', sessionId: id })
+    }
   }
 
   /** Content-free push signal, sent on EVERY notify-worthy event. The relay
@@ -159,7 +188,6 @@ export class BridgeService {
    *  Rides the plaintext control channel on purpose: the relay must read it
    *  to call APNs, so it never carries session content. */
   private maybeNotify(ev: SessionEvent): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
     const kind = ev.event.kind
     const mapped =
       kind === 'permission-request' || kind === 'question-request'
@@ -170,14 +198,28 @@ export class BridgeService {
             : 'turn-complete'
           : null
     if (!mapped) return
-    try {
-      const title = this.titleFor(ev.sessionId)?.slice(0, 60)
-      this.ws.send(
-        JSON.stringify({ t: 'notify', kind: mapped, sessionId: ev.sessionId, ...(title ? { title } : {}) })
-      )
-    } catch {
-      // best-effort; a lost push signal is not worth a reconnect cycle
-    }
+    const focused = BrowserWindow.getAllWindows().some((w) => w.isFocused())
+    // you're looking at the desktop: a finished turn needs no phone buzz at
+    // all; a pending approval still escalates, just on a longer fuse
+    if (focused && mapped !== 'needs-approval') return
+    const delay = focused ? NOTIFY_DELAY_FOCUSED_APPROVAL_MS : NOTIFY_DELAY_MS
+    this.cancelNotify(ev.sessionId)
+    const sessionId = ev.sessionId
+    this.pendingNotifies.set(
+      sessionId,
+      setTimeout(() => {
+        this.pendingNotifies.delete(sessionId)
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+        try {
+          const title = this.titleFor(sessionId)?.slice(0, 60)
+          this.ws.send(
+            JSON.stringify({ t: 'notify', kind: mapped, sessionId, ...(title ? { title } : {}) })
+          )
+        } catch {
+          // best-effort; a lost push signal is not worth a reconnect cycle
+        }
+      }, delay)
+    )
   }
 
   onSessionUpdated(session: SessionMeta): void {
@@ -186,6 +228,7 @@ export class BridgeService {
 
   dispose(): void {
     this.disposed = true
+    this.cancelNotify()
     this.disconnect()
     this.syncKeepAwake()
   }

@@ -82,9 +82,33 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       app.dock.setBadge(finishedUnseen.size ? String(finishedUnseen.size) : '')
   }
   app.on('browser-window-focus', () => {
+    // focusing the desktop = you'll see everything → phones clear + any
+    // held pushes die (approval holds keep their own resolution-based cancel)
+    if (finishedUnseen.size) bridgeService?.sendSeen([...finishedUnseen])
+    bridgeService?.cancelNotify()
     finishedUnseen.clear()
     updateBadge()
   })
+  // every surface that marks a session seen funnels here: badge, banners,
+  // held pushes, and the other devices' bells all clear together
+  const seenOnDesktop = (sessionId: string, broadcast: boolean): void => {
+    finishedUnseen.delete(sessionId)
+    updateBadge()
+    for (const n of liveNotes.get(sessionId) ?? []) {
+      try {
+        n.close()
+      } catch {
+        /* already gone */
+      }
+    }
+    liveNotes.delete(sessionId)
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('session-seen', sessionId)
+    }
+    if (broadcast) bridgeService?.sendSeen([sessionId])
+    else bridgeService?.cancelNotify(sessionId)
+  }
+  ipcMain.handle('sessions:opened', (_e, sessionId: string) => seenOnDesktop(sessionId, true))
   const maybeNotify = (ev: SessionEvent): void => {
     // notify on finished turns AND on permission requests — a blocked agent
     // waiting for approval while hang4r is in the background is the worst
@@ -320,21 +344,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       setSessionModel: (sessionId: string, model: string) => sessions.setModel(sessionId, model),
       setSessionPermissionMode: (sessionId: string, mode: PermissionMode) =>
         sessions.setPermissionMode(sessionId, mode),
-      markSeen: (sessionId: string) => {
-        finishedUnseen.delete(sessionId)
-        updateBadge()
-        for (const n of liveNotes.get(sessionId) ?? []) {
-          try {
-            n.close()
-          } catch {
-            /* already gone */
-          }
-        }
-        liveNotes.delete(sessionId)
-        for (const win of BrowserWindow.getAllWindows()) {
-          win.webContents.send('session-seen', sessionId)
-        }
-      }
+      markSeen: (sessionId: string) => seenOnDesktop(sessionId, true)
     },
     app.getVersion(),
     (s) => {

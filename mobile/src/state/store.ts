@@ -162,6 +162,11 @@ function startClient(url: string): BridgeClient | null {
         return next
       })
     },
+    onSeen: (sessionId: string) => {
+      const app = useApp.getState()
+      app.markSeen(sessionId)
+      useApp.setState((s) => ({ attention: { ...s.attention, [sessionId]: false } }))
+    },
     onSessionUpdated: (session: SessionMeta) => {
       useApp.setState((s) => ({
         sessions: s.sessions.some((x) => x.id === session.id)

@@ -1055,6 +1055,24 @@ function PhoneBridge(): JSX.Element {
       </Field>
       {status?.enabled && (
         <>
+          <Field label="While enabled">
+            <div className="notify-option">
+              <label className="notify-toggle">
+                <input
+                  type="checkbox"
+                  checked={status.keepAwake}
+                  onChange={(e) =>
+                    void window.hang4r.bridgeSetKeepAwake(e.target.checked).then(setStatus)
+                  }
+                />
+                Keep this Mac awake so the phone can always reach it
+              </label>
+              <p className="notify-hint">
+                Blocks system sleep only — the display still sleeps normally. A sleeping Mac is
+                unreachable from your phone.
+              </p>
+            </div>
+          </Field>
           <Field label="Status">
             <p className="settings-note">
               Relay: {status.relayConnected ? '🟢 connected' : '🔴 connecting…'} · Phone:{' '}

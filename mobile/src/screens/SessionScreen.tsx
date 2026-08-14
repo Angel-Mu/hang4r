@@ -3,7 +3,7 @@ import { Icon } from '@shared/icons'
 import { useApp } from '../state/store'
 import type { Block, Item } from '../state/transcript'
 import { Markdown } from '../components/Markdown'
-import { useSwipeBack } from '../hooks/useSwipeBack'
+import { useNav } from '../components/PushScreen'
 import { DiffPanel } from './DiffPanel'
 
 function ToolChip({ block }: { block: Extract<Block, { type: 'tool' }> }): JSX.Element {
@@ -186,16 +186,15 @@ export function SessionScreen(): JSX.Element {
   const session = useApp((s) => s.sessions.find((x) => x.id === id))
   const transcript = useApp((s) => s.transcripts[id])
   const loading = useApp((s) => s.transcriptLoading)
-  const close = useApp((s) => s.closeSession)
   const sendPrompt = useApp((s) => s.sendPrompt)
   const interrupt = useApp((s) => s.interrupt)
   const conn = useApp((s) => s.conn)
+  const nav = useNav()
   const [draft, setDraft] = useState('')
   const [view, setView] = useState<'chat' | 'diff'>('chat')
   const [nearBottom, setNearBottom] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const rootRef = useSwipeBack<HTMLDivElement>(close)
   const itemCount = transcript?.items.length ?? 0
 
   const scrollToBottom = (smooth = false): void => {
@@ -234,26 +233,26 @@ export function SessionScreen(): JSX.Element {
     void sendPrompt(text)
   }
 
+  const scrollToTop = (): void => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   return (
-    <div className="screen session-screen" ref={rootRef}>
-      <header className="topbar" onClick={() => scrollToBottom(false)}>
+    <div className="screen session-screen">
+      {/* the status-bar zone is inside the webview (viewport-fit=cover) but
+          outside the header — this strip restores iOS's tap-to-top there */}
+      <button className="statusbar-tap" aria-hidden="true" tabIndex={-1} onClick={scrollToTop} />
+      <header className="topbar" onClick={scrollToTop}>
         <button
           className="btn btn-ghost back-btn"
           onClick={(e) => {
             e.stopPropagation()
-            close()
+            nav.back()
           }}
         >
           ‹ Back
         </button>
-        <button
-          className="topbar-title topbar-session topbar-title-btn"
-          title="Scroll to top"
-          onClick={(e) => {
-            e.stopPropagation()
-            scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
-          }}
-        >
+        <button className="topbar-title topbar-session topbar-title-btn" onClick={scrollToTop}>
           {session?.title ?? '…'}
         </button>
         <button

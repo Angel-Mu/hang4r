@@ -5,6 +5,25 @@ import { applyEvent, emptyTranscript, type Transcript } from './transcript'
 
 const PAIRING_KEY = 'h4.pairing'
 const APNS_KEY = 'h4.apnsToken'
+const TEXT_KEY = 'h4.textScale'
+const HOME_CACHE_KEY = 'h4.homeCache'
+
+/** last successful projects+sessions snapshot — the home screen must show
+ *  something useful when the desktop is off, not a void with a timeout */
+function loadHomeCache(): { projects: Project[]; sessions: SessionMeta[] } {
+  try {
+    const raw = localStorage.getItem(HOME_CACHE_KEY)
+    if (raw) return JSON.parse(raw) as { projects: Project[]; sessions: SessionMeta[] }
+  } catch {
+    // corrupt cache — start empty
+  }
+  return { projects: [], sessions: [] }
+}
+
+export type TextScale = 's' | 'm' | 'l'
+function applyTextScale(scale: TextScale): void {
+  document.documentElement.dataset.textscale = scale
+}
 
 export type Screen = 'home' | 'new' | 'usage' | 'settings'
 
@@ -19,9 +38,14 @@ interface AppState {
   transcriptLoading: boolean
   /** sessions that hit permission/question/turn-complete while not open */
   attention: Record<string, boolean>
+  /** unresolved permission/question requests per session — drives the
+   *  "needs you" badge in the list without opening the conversation */
+  pendingApprovals: Record<string, number>
   error: string | null
   /** push registration outcome, surfaced in Settings so failures aren't silent */
   pushStatus: string
+  textScale: TextScale
+  setTextScale(scale: TextScale): void
 
   pair(url: string): boolean
   unpair(): void
@@ -61,7 +85,7 @@ function startClient(url: string): BridgeClient | null {
   const savedToken = localStorage.getItem(APNS_KEY)
   const c = BridgeClient.fromUrl(url, {
     onState: (conn) => {
-      useApp.setState({ conn })
+      useApp.setState(conn === 'online' ? { conn, error: null } : { conn })
       if (conn === 'online') {
         void useApp.getState().refresh()
         void useApp.getState().reloadOpenTranscript()
@@ -81,6 +105,17 @@ function startClient(url: string): BridgeClient | null {
         ) {
           next.attention = { ...s.attention, [ev.sessionId]: true }
         }
+        if (kind === 'permission-request' || kind === 'question-request') {
+          next.pendingApprovals = {
+            ...s.pendingApprovals,
+            [ev.sessionId]: (s.pendingApprovals[ev.sessionId] ?? 0) + 1
+          }
+        } else if (kind === 'permission-resolved' || kind === 'question-resolved') {
+          next.pendingApprovals = {
+            ...s.pendingApprovals,
+            [ev.sessionId]: Math.max(0, (s.pendingApprovals[ev.sessionId] ?? 0) - 1)
+          }
+        }
         return next
       })
     },
@@ -97,18 +132,28 @@ function startClient(url: string): BridgeClient | null {
   return c
 }
 
+const homeCache = loadHomeCache()
+
 export const useApp = create<AppState>((set, get) => ({
   pairingUrl: localStorage.getItem(PAIRING_KEY),
   conn: 'idle',
   screen: 'home',
-  projects: [],
-  sessions: [],
+  projects: homeCache.projects,
+  sessions: homeCache.sessions,
   openSessionId: null,
   transcripts: {},
   transcriptLoading: false,
   attention: {},
+  pendingApprovals: {},
   error: null,
   pushStatus: 'not requested',
+  textScale: (localStorage.getItem(TEXT_KEY) as TextScale) || 'm',
+
+  setTextScale(scale: TextScale): void {
+    localStorage.setItem(TEXT_KEY, scale)
+    applyTextScale(scale)
+    set({ textScale: scale })
+  },
 
   setScreen(screen: Screen): void {
     set({ screen })
@@ -168,6 +213,7 @@ export const useApp = create<AppState>((set, get) => ({
     client?.stop()
     client = null
     localStorage.removeItem(PAIRING_KEY)
+    localStorage.removeItem(HOME_CACHE_KEY)
     set({
       pairingUrl: null,
       conn: 'idle',
@@ -175,7 +221,8 @@ export const useApp = create<AppState>((set, get) => ({
       sessions: [],
       openSessionId: null,
       transcripts: {},
-      attention: {}
+      attention: {},
+      pendingApprovals: {}
     })
   },
 
@@ -186,19 +233,33 @@ export const useApp = create<AppState>((set, get) => ({
         bridge().call<SessionMeta[]>('listSessions')
       ])
       set({ projects, sessions, error: null })
+      try {
+        localStorage.setItem(HOME_CACHE_KEY, JSON.stringify({ projects, sessions }))
+      } catch {
+        // cache write is best-effort (quota)
+      }
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) })
+      // a failed refresh while the desktop is unreachable is the EXPECTED
+      // state, already communicated by the offline banner — an error line
+      // ("listProjects timed out") on top of it is just noise
+      if (get().conn === 'online') {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
     }
   },
 
   async openSession(id: string): Promise<void> {
     const prev = get().openSessionId
     if (prev && prev !== id) bridge().unsub(prev)
+    // cached transcript shows instantly; the fetch below replaces it when it
+    // lands. Only a first-ever open gets the skeleton — reopening a slow
+    // conversation must never cost the full load twice.
+    const cached = get().transcripts[id]
     set((s) => ({
       openSessionId: id,
-      transcriptLoading: true,
+      transcriptLoading: !cached,
       attention: { ...s.attention, [id]: false },
-      transcripts: { ...s.transcripts, [id]: emptyTranscript() }
+      transcripts: cached ? s.transcripts : { ...s.transcripts, [id]: emptyTranscript() }
     }))
     bridge().sub(id)
     try {
@@ -213,7 +274,17 @@ export const useApp = create<AppState>((set, get) => ({
         if (s.openSessionId !== id) return {}
         const t = emptyTranscript()
         for (const ev of events) applyEvent(t, ev)
-        return { transcripts: { ...s.transcripts, [id]: t }, transcriptLoading: false }
+        // full replay is the truth — recompute the badge from actually
+        // unresolved cards instead of trusting the live-event counter
+        const pending = t.items.filter(
+          (it) =>
+            (it.kind === 'permission' && !it.decision) || (it.kind === 'question' && !it.answered)
+        ).length
+        return {
+          transcripts: { ...s.transcripts, [id]: t },
+          transcriptLoading: false,
+          pendingApprovals: { ...s.pendingApprovals, [id]: pending }
+        }
       })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err), transcriptLoading: false })
@@ -256,3 +327,4 @@ if (savedPairing) {
   client = startClient(savedPairing)
   if (!client) localStorage.removeItem(PAIRING_KEY)
 }
+applyTextScale(useApp.getState().textScale)

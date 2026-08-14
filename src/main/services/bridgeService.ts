@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, randomUUID } from 'crypto'
+import { powerSaveBlocker } from 'electron'
 import {
   DEFAULT_RELAY_URL,
   HKDF_INFO_E2E,
@@ -25,6 +26,7 @@ const ID_KEY = 'bridgeIdentityV1'
 const ENABLED_KEY = 'bridgeEnabledV1'
 const NEEDS_RESET_KEY = 'bridgeNeedsResetV1'
 const RELAY_URL_KEY = 'bridgeRelayUrlV1'
+const KEEP_AWAKE_KEY = 'bridgeKeepAwakeV1'
 
 const PING_MS = 25_000
 const BACKOFF_MIN_MS = 1_000
@@ -49,6 +51,7 @@ export class BridgeService {
   private disposed = false
   private relayConnected = false
   private phoneConnected = false
+  private psbId: number | null = null
 
   constructor(
     private settings: SettingsLike,
@@ -57,10 +60,34 @@ export class BridgeService {
     private onStatus: (s: BridgeStatus) => void
   ) {
     if (this.enabled) this.connect()
+    this.syncKeepAwake()
   }
 
   get enabled(): boolean {
     return this.settings.getSetting(ENABLED_KEY) === '1'
+  }
+
+  get keepAwake(): boolean {
+    return this.settings.getSetting(KEEP_AWAKE_KEY) !== '0'
+  }
+
+  setKeepAwake(on: boolean): void {
+    this.settings.setSetting(KEEP_AWAKE_KEY, on ? '1' : '0')
+    this.syncKeepAwake()
+    this.emitStatus()
+  }
+
+  /** A sleeping Mac is unreachable from the phone — while the bridge is on
+   *  (and the user hasn't opted out) hold a system-sleep block. Display sleep
+   *  is untouched; this only keeps the machine itself awake. */
+  private syncKeepAwake(): void {
+    const want = this.enabled && this.keepAwake && !this.disposed
+    if (want && this.psbId === null) {
+      this.psbId = powerSaveBlocker.start('prevent-app-suspension')
+    } else if (!want && this.psbId !== null) {
+      powerSaveBlocker.stop(this.psbId)
+      this.psbId = null
+    }
   }
 
   relayUrl(): string {
@@ -75,7 +102,8 @@ export class BridgeService {
       relayConnected: this.relayConnected,
       phoneConnected: this.phoneConnected,
       deviceId: this.enabled ? this.identity().deviceId : null,
-      relayUrl: this.relayUrl()
+      relayUrl: this.relayUrl(),
+      keepAwake: this.keepAwake
     }
   }
 
@@ -83,6 +111,7 @@ export class BridgeService {
     this.settings.setSetting(ENABLED_KEY, on ? '1' : '0')
     if (on) this.connect()
     else this.disconnect()
+    this.syncKeepAwake()
     return this.status()
   }
 
@@ -154,6 +183,7 @@ export class BridgeService {
   dispose(): void {
     this.disposed = true
     this.disconnect()
+    this.syncKeepAwake()
   }
 
   private identity(): BridgeIdentity {

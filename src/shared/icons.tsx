@@ -45,6 +45,7 @@ export type IconName =
   | 'check'
   | 'gauge'
   | 'arrow-down'
+  | 'gear'
 
 // Monochrome line icons (Lucide-style), stroke = currentColor. Professional,
 // theme-aware, and crisp at small sizes — replaces the emoji we used before.
@@ -60,6 +61,14 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <line x1="12" y1="4" x2="12" y2="19" />
       <polyline points="6 13 12 19 18 13" />
+    </>
+  ),
+  // gear: unmistakable cog (the abstract 'settings' glyph read as a mystery
+  // icon on the phone — Angel guessed it was a theme toggle)
+  gear: (
+    <>
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.98 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.98a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01c.26.63.87 1.04 1.55 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.95Z" />
     </>
   ),
   pin: (

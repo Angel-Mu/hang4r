@@ -313,6 +313,10 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   )
   ipcMain.handle('bridge:status', () => bridgeService!.status())
   ipcMain.handle('bridge:set-enabled', (_e, on: boolean) => bridgeService!.setEnabled(on))
+  ipcMain.handle('bridge:set-keep-awake', (_e, on: boolean) => {
+    bridgeService!.setKeepAwake(on)
+    return bridgeService!.status()
+  })
   ipcMain.handle('bridge:pairing', async () => {
     const url = bridgeService!.pairingUrl()
     return { url, qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 560 }) }

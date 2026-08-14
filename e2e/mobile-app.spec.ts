@@ -130,7 +130,7 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   await phone.click('.view-toggle')
 
   // start a brand-new session from the phone
-  await phone.click('.topbar .btn-ghost') // ‹ Back → home
+  await phone.click('.push-screen .back-btn') // ‹ Back → home (panel slides out)
   await phone.click('.topbar-new')
   await expect(phone.locator('.form-screen')).toBeVisible()
   await phone.selectOption('.form-field >> nth=0', project.id)
@@ -145,7 +145,7 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
     .toBe(2)
 
   // settings screen shows the paired computer online
-  await phone.click('.topbar .btn-ghost') // back home
+  await phone.click('.push-screen .back-btn') // back home (panel slides out)
   await phone.click('[aria-label="Settings"]')
   await expect(phone.locator('.usage-card').first()).toContainText('online', { timeout: 15_000 })
 })

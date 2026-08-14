@@ -126,8 +126,17 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   await expect(fileRow).toBeVisible({ timeout: 15_000 })
   await fileRow.click()
   await expect(phone.locator('.diff-view')).toContainText('fromPhoneTest', { timeout: 15_000 })
-  await phone.click('.diff-back')
+  // review comment from the phone: tap a line, comment, send — the desktop
+  // turns it into a follow-up prompt (a new turn)
+  await phone.locator('.diff-line-tappable').first().click()
+  await phone.fill('.diff-compose textarea', 'please rename this export')
+  await phone.click('.diff-compose .btn-primary')
+  await phone.click('.review-bar .btn-primary')
+  await expect(phone.locator('.review-bar')).toHaveCount(0, { timeout: 15_000 })
   await phone.click('.view-toggle')
+  await expect(phone.locator('.msg-user').last()).toContainText('please rename this export', {
+    timeout: 30_000
+  })
 
   // start a brand-new session from the phone
   await phone.click('.push-screen .back-btn') // ‹ Back → home (panel slides out)

@@ -295,6 +295,8 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       scopedFiles: (sessionId: string, scope: DiffScope) => sessions.scopedFiles(sessionId, scope),
       scopedDiff: (sessionId: string, scope: DiffScope, path: string, ignoreWs?: boolean) =>
         sessions.scopedDiff(sessionId, scope, path, ignoreWs),
+      submitReview: (sessionId: string, comments: ReviewComment[]) =>
+        sessions.submitReview(sessionId, comments),
       claudeUsage: (force?: boolean) =>
         UsageService.claudeUsage(settings.getSetting('claudeBinaryPath'), force, usagePersist),
       codexUsage: (force?: boolean) =>

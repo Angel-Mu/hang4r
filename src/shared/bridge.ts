@@ -98,6 +98,7 @@ export const BRIDGE_METHODS = [
   'scopeSummary',
   'scopedFiles',
   'scopedDiff',
+  'submitReview',
   'claudeUsage',
   'codexUsage',
   'cursorUsage',

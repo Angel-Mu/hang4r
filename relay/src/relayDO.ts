@@ -61,15 +61,25 @@ export class RelayDO extends DurableObject {
 
     const pair = new WebSocketPair()
     this.ctx.acceptWebSocket(pair[1], [role])
+    if (role === 'desktop') await this.ctx.storage.put('desktopSeenAt', Date.now())
     this.notifyPresence()
+    // while phones are watching, wake periodically to catch a desktop that
+    // died without a TCP goodbye (power-off, kernel panic, network yank)
+    if (this.sockets('client').length > 0) await this.ctx.storage.setAlarm(Date.now() + 35_000)
     return new Response(null, { status: 101, webSocket: pair[0] })
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const role = this.roleOf(ws)
-    // liveness watermark: an iOS-frozen client socket stays "open" while
-    // sending nothing — only actual frames prove a phone is really there
-    if (role === 'client') await this.ctx.storage.put('clientSeenAt', Date.now())
+    // liveness watermarks: a frozen phone OR an abruptly powered-off desktop
+    // leaves an "open" socket that sends nothing — only frames prove life.
+    // The desktop pings every 25s, awake phones every 25s.
+    if (role === 'client') {
+      await this.ctx.storage.put('clientSeenAt', Date.now())
+      await this.checkDesktopStale()
+    } else {
+      await this.ctx.storage.put('desktopSeenAt', Date.now())
+    }
     if (typeof message === 'string') {
       await this.onControlFrame(role, message)
       return
@@ -178,6 +188,32 @@ export class RelayDO extends DurableObject {
 
   webSocketClose(ws: WebSocket): void {
     this.notifyPresence(ws)
+  }
+
+  async alarm(): Promise<void> {
+    await this.checkDesktopStale()
+    if (this.sockets('client').length > 0) {
+      await this.ctx.storage.setAlarm(Date.now() + 35_000)
+    }
+  }
+
+  /** A desktop socket that hasn't produced a frame in 40s is a corpse: tell
+   *  the phones the truth and close it so a live desktop can reconnect. */
+  private async checkDesktopStale(): Promise<void> {
+    const desktops = this.sockets('desktop')
+    if (desktops.length === 0) return
+    const seenAt = (await this.ctx.storage.get<number>('desktopSeenAt')) ?? 0
+    if (Date.now() - seenAt < 40_000) return
+    for (const ws of desktops) {
+      try {
+        ws.close(4001, 'no frames for 40s — presumed dead')
+      } catch {
+        // closing a corpse still fires webSocketClose → presence update
+      }
+    }
+    for (const ws of this.sockets('client')) {
+      this.sendText(ws, { t: 'peer', connected: false })
+    }
   }
 
   webSocketError(ws: WebSocket): void {

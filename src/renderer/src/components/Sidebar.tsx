@@ -80,6 +80,7 @@ export function Sidebar(): JSX.Element {
   const openNewSession = useHang4r((s) => s.openNewSessionDialog)
   const openSession = useHang4r((s) => s.openSession)
   const archiveSession = useHang4r((s) => s.archiveSession)
+  const deleteSession = useHang4r((s) => s.deleteSession)
   const duplicateSession = useHang4r((s) => s.duplicateSession)
   const handoffToBackend = useHang4r((s) => s.handoffToBackend)
   const retrySession = useHang4r((s) => s.retrySession)
@@ -151,7 +152,8 @@ export function Sidebar(): JSX.Element {
       { label: 'Retry Last Message', onClick: () => void retrySession(id) },
       ...worktreeItems,
       { separator: true, label: '' },
-      { label: 'Archive', danger: true, onClick: () => void archiveSession(id) }
+      { label: 'Archive', danger: true, onClick: () => void archiveSession(id) },
+      { label: 'Delete permanently…', danger: true, onClick: () => void deleteSession(id) }
     ])
   }
 

@@ -517,6 +517,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     sessions.releaseForExternal(sessionId)
   )
   ipcMain.handle('sessions:archive', (_e, sessionId: string) => sessions.archive(sessionId))
+  ipcMain.handle('sessions:delete', (_e, sessionId: string) => sessions.deleteSession(sessionId))
   ipcMain.handle('sessions:drop-worktree', (_e, sessionId: string) =>
     sessions.dropWorktree(sessionId)
   )

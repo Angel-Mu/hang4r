@@ -225,29 +225,36 @@ function ChatViewImpl({
       }}
     >
       <div className="chat-col">
+        {/* Each unit is wrapped so `content-visibility: auto` (see .chat-unit)
+            lets the browser skip layout/paint of off-screen messages — a
+            20k-event transcript that pegged the renderer now renders only
+            what's on screen. The DOM stays intact, so ⌘F find, scroll height,
+            and jump-to-latest are unaffected. */}
         {units.map((u, i) => {
           if (u.kind === 'activity') {
             const isTail = i === units.length - 1
             return (
-              <ActivityGroup
-                key={`act-${u.index}`}
-                items={u.items}
-                durationMs={u.durationMs}
-                defaultOpen={isTail && running}
-                sessionId={sessionId}
-              />
+              <div className="chat-unit" key={`act-${u.index}`}>
+                <ActivityGroup
+                  items={u.items}
+                  durationMs={u.durationMs}
+                  defaultOpen={isTail && running}
+                  sessionId={sessionId}
+                />
+              </div>
             )
           }
           return (
-            <TranscriptItemView
-              key={unitKey(u.item, u.index)}
-              item={u.item}
-              sessionId={sessionId}
-              userOccurrence={u.item.type === 'user' ? userOccurrences.get(u.item) : undefined}
-              subagentLabel={
-                u.item.type === 'permission' ? subagentLabelForPermission(items, u.item) : null
-              }
-            />
+            <div className="chat-unit" key={unitKey(u.item, u.index)}>
+              <TranscriptItemView
+                item={u.item}
+                sessionId={sessionId}
+                userOccurrence={u.item.type === 'user' ? userOccurrences.get(u.item) : undefined}
+                subagentLabel={
+                  u.item.type === 'permission' ? subagentLabelForPermission(items, u.item) : null
+                }
+              />
+            </div>
           )
         })}
         {running && <div className="chat-working">Working…</div>}

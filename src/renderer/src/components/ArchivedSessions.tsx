@@ -15,6 +15,7 @@ export function ArchivedSessions(): JSX.Element | null {
   const open = useHang4r((s) => s.archivedOpen)
   const close = useHang4r((s) => s.setArchivedOpen)
   const unarchive = useHang4r((s) => s.unarchiveSession)
+  const deleteSession = useHang4r((s) => s.deleteSession)
   const projects = useHang4r((s) => s.projects)
   const [items, setItems] = useState<SessionMeta[]>([])
   const [query, setQuery] = useState('')
@@ -48,6 +49,13 @@ export function ArchivedSessions(): JSX.Element | null {
     setItems((cur) => cur.filter((s) => s.id !== id))
   }
 
+  // deleteSession shows its own confirm and no-ops if declined; re-fetch so the
+  // list reflects reality either way.
+  const remove = async (id: string): Promise<void> => {
+    await deleteSession(id)
+    setItems(await window.hang4r.listArchivedSessions())
+  }
+
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close(false)}>
       <div className="dialog archived-dialog">
@@ -76,6 +84,13 @@ export function ArchivedSessions(): JSX.Element | null {
               </span>
               <button className="ghost-btn archived-restore" onClick={() => void restore(s.id)}>
                 Restore
+              </button>
+              <button
+                className="ghost-btn archived-delete"
+                title="Delete permanently"
+                onClick={() => void remove(s.id)}
+              >
+                Delete
               </button>
             </div>
           ))}

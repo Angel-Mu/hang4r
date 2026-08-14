@@ -21,8 +21,10 @@ test.afterEach(async () => {
 
 test('an out-of-tree file opens as an editable tab (no modal); ⌘S writes it back', async () => {
   extDir = mkdtempSync(join(tmpdir(), 'hang4r-ext-'))
-  const extFile = join(extDir, 'external.csv') // OUTSIDE the session's worktree
-  writeFileSync(extFile, 'name,value\nalpha,1\n')
+  // a plain-text file (NOT .csv — CSV opens as the Table preview, covered by
+  // csv-preview.spec) to test the generic out-of-tree editable-tab + ⌘S path
+  const extFile = join(extDir, 'external.txt') // OUTSIDE the session's worktree
+  writeFileSync(extFile, 'alpha\nbeta\ngamma\n')
 
   launched = await launchApp()
   const { page } = launched
@@ -53,7 +55,7 @@ test('an out-of-tree file opens as an editable tab (no modal); ⌘S writes it ba
   await expect(editor).toBeVisible({ timeout: 10_000 })
   await expect(editor).toContainText('alpha')
   await expect(page.locator('.lightbox-backdrop')).toHaveCount(0)
-  await expect(tile.locator('.editor-tab', { hasText: 'external.csv' })).toBeVisible()
+  await expect(tile.locator('.editor-tab', { hasText: 'external.txt' })).toBeVisible()
 
   // edit at the top of the file and ⌘S → the real file on disk changes
   await editor.click()

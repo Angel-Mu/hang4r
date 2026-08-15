@@ -41,7 +41,16 @@ function tabTitle(t: BrowserTab): string {
  * mounted so switching tabs never reloads the page. ⌘W closes the active TAB
  * (scoped close) — never the pane, never the window.
  */
-export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
+export function BrowserPane({
+  sessionId,
+  visible = true
+}: {
+  sessionId: string
+  /** false when this pane's session/tab isn't the one on screen — it stays
+   *  MOUNTED (webview alive) but must not dock its native devtools view over
+   *  whatever tile IS showing (the layer positions it off-screen). */
+  visible?: boolean
+}): JSX.Element {
   const saved = useHang4r((s) => s.browserTabs[sessionId])
   const tabs = saved?.tabs ?? []
   const activeId = saved?.activeId ?? ''
@@ -504,7 +513,9 @@ export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
   // glued to the slot as the layout changes (resize, splits, sidebar toggle).
   // Re-runs on tab switch to re-target the new guest.
   useEffect(() => {
-    if (!devtoolsOpen) {
+    // hidden (session switched away, or panel closed) → tear the native devtools
+    // view down so it doesn't float over another tile; it re-docks when shown
+    if (!devtoolsOpen || !visible) {
       void window.hang4r.closeDevtools()
       return
     }
@@ -529,7 +540,7 @@ export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
       clearInterval(iv)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [devtoolsOpen, active?.id, active?.current])
+  }, [devtoolsOpen, active?.id, active?.current, visible])
 
   // switching this tile away from Browser unmounts the pane — tear down the
   // native devtools view so it doesn't hang over another panel
@@ -546,9 +557,9 @@ export function BrowserPane({ sessionId }: { sessionId: string }): JSX.Element {
   // yet — drop the cursor in the address bar so a fresh tab is immediately
   // typeable (Angel: ⌘L did nothing on a new blank tab)
   useEffect(() => {
-    if (isFocused && active && !active.current) urlInputRef.current?.focus()
+    if (isFocused && visible && active && !active.current) urlInputRef.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isFocused, active?.id, active?.current])
+  }, [isFocused, visible, active?.id, active?.current])
 
   // window-level browser keybindings for THIS pane while its session is focused
   // (only the active-context Browser pane is mounted, so this is the visible

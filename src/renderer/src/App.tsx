@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import type { UpdateStatus } from '../../shared/protocol'
 import { Sidebar } from './components/Sidebar'
 import { Workspace } from './components/Workspace'
+import { BrowserLayer } from './components/BrowserLayer'
 import { NewSessionDialog } from './components/NewSessionDialog'
 import { UsageBar } from './components/UsageBar'
 import { WorkingPanel } from './components/WorkingPanel'
@@ -374,6 +375,10 @@ export default function App(): JSX.Element {
         {expanded ? null : sidebarVisible ? <Sidebar /> : <SidebarRail />}
         <Workspace />
       </div>
+      {/* Persistent pool of browser <webview>s, overlaid on each tile's browser
+          slot. Mounted once here so it survives tile unmount/remount on session
+          switches — the page never reloads. */}
+      <BrowserLayer />
       <WorkingPanel />
       <NewSessionDialog />
       <CommandPalette />

@@ -24,7 +24,7 @@ import { SubagentInspector } from './SubagentInspector'
 import { BackgroundTasks } from './BackgroundTasks'
 import { HooksTimeline } from './HooksTimeline'
 import { EnvBrowser } from './EnvBrowser'
-import { BrowserPane } from './BrowserPane'
+import { BrowserSlot } from './BrowserLayer'
 import { AttachMenu } from './AttachMenu'
 import { MentionMenu, useMentionResults } from './MentionMenu'
 import { SlashMenu, slashResults, type SlashItem } from './SlashMenu'
@@ -283,10 +283,6 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   const transcript = useHang4r((s) => s.transcripts[sessionId])
   const focused = useHang4r((s) => s.focusedSessionId === sessionId)
   const expanded = useHang4r((s) => s.expandedSessionId === sessionId)
-  // once the Browser has been opened, keep its pane MOUNTED (hidden) across
-  // context-tab switches — the <webview> keeps its page/scroll/history only
-  // while mounted; unmounting reloads src and wiped everything (Angel, ~6×)
-  const hasBrowser = useHang4r((s) => !!s.browserTabs[sessionId])
   const focusSession = useHang4r((s) => s.focusSession)
   const openReviewFor = useHang4r((s) => s.openReviewFor)
   const toggleExpand = useHang4r((s) => s.toggleExpand)
@@ -946,8 +942,9 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
       case 'Processes':
         return <ProcessesPanel sessionId={sessionId} />
       case 'Browser':
-        // rendered separately (persistent mount) so switching tabs never
-        // unmounts + reloads the webview — see the context-body render below
+        // never reached: the Browser tab renders a <BrowserSlot> in the
+        // context-body (see below); the live pane is drawn by the app-level
+        // BrowserLayer so it survives this tile unmounting on a session switch
         return <></>
       case 'Subagents':
         return <SubagentInspector sessionId={sessionId} />
@@ -1470,20 +1467,16 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                   </button>
                 </div>
                 <div className="context-body">
-                  {/* Persistent Browser: kept MOUNTED (hidden when another tab
-                      is active) so its webview never reloads on a tab switch.
-                      Rendered once the browser has tabs, OR when it's the active
-                      tab (first open). Other panels remount cheaply, so they go
-                      through the normal switch. */}
-                  {(contextTab === 'Browser' || hasBrowser) && (
-                    <div
-                      className="context-persist"
-                      style={{ display: contextTab === 'Browser' ? 'flex' : 'none' }}
-                    >
-                      <BrowserPane sessionId={sessionId} />
-                    </div>
+                  {/* The real BrowserPane + <webview> lives in the app-level
+                      BrowserLayer, which OUTLIVES this tile (a session switch
+                      unmounts the tile — that used to destroy the webview and
+                      reload the page). Here we render only an empty SLOT; the
+                      layer overlays the kept-alive pane on top of it. */}
+                  {contextTab === 'Browser' ? (
+                    <BrowserSlot sessionId={sessionId} />
+                  ) : (
+                    contextView(contextTab)
                   )}
-                  {contextTab !== 'Browser' && contextView(contextTab)}
                 </div>
               </Panel>
             </>

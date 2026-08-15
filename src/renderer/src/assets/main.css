@@ -1810,6 +1810,34 @@ button:disabled {
   flex-direction: column;
   min-height: 0;
 }
+/* App-level persistent webview pool (see BrowserLayer). The layer itself is a
+   zero-size anchor; each .browser-overlay is position:fixed and glued by JS to
+   the on-screen browser SLOT of its tile, so the <webview> survives a session
+   switch (tile unmount) without reloading. Hidden overlays keep display:none
+   (set imperatively) but stay MOUNTED. z-index sits above tile content but below
+   every modal/menu (palette 50, ctx-menu 60, quit 100, lightbox 200, error 300). */
+.browser-layer {
+  position: fixed;
+  width: 0;
+  height: 0;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+.browser-overlay {
+  position: fixed;
+  z-index: 5;
+  display: none; /* toggled to flex + positioned by BrowserLayer's sync() */
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  pointer-events: auto;
+}
+/* empty stand-in the tile renders where the browser goes; the overlay covers it */
+.browser-slot {
+  flex: 1;
+  min-height: 0;
+}
 /* browser tab strip (Cursor-style): title + × per tab, + to open */
 .browser-tabs {
   display: flex;

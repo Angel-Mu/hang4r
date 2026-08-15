@@ -49,7 +49,11 @@ function visiblePane(): FocusPane {
       return !!el && el.offsetParent !== null
     }
     if (vis('.terminal-view')) return 'terminal'
-    if (vis('.browser-pane')) return 'browser'
+    // the live BrowserPane is drawn in the app-level BrowserLayer, not inside
+    // .context-panel — its empty placeholder SLOT stands in for it here so that
+    // opening the Browser tab immediately scopes ⌘L/⌘T/⌘R to the browser (before
+    // you've clicked into the pane). `.browser-pane` kept for older layouts.
+    if (vis('.browser-slot') || vis('.browser-pane')) return 'browser'
     if (vis('.files-view')) return 'editor'
   }
   return 'other'

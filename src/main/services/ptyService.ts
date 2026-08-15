@@ -36,6 +36,10 @@ export function resolveShell(override?: string): string {
  */
 /** cap on retained per-terminal scrollback replayed on re-attach */
 const RING_MAX = 256 * 1024
+/** grace after a group SIGTERM before we SIGKILL any straggler on a normal
+ *  dispose (tab close) — long enough for a dev server to flush and release its
+ *  port, short enough that a stuck one still dies promptly */
+const DISPOSE_GRACE_MS = 400
 
 export class PtyService {
   private ptys = new Map<string, IPty>()
@@ -249,21 +253,87 @@ export class PtyService {
     this.buffers.set(id, '')
   }
 
-  dispose(id: string): void {
-    const pty = this.ptys.get(id)
-    if (pty) {
+  /**
+   * Kill a pty's ENTIRE process group, not just the shell leader. node-pty runs
+   * the shell via forkpty→setsid, so the shell is a session/group leader
+   * (pgid == pty.pid) and its children — the `npm run dev` → node dev server that
+   * actually binds the port — share that group. `pty.kill()` signals ONLY the
+   * leader: a child that OBEYS SIGHUP then dies via the terminal-hangup cascade,
+   * but a child that installs a SIGHUP handler or detaches into its own worker
+   * survives and keeps the port bound (Angel: quit hang4r, the port stays
+   * occupied). Signalling the NEGATIVE pid hits the whole group, so even a
+   * SIGHUP-resistant dev server dies and the port frees. Returns true iff the
+   * group signal was actually sent (so the caller can schedule a follow-up).
+   */
+  private killGroup(pty: IPty, signal: NodeJS.Signals): boolean {
+    // Windows has no POSIX process groups; node-pty tears down the job object there
+    if (platform() === 'win32') {
       try {
         pty.kill()
       } catch {
-        // already dead
+        /* already dead */
       }
-      this.ptys.delete(id)
-      this.buffers.delete(id)
-      this.sizes.delete(id)
+      return false
+    }
+    const pid = pty.pid
+    // guard: a falsy/≤1 pid would make process.kill(-pid) signal our OWN group
+    // (or init) — never risk that; fall back to the leader-only kill
+    if (!pid || pid <= 1) {
+      try {
+        pty.kill()
+      } catch {
+        /* already dead */
+      }
+      return false
+    }
+    try {
+      process.kill(-pid, signal)
+      return true
+    } catch {
+      // ESRCH (group already gone) / EPERM — best-effort leader kill
+      try {
+        pty.kill()
+      } catch {
+        /* already dead */
+      }
+      return false
+    }
+  }
+
+  dispose(id: string): void {
+    const pty = this.ptys.get(id)
+    if (!pty) return
+    // drop bookkeeping up front so busyCount()/re-attach treat it as gone even
+    // while the process is still winding down from SIGTERM
+    this.ptys.delete(id)
+    this.commandPtys.delete(id)
+    this.buffers.delete(id)
+    this.sizes.delete(id)
+    const pid = pty.pid
+    // graceful: SIGTERM the whole group (let a dev server flush + release its
+    // port), then SIGKILL any straggler still alive after a short grace period
+    if (this.killGroup(pty, 'SIGTERM') && pid > 1) {
+      setTimeout(() => {
+        try {
+          process.kill(-pid, 'SIGKILL')
+        } catch {
+          /* group already gone */
+        }
+      }, DISPOSE_GRACE_MS)
     }
   }
 
   disposeAll(): void {
-    for (const id of [...this.ptys.keys()]) this.dispose(id)
+    // App-quit teardown: index.ts SIGKILLs the whole process IMMEDIATELY after
+    // this returns (to dodge node-pty's crash-on-teardown), so a deferred kill
+    // would never land. SIGKILL each process GROUP synchronously here so no dev
+    // server / port holder can outlive the app.
+    for (const [id, pty] of [...this.ptys]) {
+      this.ptys.delete(id)
+      this.commandPtys.delete(id)
+      this.buffers.delete(id)
+      this.sizes.delete(id)
+      this.killGroup(pty, 'SIGKILL')
+    }
   }
 }

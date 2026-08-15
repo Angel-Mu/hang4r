@@ -220,6 +220,7 @@ export function SessionScreen({
   const session = useApp((s) => s.sessions.find((x) => x.id === id))
   const transcript = useApp((s) => s.transcripts[id])
   const loading = useApp((s) => s.transcriptLoading)
+  const stale = useApp((s) => s.transcriptStale)
   const sendPrompt = useApp((s) => s.sendPrompt)
   const interrupt = useApp((s) => s.interrupt)
   const conn = useApp((s) => s.conn)
@@ -339,8 +340,26 @@ export function SessionScreen({
       ) : (
         <div className="transcript-wrap">
           <div className="transcript" ref={scrollRef} onScroll={onScroll}>
+            {itemCount > 0 && stale && (
+              <p className="stale-note">
+                {conn === 'online'
+                  ? 'Reloading this conversation…'
+                  : 'Offline — showing the last known conversation.'}
+              </p>
+            )}
             {loading && itemCount === 0 && <TranscriptSkeleton />}
-            {!loading && itemCount === 0 && (
+            {!loading && itemCount === 0 && conn !== 'online' && (
+              <p className="empty-note">
+                Your computer isn&apos;t reachable right now — this conversation loads the moment
+                it reconnects.
+              </p>
+            )}
+            {!loading && itemCount === 0 && conn === 'online' && stale && (
+              <p className="empty-note">
+                Couldn&apos;t load this conversation — retrying automatically.
+              </p>
+            )}
+            {!loading && itemCount === 0 && conn === 'online' && !stale && (
               <p className="empty-note">
                 Nothing recorded in this conversation yet. If it was driven outside hang4r, its
                 history syncs in the next time the agent takes a turn.

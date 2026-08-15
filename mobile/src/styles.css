@@ -1453,3 +1453,11 @@ html.kb-open .split-master {
   max-height: 180px;
   border-radius: 10px;
 }
+
+/* ---- round 15: stale-transcript banner ---- */
+.stale-note {
+  font-size: 12px;
+  color: var(--amber);
+  text-align: center;
+  padding: 2px 0 6px;
+}

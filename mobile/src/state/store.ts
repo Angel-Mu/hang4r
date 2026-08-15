@@ -29,9 +29,61 @@ function applyTheme(pref: ThemePref): void {
 }
 systemDark.addEventListener('change', () => applyTheme(useApp.getState().theme))
 const HOME_CACHE_KEY = 'h4.homeCache'
+const TRANSCRIPT_CACHE_KEY = 'h4.transcripts.v1'
+const TRANSCRIPT_CACHE_MAX_SESSIONS = 10
+const TRANSCRIPT_CACHE_MAX_ITEMS = 150
 
 /** last successful projects+sessions snapshot — the home screen must show
  *  something useful when the desktop is off, not a void with a timeout */
+type CachedTranscripts = Record<string, Transcript & { savedAt: number }>
+
+function loadTranscriptCache(): Record<string, Transcript> {
+  try {
+    const raw = localStorage.getItem(TRANSCRIPT_CACHE_KEY)
+    if (raw) {
+      const cached = JSON.parse(raw) as CachedTranscripts
+      const out: Record<string, Transcript> = {}
+      for (const [id, t] of Object.entries(cached)) {
+        out[id] = { items: t.items, lastSeq: t.lastSeq, plan: t.plan ?? [], ctxTokens: t.ctxTokens, ctxWindow: t.ctxWindow }
+      }
+      return out
+    }
+  } catch {
+    // corrupt cache — start empty
+  }
+  return {}
+}
+
+/** Cold starts (notification taps!) must show the conversation instantly:
+ *  persist a trimmed copy — last N items, images stripped (base64 bulk),
+ *  most-recent sessions only, quota-tolerant. */
+function saveTranscriptCache(id: string, t: Transcript): void {
+  try {
+    const raw = localStorage.getItem(TRANSCRIPT_CACHE_KEY)
+    const cached: CachedTranscripts = raw ? (JSON.parse(raw) as CachedTranscripts) : {}
+    const items = t.items.slice(-TRANSCRIPT_CACHE_MAX_ITEMS).map((it) =>
+      it.kind === 'user' && it.images?.length ? { ...it, images: undefined } : it
+    )
+    cached[id] = { items, lastSeq: t.lastSeq, plan: t.plan, ctxTokens: t.ctxTokens, ctxWindow: t.ctxWindow, savedAt: Date.now() }
+    const ids = Object.entries(cached)
+      .sort((a, b) => b[1].savedAt - a[1].savedAt)
+      .slice(0, TRANSCRIPT_CACHE_MAX_SESSIONS)
+    const trimmed: CachedTranscripts = Object.fromEntries(ids)
+    try {
+      localStorage.setItem(TRANSCRIPT_CACHE_KEY, JSON.stringify(trimmed))
+    } catch {
+      // quota: drop everything but this session and retry once
+      try {
+        localStorage.setItem(TRANSCRIPT_CACHE_KEY, JSON.stringify({ [id]: cached[id] }))
+      } catch {
+        // still no — live without the cache
+      }
+    }
+  } catch {
+    // cache is best-effort
+  }
+}
+
 function loadHomeCache(): { projects: Project[]; sessions: SessionMeta[] } {
   try {
     const raw = localStorage.getItem(HOME_CACHE_KEY)
@@ -58,6 +110,8 @@ interface AppState {
   openSessionId: string | null
   transcripts: Record<string, Transcript>
   transcriptLoading: boolean
+  /** showing cached/none while the live fetch failed or the link is down */
+  transcriptStale: boolean
   /** sessions that hit permission/question/turn-complete while not open */
   attention: Record<string, boolean>
   /** unresolved permission/question requests per session — drives the
@@ -189,8 +243,9 @@ export const useApp = create<AppState>((set, get) => ({
   projects: homeCache.projects,
   sessions: homeCache.sessions,
   openSessionId: null,
-  transcripts: {},
+  transcripts: loadTranscriptCache(),
   transcriptLoading: false,
+  transcriptStale: false,
   attention: {},
   pendingApprovals: {},
   pinned: loadJson<string[]>(PINS_KEY, []),
@@ -260,11 +315,9 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   openSessionWhenReady(id: string): void {
-    if (get().conn === 'online') {
-      void get().openSession(id)
-    } else {
-      pendingOpen = id
-    }
+    // open NOW even when offline: the persisted cache renders instantly and
+    // the 'online' transition replays the live transcript automatically
+    void get().openSession(id)
   },
 
   async reloadOpenTranscript(): Promise<void> {
@@ -279,7 +332,8 @@ export const useApp = create<AppState>((set, get) => ({
         if (s.openSessionId !== id) return {}
         const t = emptyTranscript()
         for (const ev of events) applyEvent(t, ev)
-        return { transcripts: { ...s.transcripts, [id]: t }, transcriptLoading: false }
+        saveTranscriptCache(id, t)
+        return { transcripts: { ...s.transcripts, [id]: t }, transcriptLoading: false, transcriptStale: false }
       })
     } catch {
       // resume with no connection yet — the reconnect's 'online' retriggers this
@@ -363,13 +417,14 @@ export const useApp = create<AppState>((set, get) => ({
   async openSession(id: string): Promise<void> {
     const prev = get().openSessionId
     if (prev && prev !== id) bridge().unsub(prev)
-    // cached transcript shows instantly; the fetch below replaces it when it
-    // lands. Only a first-ever open gets the skeleton — reopening a slow
-    // conversation must never cost the full load twice.
+    // cached transcript (persisted — cold starts from a notification tap
+    // included) shows instantly; the live fetch replaces it when it lands
     const cached = get().transcripts[id]
+    const online = get().conn === 'online'
     set((s) => ({
       openSessionId: id,
-      transcriptLoading: !cached,
+      transcriptLoading: online && !cached,
+      transcriptStale: !online,
       attention: { ...s.attention, [id]: false },
       transcripts: cached ? s.transcripts : { ...s.transcripts, [id]: emptyTranscript() }
     }))
@@ -379,6 +434,9 @@ export const useApp = create<AppState>((set, get) => ({
       .call('markSeen', id)
       .catch(() => {})
     bridge().sub(id)
+    // offline: show what we have; the 'online' transition replays via
+    // reloadOpenTranscript, so this open self-heals without user action
+    if (!online) return
     try {
       // resync first, exactly like the desktop's loadTranscriptData: sessions
       // driven externally (or imported) have nothing in the store until their
@@ -391,20 +449,25 @@ export const useApp = create<AppState>((set, get) => ({
         if (s.openSessionId !== id) return {}
         const t = emptyTranscript()
         for (const ev of events) applyEvent(t, ev)
-        // full replay is the truth — recompute the badge from actually
-        // unresolved cards instead of trusting the live-event counter
         const pending = t.items.filter(
           (it) =>
             (it.kind === 'permission' && !it.decision) || (it.kind === 'question' && !it.answered)
         ).length
+        saveTranscriptCache(id, t)
         return {
           transcripts: { ...s.transcripts, [id]: t },
           transcriptLoading: false,
+          transcriptStale: false,
           pendingApprovals: { ...s.pendingApprovals, [id]: pending }
         }
       })
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err), transcriptLoading: false })
+      // the fetch failed — whatever is on screen is stale, say so honestly
+      set({
+        error: err instanceof Error ? err.message : String(err),
+        transcriptLoading: false,
+        transcriptStale: true
+      })
     }
   },
 

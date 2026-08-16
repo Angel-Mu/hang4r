@@ -183,6 +183,23 @@ function ChatViewImpl({
     refreshJump(el) // new content can push the newest messages off-screen
   }, [items, findOpen, scrollRef])
 
+  // The tail message grows AFTER the effect above runs its synchronous scroll: a
+  // .chat-unit is content-visibility:auto with a 48px intrinsic placeholder, so a
+  // just-sent multi-line message is measured short, the scroll lands above its
+  // real bottom, and the bubble reads as "cut off" until the next render (the
+  // Working… row) recomputes height (Angel). Re-pin whenever the column's real
+  // height materializes, while the user is still at the bottom.
+  useEffect(() => {
+    const el = scrollRef.current
+    const col = el?.querySelector('.chat-col')
+    if (!el || !col) return
+    const ro = new ResizeObserver(() => {
+      if (pinnedToBottom.current && !findOpen) el.scrollTop = el.scrollHeight
+    })
+    ro.observe(col)
+    return () => ro.disconnect()
+  }, [scrollRef, findOpen])
+
   // subagent-notes are Subagents-thread fuel, not conversation content — and
   // subagent-ATTRIBUTED blocks/tool rows stream in the Subagents panel, not
   // here (Angel, Jul 17: inline they drown the conversation; the Task card +

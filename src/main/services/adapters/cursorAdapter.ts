@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { AgentEvent, PromptImage } from '../../../shared/protocol'
 import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
+import { killProcessGroup } from './procGroup'
 
 /**
  * Wraps the user's locally installed, subscription-authenticated `cursor-agent`
@@ -42,23 +43,6 @@ export function resolvePromptAction(
 ): 'spawn' | 'buffer' | 'reject' {
   if (!procAlive) return 'spawn'
   return sawResult ? 'buffer' : 'reject'
-}
-
-/**
- * SIGTERM/SIGKILL the WHOLE process group cursor-agent was spawned into
- * (negative pid — POSIX only, fine on this darwin-targeted app). Fixes round
- * 13/14 QA: cursor-agent spawns long-running shell tools as descendants, and
- * killing only the cursor-agent pid orphaned them. Spawning with
- * `detached: true` makes cursor-agent its own group leader (pgid === pid), so
- * `-pid` reaches it and every descendant. try/catch: the group (or process)
- * may already be gone (ESRCH) by the time this runs — that's a no-op, not a bug.
- */
-function killProcessGroup(pid: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(-pid, signal)
-  } catch {
-    // already dead — nothing to kill
-  }
 }
 
 /**

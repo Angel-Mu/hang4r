@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { AgentEvent, PromptImage } from '../../../shared/protocol'
 import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
+import { killProcessGroup } from './procGroup'
 
 /**
  * Drives OpenAI Codex through its NATIVE `codex app-server` JSON-RPC protocol —
@@ -98,6 +99,10 @@ export class CodexAdapter implements AgentAdapter {
     this.proc = spawn(opts.binaryPath, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // own process group (pgid === pid) so dispose() group-kills every
+      // descendant — background dev servers were orphaned otherwise (Angel:
+      // zombie ports after quit). See procGroup.ts.
+      detached: true,
       // local sessions carry the hang4r browser CLI env (ssh passes none)
       env: { ...process.env, ...opts.env }
     })
@@ -254,11 +259,17 @@ export class CodexAdapter implements AgentAdapter {
     this.disposed = true
     if (this.proc) {
       const p = this.proc
-      setTimeout(() => {
-        if (!p.killed) p.kill('SIGKILL')
-      }, 2000)
-      p.kill()
+      const pid = p.pid
       this.proc = null
+      if (pid == null) {
+        p.kill('SIGKILL')
+        return
+      }
+      // group-kill so descendants (background dev servers) die with the CLI
+      killProcessGroup(pid, 'SIGTERM')
+      setTimeout(() => {
+        if (p.exitCode === null && p.signalCode === null) killProcessGroup(pid, 'SIGKILL')
+      }, 2000)
     }
   }
 

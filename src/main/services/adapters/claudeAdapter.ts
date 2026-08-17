@@ -10,6 +10,7 @@ import type {
   QuestionAnswer
 } from '../../../shared/protocol'
 import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
+import { killProcessGroup } from './procGroup'
 import { shellQuote, sshRunArgv } from '../remoteService'
 
 /** appended to the agent's system prompt for local sessions (see start()) */
@@ -168,6 +169,10 @@ export class ClaudeAdapter implements AgentAdapter {
     const proc = spawn(this.spawnBinary, this.spawnArgs, {
       cwd: this.spawnCwd,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // own process group (pgid === pid) so dispose() can group-kill every
+      // descendant — an agent's background dev servers were orphaned and kept
+      // their ports otherwise (Angel: zombie ports after quit). See procGroup.ts.
+      detached: true,
       env: { ...process.env, ...this.spawnEnv }
     })
     this.proc = proc
@@ -286,11 +291,17 @@ export class ClaudeAdapter implements AgentAdapter {
       } catch {
         /* stdin may already be gone */
       }
-      // grace period, then hard kill
+      const pid = p.pid
+      if (pid == null) {
+        p.kill('SIGKILL')
+        return
+      }
+      // group-kill so the CLI's descendants (background dev servers) die with
+      // it, not just the CLI pid — SIGTERM, then SIGKILL any straggler.
+      killProcessGroup(pid, 'SIGTERM')
       setTimeout(() => {
-        if (!p.killed) p.kill('SIGKILL')
+        if (p.exitCode === null && p.signalCode === null) killProcessGroup(pid, 'SIGKILL')
       }, 3000)
-      p.kill()
     }
     if (this.turnInFlight && p.stdin.writable) {
       // A turn is mid-flight: a SIGKILL now would strand an assistant tool_use

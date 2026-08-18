@@ -32,9 +32,13 @@ function collectTasks(items: TranscriptItem[]): BgTask[] {
   const tasks: BgTask[] = []
   const killed = new Set<string>()
   // truthful completion (same philosophy as the subagent-thread fix): the
-  // stream never flips a launch's own tool_result, so completion must be read
-  // from LATER evidence — BashOutput/TaskOutput results with an exit code, and
-  // harness completion notes (subagent-note items) naming the task id
+  // stream never flips a launch's own tool_result, so completion is read from
+  // LATER evidence — BashOutput/TaskOutput results with an exit code, and harness
+  // completion notes (subagent-note items) naming the task id. Anything still
+  // 'running' here is reconciled against the task's OWN output file by
+  // BackgroundTasks' backgroundTaskState poll (markers + a live-writer probe),
+  // which also makes per-task ■ Stop possible — a background command is NOT
+  // unkillable; lsof on its output file yields the writer pid to kill.
   const finished = new Map<string, BgStatus>()
   const evidence = (id: string, text: string): void => {
     if (!id || !text.includes(id)) return
@@ -176,13 +180,54 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
   }, [sessionId, status, transcript])
   const dismissed = useHang4r((s) => s.dismissedBgTasks[sessionId])
   const dismissBgTasks = useHang4r((s) => s.dismissBgTasks)
+  // Truthful state polled from each running task's OWN output file (terminal
+  // markers + lsof live-writer probe), keyed by task.key. This OVERRIDES the
+  // collected 'running' — the launch's tool_result never flips, and if the agent
+  // never re-checked the task nothing else does, so a finished/killed task used
+  // to badge "running" forever (Angel). Set only to terminal states; once set it
+  // sticks (and the task drops out of the poll set).
+  const [taskState, setTaskState] = useState<Record<string, BgStatus>>({})
   const tasks = useMemo(() => {
     const gone = new Set(dismissed ?? [])
     const collected = collectTasks(transcript?.items ?? []).filter((t) => !gone.has(t.key))
-    return agentAlive
-      ? collected
-      : collected.map((t) => (t.status === 'running' ? { ...t, status: 'ended' as const } : t))
-  }, [transcript, agentAlive, dismissed])
+    return collected.map((t) => {
+      const status = taskState[t.key] ?? t.status
+      // agent gone → nothing can still be running (bg commands die with it)
+      return !agentAlive && status === 'running' ? { ...t, status: 'ended' as const } : { ...t, status }
+    })
+  }, [transcript, agentAlive, dismissed, taskState])
+
+  // Poll the real state of every bash task still showing "running" — regardless
+  // of whether its row is expanded (the per-row tail only runs while open, which
+  // is why collapsed tasks never updated). Only while the agent is live; stop
+  // polling a task the moment it reaches a terminal state (it leaves pollKey).
+  const pollKey = tasks
+    .filter((t) => t.kind === 'bash' && t.status === 'running' && t.outputPath)
+    .map((t) => `${t.key}\t${t.outputPath}`)
+    .join('\n')
+  useEffect(() => {
+    if (!pollKey) return
+    const targets = pollKey.split('\n').map((l) => {
+      const [key, path] = l.split('\t')
+      return { key, path }
+    })
+    let alive = true
+    const poll = (): void => {
+      for (const { key, path } of targets) {
+        void window.hang4r.backgroundTaskState(sessionId, path).then((r) => {
+          if (alive && r.state !== 'running') {
+            setTaskState((prev) => (prev[key] === r.state ? prev : { ...prev, [key]: r.state }))
+          }
+        })
+      }
+    }
+    poll()
+    const iv = setInterval(poll, 2000)
+    return () => {
+      alive = false
+      clearInterval(iv)
+    }
+  }, [pollKey, sessionId])
 
   const todos = useMemo(() => collectAgentTodos(transcript?.items ?? []), [transcript])
 
@@ -220,7 +265,7 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
             {agentAlive && tasks.some((t) => t.status === 'running') && (
               <button
                 className="ghost-btn stop-turn-btn"
-                title="Stops the whole turn — background commands are the agent's children; stopping the turn is the only protocol-supported kill"
+                title="Interrupts the whole turn (every background command it launched). To stop a single task, use its ■ Stop button."
                 onClick={() => void useHang4r.getState().interrupt(sessionId)}
               >
                 ■ Stop turn
@@ -228,7 +273,7 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
             )}
             <button
               className="ghost-btn"
-              title="Hide these task cards. Doesn't stop anything — a detached background command can't be killed from here; this just clears cards hang4r can't confirm are finished."
+              title="Hide these task cards. Doesn't stop anything — use a task's ■ Stop to actually kill it; Clear just removes the cards."
               onClick={() => dismissBgTasks(sessionId, tasks.map((t) => t.key))}
             >
               Clear
@@ -242,6 +287,7 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
           task={t}
           sessionId={sessionId}
           onDismiss={() => dismissBgTasks(sessionId, [t.key])}
+          onStopped={() => setTaskState((prev) => ({ ...prev, [t.key]: 'stopped' }))}
         />
       ))}
     </div>
@@ -251,12 +297,22 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
 function BgTaskRow({
   task,
   sessionId,
-  onDismiss
+  onDismiss,
+  onStopped
 }: {
   task: BgTask
   sessionId: string
   onDismiss: () => void
+  onStopped: () => void
 }): JSX.Element {
+  const [stopping, setStopping] = useState(false)
+  const canStop = task.kind === 'bash' && task.status === 'running' && !!task.outputPath
+  const stop = (): void => {
+    if (!task.outputPath) return
+    setStopping(true)
+    // optimistic: mark stopped immediately; the state poll would confirm anyway
+    void window.hang4r.stopBackgroundTask(sessionId, task.outputPath).finally(onStopped)
+  }
   // seed + write-through the expanded state so a panel-switch remount keeps rows open
   const [open, setOpen] = useState(() => openTasksMemo.get(sessionId)?.has(task.key) ?? false)
   const toggleOpen = (): void =>
@@ -309,6 +365,16 @@ function BgTaskRow({
             {STATUS_LABEL[task.status]}
           </span>
         </button>
+        {canStop && (
+          <button
+            className="bgtask-stop"
+            title="Stop this background task — kills the process still writing its output file"
+            disabled={stopping}
+            onClick={stop}
+          >
+            ■ Stop
+          </button>
+        )}
         <button className="bgtask-dismiss" title="Dismiss this task card" onClick={onDismiss}>
           ✕
         </button>

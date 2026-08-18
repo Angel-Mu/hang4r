@@ -6511,6 +6511,20 @@ button:disabled {
 .bgtask-dismiss:hover {
   color: var(--red);
 }
+/* per-task stop — only rendered while a bash task is running */
+.bgtask-stop {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--red);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bgtask-stop:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
 /* ---------- New agent modal: per-backend identity glyphs ---------- */
 

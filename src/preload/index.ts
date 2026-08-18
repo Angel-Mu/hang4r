@@ -202,6 +202,10 @@ const api: Hang4rApi = {
   findDefinition: (sessionId: string, symbol: string) =>
     ipcRenderer.invoke('files:definition', sessionId, symbol),
   tailFile: (absPath: string) => ipcRenderer.invoke('files:tail', absPath),
+  backgroundTaskState: (sessionId: string, outputPath: string) =>
+    ipcRenderer.invoke('tasks:bg-state', sessionId, outputPath),
+  stopBackgroundTask: (sessionId: string, outputPath: string) =>
+    ipcRenderer.invoke('tasks:bg-stop', sessionId, outputPath),
   readFileDataUrl: (sessionId: string, relPath: string) =>
     ipcRenderer.invoke('files:data-url', sessionId, relPath),
   previewAttachment: (sessionId: string, path: string, external?: boolean) =>

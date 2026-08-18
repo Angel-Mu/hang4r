@@ -760,6 +760,16 @@ export interface Hang4rApi {
     symbol: string
   ): Promise<{ path: string; line: number } | null>
   tailFile(absPath: string): Promise<string>
+  /** truthful state of a run_in_background task, read from its output file
+   *  (terminal markers) + a live-writer probe (lsof). local sessions only;
+   *  remote (ssh) falls back to 'running' until the agent reports otherwise. */
+  backgroundTaskState(
+    sessionId: string,
+    outputPath: string
+  ): Promise<{ state: 'running' | 'done' | 'failed' | 'stopped' }>
+  /** stop one run_in_background task by killing its live writer(s).
+   *  { stopped:false } on remote (ssh) — can't reach the host. */
+  stopBackgroundTask(sessionId: string, outputPath: string): Promise<{ stopped: boolean }>
   readFileDataUrl(sessionId: string, relPath: string): Promise<string | null>
   /** Read an attached file back for click-to-preview: a data: URL for image/pdf,
    *  else utf-8 text. `external` reads the absolute path the user attached (they

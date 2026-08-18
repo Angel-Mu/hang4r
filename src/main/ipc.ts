@@ -42,6 +42,7 @@ import { UsageService } from './services/usageService'
 import { RemoteService, sshExec, openTunnel, type Exec } from './services/remoteService'
 import { PtyService } from './services/ptyService'
 import { FileService } from './services/fileService'
+import { resolveBackgroundTaskState, stopBackgroundTask } from './services/backgroundTask'
 import { readProjectTsconfig } from './services/tsconfigReader'
 import { SearchService } from './services/searchService'
 import { GitService } from './services/gitService'
@@ -907,6 +908,18 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       : FileService.findDefinition(await sessions.ensureWorkdir(sessionId), symbol)
   )
   ipcMain.handle('files:tail', (_e, absPath: string) => FileService.tailFile(absPath))
+  // Truthful state of a run_in_background task from its OWN output file (terminal
+  // markers) + an lsof live-writer probe — so a finished/killed task stops
+  // badging "running" even when the agent never re-checked it. Remote (ssh)
+  // output logs aren't on this box, so those degrade to marker-only ('running').
+  ipcMain.handle('tasks:bg-state', (_e, sessionId: string, outputPath: string) =>
+    resolveBackgroundTaskState(outputPath, !!remoteFor(sessionId))
+  )
+  // Stop ONE background task: kill whatever still holds its output file open.
+  // Remote (ssh) tasks run on a host we can't reach → { stopped:false }.
+  ipcMain.handle('tasks:bg-stop', (_e, sessionId: string, outputPath: string) =>
+    stopBackgroundTask(outputPath, !!remoteFor(sessionId))
+  )
 
   // ---- terminals ----
   const broadcastPty = (channel: string, id: string, payload: unknown): void => {

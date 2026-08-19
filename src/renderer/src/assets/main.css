@@ -1626,6 +1626,21 @@ button:disabled {
   background: var(--surface);
   overflow: hidden;
 }
+/* brief highlight when ⤷ "View thread" jumps to this run, so the clicked
+   thread is obvious among many */
+.subagent-run-flash {
+  animation: subagentRunFlash 1.4s ease-out;
+}
+@keyframes subagentRunFlash {
+  from {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent) inset;
+  }
+  to {
+    border-color: var(--border);
+    box-shadow: 0 0 0 2px transparent inset;
+  }
+}
 .subagent-run-header {
   display: flex;
   align-items: center;

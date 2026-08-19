@@ -45,6 +45,10 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
     (s) => s.sessions.find((x) => x.id === sessionId)?.status === 'running'
   )
   const runs = useMemo(() => collectRuns(transcript?.items ?? []), [transcript])
+  // the ⤷ "View thread" signal — carries the clicked run's toolUseId so the
+  // matching thread can expand + scroll itself into view (below)
+  const focusSig = useHang4r((s) => s.subagentsToOpen)
+  const focus = focusSig && focusSig.sessionId === sessionId ? focusSig : null
 
   if (runs.length === 0) {
     return (
@@ -71,7 +75,7 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
         )}
       </div>
       {runs.map((run) => (
-        <SubagentThread key={run.toolUseId} run={run} sessionId={sessionId} />
+        <SubagentThread key={run.toolUseId} run={run} sessionId={sessionId} focus={focus} />
       ))}
     </div>
   )
@@ -104,7 +108,15 @@ function persistCollapsed(sessionId: string): void {
   void persistSessionUi(sessionId, { collapsedSubagents: collapsed })
 }
 
-function SubagentThread({ run, sessionId }: { run: SubagentRun; sessionId: string }): JSX.Element {
+function SubagentThread({
+  run,
+  sessionId,
+  focus
+}: {
+  run: SubagentRun
+  sessionId: string
+  focus: { sessionId: string; toolUseId?: string; nonce: number } | null
+}): JSX.Element {
   const collapseKey = `${sessionId}:${run.toolUseId}`
   const [open, setOpenState] = useState(!(collapsedRuns.get(collapseKey) ?? false))
   const setOpen = (o: boolean): void => {
@@ -113,6 +125,8 @@ function SubagentThread({ run, sessionId }: { run: SubagentRun; sessionId: strin
     persistCollapsed(sessionId)
   }
   const bodyRef = useRef<HTMLDivElement>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [flash, setFlash] = useState(false)
   const live = run.status === 'running' || run.status === 'waiting' || run.status === 'background'
 
   // follow the tail while the subagent works (like the main chat)
@@ -121,8 +135,27 @@ function SubagentThread({ run, sessionId }: { run: SubagentRun; sessionId: strin
     if (el && live) el.scrollTop = el.scrollHeight
   }, [run.blocks.length, run.pendingPermissions.length, live])
 
+  // ⤷ "View thread" targeted THIS run — expand it, scroll it into view, and
+  // flash it so the clicked thread is obvious among many (Angel: the click did
+  // nothing / never surfaced the right one). Nonce-guarded so it fires once per
+  // click and never fights a manual collapse or scroll afterwards.
+  const handledFocus = useRef(-1)
+  useEffect(() => {
+    if (!focus || focus.toolUseId !== run.toolUseId || handledFocus.current === focus.nonce) return
+    handledFocus.current = focus.nonce
+    setOpen(true)
+    setFlash(true)
+    const t = setTimeout(() => setFlash(false), 1400)
+    requestAnimationFrame(() => rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, run.toolUseId])
+
   return (
-    <div className={'subagent-run subagent-' + run.status}>
+    <div
+      ref={rowRef}
+      className={'subagent-run subagent-' + run.status + (flash ? ' subagent-run-flash' : '')}
+    >
       <button className="subagent-run-header" onClick={() => setOpen(!open)}>
         <span className="subagent-caret">{open ? '▾' : '▸'}</span>
         <span className={'subagent-dot subagent-dot-' + run.status} />

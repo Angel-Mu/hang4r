@@ -825,7 +825,7 @@ function CompactToolRow({
           <button
             className="tool-row-action"
             title="Follow this agent's thread in the Subagents panel"
-            onClick={() => useHang4r.getState().openSubagents(sessionId)}
+            onClick={() => useHang4r.getState().openSubagents(sessionId, item.toolUseId)}
           >
             ⤷ View thread
           </button>

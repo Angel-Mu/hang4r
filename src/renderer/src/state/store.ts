@@ -551,8 +551,9 @@ interface Hang4rState {
   /** one-shot consume: TerminalPanel took the command; a remount must not replay it */
   consumeTerminalCommand(nonce: number): void
   /** jump to the session's Subagents panel (the ⤷ button on agent rows in chat) */
-  subagentsToOpen: { sessionId: string; nonce: number } | null
-  openSubagents(sessionId: string): void
+  subagentsToOpen: { sessionId: string; toolUseId?: string; nonce: number } | null
+  /** toolUseId focuses + expands that specific run's thread in the panel */
+  openSubagents(sessionId: string, toolUseId?: string): void
   /** ⌥⌘B: toggle the focused session's context panel (open → remembers tab
    *  and closes; closed → reopens the remembered tab, Files by default) */
   panelToToggle: { sessionId: string; nonce: number } | null
@@ -1412,8 +1413,8 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   consumeTerminalCommand(nonce) {
     if (get().terminalCommandToRun?.nonce === nonce) set({ terminalCommandToRun: null })
   },
-  openSubagents(sessionId) {
-    set({ subagentsToOpen: { sessionId, nonce: (get().subagentsToOpen?.nonce ?? 0) + 1 } })
+  openSubagents(sessionId, toolUseId) {
+    set({ subagentsToOpen: { sessionId, toolUseId, nonce: (get().subagentsToOpen?.nonce ?? 0) + 1 } })
   },
   togglePanel() {
     const sessionId = get().focusedSessionId

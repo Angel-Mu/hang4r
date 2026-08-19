@@ -605,11 +605,10 @@ export class SessionManager {
   }
 
   /**
-   * Transcript re-sync: turns taken in an EXTERNAL interactive CLI resumed on
-   * this conversation (the /remote-control terminal) live in a forked session
-   * file hang4r never streamed. Import everything after our watermark as
-   * external-turn events and ADOPT the fork's id, so our next --resume
-   * continues from the true tip. Returns how many messages were imported.
+   * Transcript re-sync. RETIRED: the passive external-turn mirror no longer
+   * adopts anything for Claude — see the body. Kept as a method (and still called
+   * by the poll + prompt()) only for its harmless watermark bookkeeping and the
+   * Codex usage sync. Always returns 0 for the Claude external-turn path now.
    */
   async resyncExternal(sessionId: string): Promise<number> {
     const s = this.store.getSession(sessionId)
@@ -643,67 +642,28 @@ export class SessionManager {
       return 1
     }
     if (s.backend !== 'claude') return 0
-    const raw = this.settings.getSetting(`syncWatermark:${sessionId}`)
-    if (!raw) return 0
-    let wm: { uuid: string; fileId: string; turnEndedAt?: number }
-    try {
-      wm = JSON.parse(raw)
-    } catch {
-      return 0
-    }
-    if (!wm?.uuid || wm.fileId !== s.backendSessionId) {
-      // stale watermark (hang4r turned since it was recorded) — refresh, no import
-      this.recordSyncWatermark(sessionId, 0)
-      return 0
-    }
-    // PRIMARY: `claude --resume <id>` APPENDS to the same session file (no new
-    // id) — external turns are simply the lines after our watermark.
-    const own = ClaudeImport.sessionFile(s.backendSessionId)
-    let msgs = own ? ClaudeImport.messagesAfter(own, wm.uuid) : []
-    let adoptId: string | null = null
-    if (!msgs.length) {
-      // FALLBACK: an external `--fork-session` run lands in a NEW file that
-      // contains our watermark uuid — import it and adopt the fork's id
-      const cont = ClaudeImport.findContinuation(s.cwd, wm.uuid, wm.fileId)
-      if (cont) {
-        msgs = ClaudeImport.messagesAfter(cont.path, wm.uuid)
-        adoptId = cont.id
-      }
-    }
-    // The CLI flushes its final assistant line LATE — the uuid watermark can
-    // land one line short, which would re-import hang4r's OWN last reply as
-    // "external" (caught by QA hunt 7, and again when a user INTERRUPT left the
-    // watermark stale → Angel's phantom "⇄ interactive CLI" fork). Timestamp
-    // guard: our own lagging lines were written BEFORE turn end; genuinely
-    // external turns come after. Relies on turnEndedAt being the CURRENT turn's
-    // end — recordSyncWatermark now writes it SYNCHRONOUSLY at turn-complete so
-    // a resync poll can't slip in with a stale (previous-turn) watermark.
-    msgs = ClaudeImport.filterExternalTurns(msgs, wm.turnEndedAt)
-    if (!msgs.length) return 0
-    for (const m of msgs) {
-      this.handleAgentEvent(sessionId, {
-        kind: 'external-turn',
-        role: m.role,
-        text: m.text,
-        at: m.at
-      })
-    }
-    if (adoptId) this.updateSession(sessionId, { backendSessionId: adoptId })
-    // ALWAYS drop the idle adapter after an import: a live -p process holds the
-    // conversation IN MEMORY and never re-reads the jsonl — without a re-spawn
-    // (--resume re-reads the file) the next turn wouldn't know the external
-    // turns even though they're in the transcript (caught by the real-CLI probe)
-    this.adapters.get(sessionId)?.dispose()
-    this.adapters.delete(sessionId)
-    const tipId = adoptId ?? s.backendSessionId
-    const tail = ClaudeImport.tailUuid(tipId)
-    if (tail) {
-      this.settings.setSetting(
-        `syncWatermark:${sessionId}`,
-        JSON.stringify({ uuid: tail, fileId: tipId, turnEndedAt: Date.now() })
-      )
-    }
-    return msgs.length
+    // RETIRED — the passive external-turn mirror NEVER adopts anymore.
+    //
+    // It used to re-read the CLI's own jsonl and import "lines after our
+    // watermark" as "⇄ interactive CLI" turns (mirroring the /remote-control
+    // terminal), adopting a fork's id so the next --resume continued from its tip.
+    // But the watermark+timestamp heuristic is unavoidably racy against SUBAGENTS:
+    // parseMessagesAfter never excluded sidechain (isSidechain) lines, and
+    // filterExternalTurns passes any line with NO timestamp. A subagent produces
+    // long, interleaved, LATE-flushed output, so the watermark lands one line
+    // short and the poll re-imported hang4r's OWN just-finished turn as "external"
+    // — the duplicate turn + conversation drift that then made the next --resume
+    // error with error_during_execution ("always when a subagent is running",
+    // Angel; proof in e2e/subagent-mirror-adoption.spec.ts). /remote-control is
+    // dead (the mobile app replaced it), so the mirror is pure liability: we now
+    // NEVER auto-adopt an external turn.
+    //
+    // The safety net for a GENUINELY poisoned tail is untouched and does NOT
+    // depend on this import: prompt() heals-before-resume, and maybeAutoContinue
+    // recovers an idle poisoned tail. The watermark writes elsewhere stay as
+    // harmless bookkeeping. The renderer still RENDERS any historical external-turn
+    // events in old transcripts; we just stop GENERATING new ones.
+    return 0
   }
 
   /**

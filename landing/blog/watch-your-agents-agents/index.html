@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Watch your agent's agents — hang4r blog</title>
+    <meta
+      name="description"
+      content="Coding agents delegate to subagents, and in a terminal that work is a spinner. hang4r turns every subagent run into a followable thread: its own live transcript, its tool calls, its result — with jump-to-thread from the conversation."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/watch-your-agents-agents/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/watch-your-agents-agents/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="Watch your agent's agents" />
+    <meta property="og:description" content="Agents delegate to subagents; in a terminal that's a spinner. hang4r shows every subagent run as a followable thread — live transcript, tool calls, result, jump-to-thread from the chat." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-08-19" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "Watch your agent's agents",
+        "description": "Agents delegate to subagents; in a terminal that's a spinner. hang4r shows every subagent run as a followable thread — live transcript, tool calls, result, jump-to-thread from the chat.",
+        "datePublished": "2026-08-19",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/watch-your-agents-agents/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">product</p>
+        <h1 class="post-title">Watch your agent's agents</h1>
+        <p class="post-meta">August 19, 2026 · 4 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          Somewhere in the last year, coding agents became managers. Ask Claude Code a hard
+          question and it doesn't just answer — it dispatches subagents: one to sweep the
+          codebase, one to check the docs, a reviewer to poke holes in the plan. That's a real
+          capability jump. It's also a transparency cliff, because in a terminal all of that
+          delegated work renders as one line and a spinner. Your agent hired three workers, and
+          you never see their output — only what the manager chose to repeat.
+        </p>
+        <p>
+          If your review standard is "evidence, not prose," that's a problem. The subagents did
+          the actual reading; the summary you're shown is a summary of a summary. hang4r's answer
+          is the <strong>Subagents tab</strong>: every delegated run in the session, live, as a
+          thread you can follow.
+        </p>
+
+        <h2>Threads, not spinners</h2>
+        <p>
+          Each subagent run appears with its task label and its own transcript — the prompt it
+          was given, every tool call it makes as it makes them, and the result it returned to the
+          orchestrator. Watching one work feels like watching any other session, because
+          structurally it is one: the same event protocol, the same rendering, one level down.
+          Threads collapse when you're done with them, and hang4r remembers which ones you've
+          folded away — across restarts, per session.
+        </p>
+
+        <h2>From claim to evidence in one click</h2>
+        <p>
+          In the conversation, a delegation shows up where it happened, with a
+          <strong>⤷ View thread</strong> button. Click it and the Subagents panel opens with
+          <em>that</em> run expanded, scrolled into view, and briefly highlighted — so when a
+          turn spawned five workers, you land on the one you actually asked about. The flow
+          you end up using constantly: the main agent asserts "the reviewer found no issues" —
+          one click, and you're reading what the reviewer actually looked at.
+        </p>
+
+        <h2>Why bother looking?</h2>
+        <ol>
+          <li>
+            <strong>Trust, calibrated.</strong> A conclusion inherits the quality of the search
+            behind it. Seeing that the explorer subagent grepped three naming conventions —
+            or only one — tells you how much weight the "it's not used anywhere" claim deserves.
+          </li>
+          <li>
+            <strong>Debugging the turn, not just the code.</strong> When a big delegated turn
+            lands somewhere strange, the threads show <em>which</em> worker went off the rails
+            and what it saw right before it did.
+          </li>
+          <li>
+            <strong>Better prompts.</strong> Watching how the orchestrator decomposes your
+            request is the fastest way to learn what it can be trusted to decompose — and what
+            you should split up yourself.
+          </li>
+        </ol>
+
+        <h2>The honest edges</h2>
+        <p>
+          Two truths the UI states plainly instead of papering over. Subagents run inside the
+          CLI's own process and its protocol has no per-subagent kill — so the Stop control in
+          the panel says what it does: it stops the whole turn, all workers included. And
+          commands the agent runs in the background — dev servers, watchers — are a different
+          animal with a different lifecycle; those live in the Tasks tab, with per-task stop.
+          Delegated <em>reasoning</em> is what the Subagents tab is for.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Open the black box.</h3>
+        <p>hang4r is free on macOS — bring your Claude Code, Codex, or Cursor subscription.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

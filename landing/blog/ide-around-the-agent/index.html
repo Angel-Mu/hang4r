@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The IDE that grew around the agent — hang4r blog</title>
+    <meta
+      name="description"
+      content="hang4r's editor, finder, and preview panes weren't a roadmap — they accreted around one pressure: reviewing what agents produce. Fuzzy finder with file:line, real TypeScript IntelliSense, find & replace, CSV tables, mermaid diagrams."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/ide-around-the-agent/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/ide-around-the-agent/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="The IDE that grew around the agent" />
+    <meta property="og:description" content="Nobody planned an IDE. Reviewing agent output demanded one — so it accreted: fuzzy finder, real IntelliSense, find & replace, CSV tables, mermaid diagrams, go-to-definition." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-08-12" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "The IDE that grew around the agent",
+        "description": "Nobody planned an IDE. Reviewing agent output demanded one — so it accreted: fuzzy finder, real IntelliSense, find & replace, CSV tables, mermaid diagrams, go-to-definition.",
+        "datePublished": "2026-08-12",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/ide-around-the-agent/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">product</p>
+        <h1 class="post-title">The IDE that grew around the agent</h1>
+        <p class="post-meta">August 12, 2026 · 5 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          hang4r was never supposed to be an IDE. The pitch is an <em>agents</em> window: chat
+          tiles, worktrees, diffs. But a strange thing happens when agents write most of the
+          code — your job compresses into reading it. And the moment reviewing became the job,
+          every classic IDE feature re-justified itself, one review pain at a time. Nobody
+          planned an editor. One accreted.
+        </p>
+        <p>
+          This post is a tour of what grew, and why each piece exists. The pattern to watch:
+          none of it is for <em>writing</em> code. All of it is for <strong>verifying someone
+          else's</strong>.
+        </p>
+
+        <h2>Getting to the code the agent is talking about</h2>
+        <p>
+          An agent's summary says it changed <code>sessionManager.ts:412</code>. The distance
+          between reading that claim and looking at that line is review friction, so it kept
+          shrinking:
+        </p>
+        <ul>
+          <li>
+            <strong>Every file path in the conversation is a link.</strong> Paths in tool
+            calls, paths in prose, even paths that live in a <em>different</em> session's
+            worktree — click, and the file opens (read-only when it isn't yours).
+          </li>
+          <li>
+            <strong>⌘P fuzzy finder, with <code>file.ts:42</code> support.</strong> Paste an
+            agent's reference straight in, land on the line. Exact matches rank first, because
+            when you paste a full path you mean that path.
+          </li>
+          <li>
+            <strong>Alt+click go-to-definition</strong>, Cursor-style, with the underline on
+            hover — because "where is this function actually defined" is the first question
+            every diff raises.
+          </li>
+        </ul>
+
+        <h2>An editor that tells the truth about types</h2>
+        <p>
+          The editor is Monaco — the VS Code editor component — but embedding Monaco gets you
+          syntax colors, not judgment. The judgment came from feeding it properly: hang4r hands
+          the TypeScript worker your project's <code>tsconfig</code> path aliases, so hovering
+          an import shows the real type instead of <code>any</code>. In a big repo that's the
+          difference between IntelliSense and decoration. Reviewing an agent's refactor with
+          live types under your cursor is a different activity than squinting at a diff.
+        </p>
+
+        <h2>Find, everywhere, consistently</h2>
+        <p>
+          ⌘F works where you are: in the conversation (yes, you can search the transcript), in
+          markdown previews, and in the editor — where it grows into full find &amp; replace.
+          One find bar, one set of keystrokes, whichever pane has focus. It sounds like table
+          stakes until you've tried to locate "where did the agent mention the migration" in a
+          three-hour session by scrolling.
+        </p>
+
+        <h2>Rendering what agents actually produce</h2>
+        <p>
+          Agents don't just emit TypeScript. They emit markdown reports, mermaid diagrams,
+          CSVs, screenshots. hang4r renders each one as the thing it is:
+        </p>
+        <ul>
+          <li><strong>Markdown preview</strong> with mermaid diagrams rendered live, click to enlarge.</li>
+          <li><strong>CSV opens as a table</strong>, not a wall of commas — and the diff view understands that too.</li>
+          <li><strong>Attachments render as cards</strong> with click-to-preview, including files outside the worktree.</li>
+          <li>
+            <strong>A syntax palette tuned for reading</strong> — the same token colors across
+            editor, diffs, and fenced code blocks in chat, so code looks like itself everywhere.
+          </li>
+        </ul>
+        <p>
+          Even the embedded browser joined in: its address bar is an omnibox, so "go check the
+          docs for that API" is a keystroke, not an app switch.
+        </p>
+
+        <h2>The pattern</h2>
+        <p>
+          Each of these shipped in its own small release, usually days after the pain that
+          demanded it. That's the honest way an agent-era IDE gets built: not by cloning the
+          feature matrix of editors designed for typing, but by asking, every time a review
+          stalls, <em>what would have made that faster?</em> — and shipping exactly that. The
+          conversation is still the center of hang4r. The IDE around it is scar tissue, in the
+          best sense: it grew exactly where the friction was.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Built for reading code, not just writing it.</h3>
+        <p>hang4r is free on macOS — bring your Claude Code, Codex, or Cursor subscription.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

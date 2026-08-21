@@ -2,15 +2,50 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://hang4r.dev/</loc>
-    <lastmod>2026-07-13</lastmod>
+    <lastmod>2026-08-20</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://hang4r.dev/blog/</loc>
-    <lastmod>2026-07-13</lastmod>
+    <lastmod>2026-08-20</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://hang4r.dev/blog/agents-over-ssh/</loc>
+    <lastmod>2026-08-21</lastmod>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://hang4r.dev/blog/watch-your-agents-agents/</loc>
+    <lastmod>2026-08-19</lastmod>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://hang4r.dev/blog/agents-in-your-pocket/</loc>
+    <lastmod>2026-08-17</lastmod>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://hang4r.dev/blog/ide-around-the-agent/</loc>
+    <lastmod>2026-08-12</lastmod>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://hang4r.dev/blog/switch-agents-mid-session/</loc>
+    <lastmod>2026-08-07</lastmod>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://hang4r.dev/blog/hang4r-1-0/</loc>
+    <lastmod>2026-07-17</lastmod>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://hang4r.dev/blog/agents-that-see-the-browser/</loc>
+    <lastmod>2026-07-15</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://hang4r.dev/blog/parallel-agents-git-worktrees/</loc>

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your laptop is just the window: run agents on any machine over SSH — hang4r blog</title>
+    <meta
+      name="description"
+      content="hang4r sessions can run on any machine you can SSH into — the agent, terminals, git, and dev servers all execute remotely while you keep the same tiled UI locally. Your ssh config, your keys, no credentials transported."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/agents-over-ssh/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/agents-over-ssh/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="Your laptop is just the window: run agents on any machine over SSH" />
+    <meta property="og:description" content="Point a session at any SSH host — the agent, terminals, git, and dev servers execute remotely while you keep the same tiled UI. Your ssh config, your keys, no credentials transported." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-08-21" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "Your laptop is just the window: run agents on any machine over SSH",
+        "description": "Point a session at any SSH host — the agent, terminals, git, and dev servers execute remotely while you keep the same tiled UI. Your ssh config, your keys, no credentials transported.",
+        "datePublished": "2026-08-21",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/agents-over-ssh/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">product</p>
+        <h1 class="post-title">Your laptop is just the window: run agents on any machine over SSH</h1>
+        <p class="post-meta">August 21, 2026 · 5 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          Agents are compute-hungry in a way typing never was. A single busy session means a
+          type-checker, a test suite, a dev server, and a build — often several times per turn.
+          Multiply by five parallel sessions and your laptop is a hair dryer with a keyboard.
+          Meanwhile there's probably a machine in your life with cores to spare: the desktop at
+          the office, the homelab box, a cloud VM — quite possibly the only machine the code is
+          even <em>allowed</em> to live on.
+        </p>
+        <p>
+          So hang4r sessions can run there. Pick <strong>SSH</strong> as the environment when
+          starting an agent, and everything executes on the remote host — the agent CLI, the
+          repo, the tools, the hooks, the dev server. Your Mac keeps the same tiled UI: chat,
+          editor, terminal, diff review. The session is remote; the experience isn't.
+        </p>
+
+        <h2>Everything moves, not just the agent</h2>
+        <p>
+          Remote done halfway is worse than local: an agent running here against files mounted
+          from there breaks every tool it shells out to. hang4r takes the Cursor-style position —
+          <strong>the work happens where the code is</strong>:
+        </p>
+        <ul>
+          <li><strong>The agent</strong> runs on the remote host, streaming into your session like any other — permissions, model switching, interrupts included.</li>
+          <li><strong>Terminals</strong> are real PTYs on the remote machine — resize, colors, ctrl-C, the lot.</li>
+          <li><strong>Git and the file explorer</strong> read the remote repo, so diffs, checkpoints, and the editor show what's actually there.</li>
+          <li>
+            <strong>Dev servers tunnel back.</strong> The agent starts something on the remote's
+            port 3000, and hang4r opens a per-session forward so it's browsable from your
+            machine — the remote's localhost, on your screen.
+          </li>
+        </ul>
+
+        <h2>Your ssh, not our ssh</h2>
+        <p>
+          hang4r doesn't reimplement SSH; it shells out to yours. Which means your
+          <code>~/.ssh/config</code> just works — aliases, keys, <code>ProxyJump</code> chains,
+          1Password or agent-forwarding setups — the exact configuration you already trust in a
+          terminal. Add a host in Settings → Remote (any target your <code>ssh</code> resolves),
+          and hang4r keeps one authenticated master connection per host so every subsequent
+          operation rides the same socket: no re-auth, no per-command handshake lag. Commands run
+          through a login shell on the far side, so nvm, Homebrew, and friends resolve exactly as
+          they do when you SSH in yourself.
+        </p>
+
+        <h2>The subscription rule doesn't bend</h2>
+        <p>
+          hang4r's founding constraint — your credentials never leave your machines — holds over
+          SSH in the strictest way: the <em>remote</em> host's CLI must be installed and logged
+          in. hang4r never copies a token, never proxies an API call; "Test connection" in
+          Settings checks reachability and that <code>claude</code> answers on the far end
+          before you ever start a session. It's the same deal as local, relocated: your machine,
+          your subscription, your code — just a different "your machine."
+        </p>
+
+        <h2>What it's for</h2>
+        <ol>
+          <li>
+            <strong>The big-machine dispatch.</strong> The monorepo with the six-minute build
+            lives on the workstation. Dispatch sessions to it from the laptop; the fans that
+            spin are someone else's.
+          </li>
+          <li>
+            <strong>Code that can't come to you.</strong> Data-adjacent repos, GPU boxes,
+            machines inside a VPN — the agent goes to the code instead of the code coming out.
+          </li>
+          <li>
+            <strong>The full chain.</strong> Sessions on the beefy box, hang4r on the Mac, the
+            phone app in your pocket — three tiers, one loop, and the compute always lives
+            where it's cheapest.
+          </li>
+        </ol>
+
+        <h2>The fine print</h2>
+        <p>
+          The remote needs the agent CLI installed and logged in — that's the point, not a
+          gap. And the <code>hang4r browser</code> assertion CLI stays local-only, since a
+          remote host can't reach the socket that drives your embedded browser; remote web work
+          verifies through the tunnel instead.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Big machine, cool laptop, same window.</h3>
+        <p>hang4r is free on macOS — bring your Claude Code, Codex, or Cursor subscription.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

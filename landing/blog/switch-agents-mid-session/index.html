@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Same worktree, different brain: hand a session to another agent — hang4r blog</title>
+    <meta
+      name="description"
+      content="hang4r can hand a running session from Claude Code to Codex to Cursor mid-task — same worktree, same files, same conversation, a different agent picking up where the last one stopped."
+    />
+    <link rel="canonical" href="https://hang4r.dev/blog/switch-agents-mid-session/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://hang4r.dev/blog/switch-agents-mid-session/" />
+    <meta property="og:site_name" content="hang4r" />
+    <meta property="og:title" content="Same worktree, different brain: hand a session to another agent" />
+    <meta property="og:description" content="Hand off a running session from Claude Code to Codex to Cursor — same worktree, same conversation, a different agent picking up where the last one stopped." />
+    <meta property="og:image" content="https://hang4r.dev/og.png" />
+    <meta property="article:published_time" content="2026-08-07" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": "Same worktree, different brain: hand a session to another agent",
+        "description": "Hand off a running session from Claude Code to Codex to Cursor — same worktree, same conversation, a different agent picking up where the last one stopped.",
+        "datePublished": "2026-08-07",
+        "author": { "@type": "Person", "name": "Angel Malavar" },
+        "publisher": { "@type": "Organization", "name": "hang4r", "url": "https://hang4r.dev/" },
+        "mainEntityOfPage": "https://hang4r.dev/blog/switch-agents-mid-session/"
+      }
+    </script>
+    <script type="module" src="/src/blog.ts"></script>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          <img src="/icon.png" alt="" width="22" height="22" />
+          <span>hang4r</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/blog/">Blog</a>
+          <a class="nav-cta" href="https://hang4r.dev/download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="post-wrap">
+      <a class="post-back" href="/blog/">← All posts</a>
+      <header class="post-head">
+        <p class="kicker">product</p>
+        <h1 class="post-title">Same worktree, different brain: hand a session to another agent</h1>
+        <p class="post-meta">August 7, 2026 · 5 min read</p>
+      </header>
+
+      <article class="post">
+        <p>
+          You picked an agent when you started the task. Forty minutes in, you know things you
+          didn't know then: the bug is gnarlier than it looked, or the hard part is done and the
+          rest is cleanup, or your subscription just hit its rate limit with the branch half
+          finished. The agent you'd choose <em>now</em> isn't the one holding the session.
+        </p>
+        <p>
+          Until recently the answer was archaeology: open the other tool, re-explain the task,
+          paste in whatever context you could reconstruct, and hope the new agent rediscovers
+          the decisions the old one already made. hang4r now does this as a single action:
+          <strong>Hand off to Claude Code / Codex / Cursor</strong>, from any session's menu.
+        </p>
+
+        <h2>What actually transfers</h2>
+        <p>
+          A handoff keeps the two things that matter and is honest about the one thing it can't
+          keep:
+        </p>
+        <ul>
+          <li>
+            <strong>The worktree.</strong> The new agent starts in the exact same isolated
+            worktree — same branch, same modified files, same per-turn checkpoints. Nothing is
+            copied or re-cloned; the work in progress simply gets a new operator.
+          </li>
+          <li>
+            <strong>The conversation.</strong> The new session opens pre-seeded with the story
+            so far: what was asked, what was tried, what was decided, what's left. The new agent
+            reads it the way a colleague reads a good handoff note — then keeps going.
+          </li>
+          <li>
+            <strong>Not the session id.</strong> There is no such thing as resuming a Claude
+            Code session inside Codex — the vendors share no session format, and hang4r doesn't
+            pretend otherwise. A handoff is a <em>fresh</em> session on the target agent,
+            deliberately seeded. That honesty matters: the new agent's context, billing, and
+            limits are its own.
+          </li>
+        </ul>
+
+        <h2>Why this is even possible</h2>
+        <p>
+          The enabler is a decision from hang4r's first week: every adapter — Claude Code's
+          stream-json, Codex's protocol, Cursor's — translates its native output into one
+          internal event protocol before anything else sees it. The transcript hang4r stores is
+          agent-neutral. So when a handoff happens, there's a clean, structured history to
+          rebuild the conversation from, not a pile of vendor-specific JSON.
+        </p>
+        <p>
+          The seed is a tail slice of that history, sized to what each CLI comfortably accepts
+          as a first prompt — recent turns verbatim, older context compressed. It's the same
+          judgment call you'd make writing a handoff message yourself, done automatically and
+          the same way every time.
+        </p>
+
+        <h2>What it's for</h2>
+        <ol>
+          <li>
+            <strong>The second opinion.</strong> An agent has circled the same failing test
+            three times. Hand the session to a different model family and let fresh eyes read
+            the same worktree. The new agent sees the previous attempts in the seed — it knows
+            what <em>not</em> to retry.
+          </li>
+          <li>
+            <strong>The relay race.</strong> Use a strong, slower agent to design and rough in
+            the change, then hand off to a faster one for the mechanical remainder — or the
+            reverse, when cleanup turns out to be the hard part.
+          </li>
+          <li>
+            <strong>The rate-limit escape hatch.</strong> One subscription taps out mid-task.
+            Instead of waiting for the window to reset, the work continues on the other
+            subscription you're already paying for. This is the "your subscription is the API"
+            philosophy paying rent: because hang4r wraps all three CLIs, your capacity is the
+            union of your plans.
+          </li>
+        </ol>
+
+        <h2>The fine print</h2>
+        <p>
+          A seeded summary is a good handoff note, not a perfect memory — an agent may re-read a
+          file its predecessor had open, and that's fine. Each agent also keeps its own default
+          model (configurable per agent in Settings → Models), so a handoff lands on the model
+          you'd have picked for that agent anyway. And the original session isn't deleted:
+          it's still there, transcript intact, if you want to go back and see how the first
+          attempt went.
+        </p>
+      </article>
+
+      <div class="post-cta">
+        <h3>Agents are interchangeable. Your work isn't.</h3>
+        <p>hang4r is free on macOS — bring your Claude Code, Codex, or Cursor subscription.</p>
+        <a class="nav-cta" href="https://hang4r.dev/download">Download for macOS</a>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <p>© 2026 hang4r · <a href="https://hang4r.dev/">hang4r.dev</a> · built by Angel Malavar</p>
+          <p class="footer-fine">Not affiliated with Anthropic, OpenAI, or Cursor.</p>
+        </div>
+        <nav class="footer-links">
+          <a href="/">Home</a>
+          <a href="/blog/">Blog</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

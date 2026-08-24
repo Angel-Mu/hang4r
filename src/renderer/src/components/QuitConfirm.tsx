@@ -1,12 +1,17 @@
 import { useEffect, useState, type JSX } from 'react'
 
 /**
- * Cursor-style quit confirm (replaces the native macOS warning box, which
- * can't be styled): bold title, plain sentence, right-aligned Cancel (Esc) /
- * Quit (↩). Main sends quit:confirm when live work would be interrupted.
+ * Cursor-style confirm (replaces the native macOS warning box, which can't be
+ * styled) for anything that cuts live work short: bold title, plain sentence,
+ * right-aligned Cancel (Esc) / go (↩). Main sends quit:confirm with the `kind`
+ * — quitting, or restarting to finish an update.
  */
 export function QuitConfirm(): JSX.Element | null {
-  const [info, setInfo] = useState<{ message: string; detail: string } | null>(null)
+  const [info, setInfo] = useState<{
+    message: string
+    detail: string
+    kind?: 'quit' | 'update'
+  } | null>(null)
 
   useEffect(() => window.hang4r.onQuitConfirm(setInfo), [])
 
@@ -35,10 +40,12 @@ export function QuitConfirm(): JSX.Element | null {
   }, [info])
 
   if (!info) return null
+  const updating = info.kind === 'update'
+  const title = updating ? 'Restart to update?' : 'Quit hang4r?'
   return (
     <div className="dialog-backdrop quit-backdrop">
-      <div className="quit-dialog" role="alertdialog" aria-label="Quit hang4r?">
-        <div className="quit-title">Quit hang4r?</div>
+      <div className="quit-dialog" role="alertdialog" aria-label={title}>
+        <div className="quit-title">{title}</div>
         <div className="quit-message">
           {info.message} {info.detail}
         </div>
@@ -47,7 +54,7 @@ export function QuitConfirm(): JSX.Element | null {
             Cancel <span className="quit-key">Esc</span>
           </button>
           <button className="primary-btn quit-go" onClick={() => answer(true)}>
-            Quit <span className="quit-key">↩</span>
+            {updating ? 'Restart' : 'Quit'} <span className="quit-key">↩</span>
           </button>
         </div>
       </div>

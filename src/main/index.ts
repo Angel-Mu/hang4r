@@ -4,6 +4,7 @@ import { homedir } from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc, getPtyService, getBrowserControl, getBridge } from './ipc'
+import { askInterrupt, guardActive, initInterruptGuard, liveWork, resolveInterrupt } from './interruptGuard'
 import { Store } from './services/store'
 import { SettingsService } from './services/settingsService'
 import { UpdateService } from './services/updateService'
@@ -342,6 +343,12 @@ app.whenReady().then(() => {
     }
   })
   sessionManager = registerIpc(store, settings)
+  initInterruptGuard({
+    runningSessions: () =>
+      store?.listSessions().filter((s) => s.status === 'running' || s.status === 'starting')
+        .length ?? 0,
+    busyProcesses: () => getPtyService()?.busyCount() ?? { count: 0, names: [] }
+  })
   UpdateService.init()
   UpdateService.armAutoCheck()
 
@@ -352,61 +359,27 @@ app.whenReady().then(() => {
   })
 })
 
-// e2e probes can exercise the quit dialog even in quiet mode
-const FORCE_QUIT_GUARD = process.env.HANG4R_TEST_QUIT_GUARD === '1'
-
-// the renderer's Cursor-style quit dialog answers here
+// the renderer's Cursor-style quit dialog answers here — it also answers the
+// update-restart confirm, which is why the answer goes to the guard first
 ipcMain.handle('quit:answer', (_e, quit: boolean) => {
-  if (quit) {
-    quitConfirmed = true
-    app.quit()
-  }
+  if (resolveInterrupt(quit) || !quit) return
+  // answering yes with no confirm on screen pre-authorizes the quit — e2e
+  // teardown does this to tear down an app whose guard is armed
+  quitConfirmed = true
+  app.quit()
 })
 
 app.on('before-quit', (event) => {
-  // automated runs (e2e/probes) must quit unattended — a modal confirm would
-  // wedge app.close() until a human clicks it
-  if (!quitConfirmed && (!QUIET_TEST_MODE || FORCE_QUIT_GUARD)) {
-    const runningSessions =
-      store?.listSessions().filter((s) => s.status === 'running' || s.status === 'starting')
-        .length ?? 0
-    // idle shell prompts don't block quit — only terminals with a real
-    // foreground process (npm, vim, a build…) are worth interrupting for
-    const busy = getPtyService()?.busyCount() ?? { count: 0, names: [] }
-    const liveProcesses = busy.count
-
-    if (runningSessions > 0 || liveProcesses > 0) {
-      const win = BrowserWindow.getAllWindows()[0]
-      if (!win || win.webContents.isDestroyed()) {
-        // no UI to ask in — don't trap the user in an unquittable app
+  if (!quitConfirmed && guardActive()) {
+    const work = liveWork()
+    if (work) {
+      event.preventDefault()
+      void askInterrupt('quit', work).then((ok) => {
+        if (!ok) return
         quitConfirmed = true
-      } else {
-        event.preventDefault()
-        // only mention what's actually live, with real plurals
-        const parts: string[] = []
-        if (runningSessions > 0)
-          parts.push(
-            runningSessions === 1 ? 'An agent is still working' : `${runningSessions} agents are still working`
-          )
-        if (liveProcesses > 0)
-          parts.push(
-            liveProcesses === 1
-              ? `a terminal is still running ${busy.names[0]}`
-              : `${liveProcesses} terminals are still running (${busy.names.join(', ')})`
-          )
-        const detail = [
-          runningSessions > 0
-            ? 'Agents stop now and pick up right where they left off when you reopen their session.'
-            : '',
-          liveProcesses > 0 ? 'Those processes will be killed.' : ''
-        ]
-          .filter(Boolean)
-          .join(' ')
-        // Cursor-style IN-APP dialog (the native warning box can't be styled)
-        win.show()
-        win.webContents.send('quit:confirm', { message: parts.join(' and ') + '.', detail })
-        return
-      }
+        app.quit()
+      })
+      return
     }
   }
 

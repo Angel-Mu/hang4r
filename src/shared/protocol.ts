@@ -800,7 +800,9 @@ export interface Hang4rApi {
     sessionId: string
   ): Promise<{ rule: string; kind: 'allow' | 'deny'; source: string }[]>
   /** Cursor-style quit confirm: main asks, the renderer dialog answers */
-  onQuitConfirm(cb: (info: { message: string; detail: string }) => void): () => void
+  onQuitConfirm(
+    cb: (info: { message: string; detail: string; kind?: 'quit' | 'update' }) => void
+  ): () => void
   answerQuitConfirm(quit: boolean): Promise<void>
   // terminal (id = a per-terminal id; sessionId resolves the working directory)
   startTerminal(id: string, sessionId: string, cols: number, rows: number): Promise<void>

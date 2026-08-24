@@ -50,6 +50,7 @@ import { CodexModelService } from './services/codexModelService'
 import { CursorModelService } from './services/cursorModelService'
 import type { Store } from './services/store'
 import type { SettingsService, SettingsChangeScope } from './services/settingsService'
+import { askInterrupt, guardActive, liveWork } from './interruptGuard'
 
 let ptyService: PtyService | null = null
 export function getPtyService(): PtyService | null {
@@ -427,7 +428,13 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   )
   ipcMain.handle('update:check', () => UpdateService.check())
   ipcMain.handle('update:download', () => UpdateService.download())
-  ipcMain.handle('update:install', () => UpdateService.install())
+  ipcMain.handle('update:install', async () => {
+    // quitAndInstall() tears the app down without ever reaching app.quit(), so
+    // the before-quit guard never sees it — ask here instead
+    const work = guardActive() ? liveWork() : null
+    if (work && !(await askInterrupt('update', work))) return
+    UpdateService.install()
+  })
   ipcMain.handle('update:status', () => UpdateService.status())
   // app-level devtools (the browser pane owns page devtools) — palette-only so
   // it never sits on a menu accelerator that could hijack the browser

@@ -224,7 +224,7 @@ const api: Hang4rApi = {
   resyncSession: (sessionId: string) => ipcRenderer.invoke('sessions:resync', sessionId),
   agentAlive: (sessionId: string) => ipcRenderer.invoke('sessions:agent-alive', sessionId),
   getPermissionRules: (sessionId: string) => ipcRenderer.invoke('sessions:permission-rules', sessionId),
-  onQuitConfirm: (cb: (info: { message: string; detail: string }) => void) => {
+  onQuitConfirm: (cb: (info: { message: string; detail: string; kind?: 'quit' | 'update' }) => void) => {
     const handler = (_e: unknown, info: { message: string; detail: string }): void => cb(info)
     ipcRenderer.on('quit:confirm', handler)
     return () => ipcRenderer.removeListener('quit:confirm', handler)

@@ -4516,6 +4516,20 @@ button:disabled {
 }
 .effort-chip:hover { color: var(--text); }
 .effort-chip-on { background: var(--accent-dim); border-color: var(--accent); color: var(--text); }
+.effort-chip-muted { opacity: 0.45; cursor: default; }
+
+/* model menu → ultracode toggle */
+.model-menu-ultra {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 10px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+}
+.model-menu-ultra-text { display: flex; flex-direction: column; gap: 2px; }
+.model-menu-ultra-hint { font-size: 10.5px; color: var(--text-muted); }
 
 /* terminal bottom-split (⌘⇧D) */
 .terminal-stack-split-bottom { flex-direction: column !important; }
@@ -6550,6 +6564,20 @@ button:disabled {
 /* Model row: the current backend's glyph leads the native select */
 .field-model-row { display: flex; align-items: center; gap: 8px; }
 .field-model-row .field { flex: 1; min-width: 0; }
+/* effort sizes to its content so the model select keeps the row */
+.field-model-row .field-effort { flex: 0 0 auto; width: auto; }
+
+/* inline checkbox rows (New Agent dialog + Settings fields) */
+.dialog-check,
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.dialog-check { margin: -2px 0 4px; }
 .field-model-glyph { color: var(--accent); flex-shrink: 0; }
 
 /* Settings → Phone: mobile bridge pairing */

@@ -6,7 +6,12 @@ import type {
   ModelChoice,
   PermissionMode
 } from '../../../shared/protocol'
-import { CLAUDE_MODELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
+import {
+  CLAUDE_MODELS,
+  EFFORT_LEVELS,
+  FALLBACK_CODEX_MODELS,
+  FALLBACK_CURSOR_MODELS
+} from '../modelChoices'
 import { useClaudeModels } from '../useClaudeModels'
 import { useHang4r, composeMessage } from '../state/store'
 import { Icon, type IconName } from './Icon'
@@ -43,12 +48,16 @@ export function NewSessionDialog(): JSX.Element | null {
   const [model, setModel] = useState('')
   const [environment, setEnvironment] = useState<EnvironmentKind>('worktree')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits')
+  const [effort, setEffort] = useState('')
+  const [ultracode, setUltracode] = useState(false)
   // dirty flags: once the user manually touches a field within an open, later
   // backend/workspace switches must not stomp their explicit choice. Refs (not
   // state) since they only ever gate an async apply, never drive a render.
   const envTouched = useRef(false)
   const permTouched = useRef(false)
   const modelTouched = useRef(false)
+  const effortTouched = useRef(false)
+  const ultraTouched = useRef(false)
 
   // Resolution order — env: defaultEnvironment → 'worktree'; permission mode:
   // agents.<backend>.permissionMode → defaultPermissionMode → 'acceptEdits';
@@ -56,13 +65,18 @@ export function NewSessionDialog(): JSX.Element | null {
   // default). Workspace agents.* beats app agents.* inside resolveAgentDefault
   // itself. Skips any field the user has already touched this open.
   const applyDefaults = async (be: BackendId, pid: string): Promise<void> => {
-    const [envDefault, permAgent, permDefault, modelAgent, modelDefault] = await Promise.all([
-      window.hang4r.getSetting('defaultEnvironment'),
-      window.hang4r.resolveAgentDefault(be, 'permissionMode', pid),
-      window.hang4r.getSetting('defaultPermissionMode'),
-      window.hang4r.resolveAgentDefault(be, 'model', pid),
-      be === 'claude' ? window.hang4r.getSetting('defaultModel') : Promise.resolve(null)
-    ])
+    const [envDefault, permAgent, permDefault, modelAgent, modelDefault, effortAgent, ultraAgent] =
+      await Promise.all([
+        window.hang4r.getSetting('defaultEnvironment'),
+        window.hang4r.resolveAgentDefault(be, 'permissionMode', pid),
+        window.hang4r.getSetting('defaultPermissionMode'),
+        window.hang4r.resolveAgentDefault(be, 'model', pid),
+        be === 'claude' ? window.hang4r.getSetting('defaultModel') : Promise.resolve(null),
+        window.hang4r.resolveAgentDefault(be, 'effort', pid),
+        be === 'claude'
+          ? window.hang4r.resolveAgentDefault(be, 'ultracode', pid)
+          : Promise.resolve(null)
+      ])
     if (!envTouched.current) {
       setEnvironment(((envDefault as EnvironmentKind | null) || 'worktree'))
     }
@@ -71,6 +85,12 @@ export function NewSessionDialog(): JSX.Element | null {
     }
     if (!modelTouched.current) {
       setModel(modelAgent || modelDefault || '')
+    }
+    if (!effortTouched.current) {
+      setEffort(effortAgent || '')
+    }
+    if (!ultraTouched.current) {
+      setUltracode(ultraAgent === 'true')
     }
   }
 
@@ -91,6 +111,8 @@ export function NewSessionDialog(): JSX.Element | null {
       envTouched.current = false
       permTouched.current = false
       modelTouched.current = false
+      effortTouched.current = false
+      ultraTouched.current = false
       void applyDefaults(backend, storeProjectId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,6 +188,10 @@ export function NewSessionDialog(): JSX.Element | null {
   // #13). Resolve to the backend's Default whenever the stored value isn't a
   // real option here, and use THIS for both the shown value and the submit.
   const effectiveModel = models.some((m) => m.value === model) ? model : ''
+  const efforts = EFFORT_LEVELS[backend]
+  // codex has no xhigh/max: a level carried over from claude would otherwise
+  // show as its own <select>'s first option while a different value was sent
+  const effectiveEffort = efforts.some((e) => e.value === effort) ? effort : ''
   // best-of-N fans out Claude/Codex variants only (Cursor isn't offered here)
   const variantChoices: { backend: 'claude' | 'codex'; model?: string; label: string }[] = [
     { backend: 'claude', label: 'Claude default' },
@@ -225,6 +251,8 @@ export function NewSessionDialog(): JSX.Element | null {
           backend,
           environment,
           model: effectiveModel || undefined,
+          effort: effectiveEffort || undefined,
+          ultracode: backend === 'claude' ? ultracode : undefined,
           permissionMode,
           title: name.trim() || undefined,
           // empty prompt is legal: the session is created idle (worktree +
@@ -410,7 +438,7 @@ export function NewSessionDialog(): JSX.Element | null {
         <div className="field-model-row">
           <Icon name={BACKEND_ICON[backend]} size={15} className="field-model-glyph" />
           <select
-            className="field"
+            className="field field-model"
             value={effectiveModel}
             onChange={(e) => {
               modelTouched.current = true
@@ -423,7 +451,42 @@ export function NewSessionDialog(): JSX.Element | null {
               </option>
             ))}
           </select>
+          {efforts.length > 0 && (
+            <select
+              className="field field-effort"
+              title="Reasoning effort"
+              value={ultracode ? 'ultracode' : effectiveEffort}
+              disabled={ultracode}
+              onChange={(e) => {
+                effortTouched.current = true
+                setEffort(e.target.value)
+              }}
+            >
+              {ultracode ? (
+                <option value="ultracode">Xhigh effort (ultracode)</option>
+              ) : (
+                efforts.map((e) => (
+                  <option key={e.value} value={e.value}>
+                    {e.value === '' ? 'Auto effort' : `${e.label} effort`}
+                  </option>
+                ))
+              )}
+            </select>
+          )}
         </div>
+        {backend === 'claude' && (
+          <label className="dialog-check">
+            <input
+              type="checkbox"
+              checked={ultracode}
+              onChange={(e) => {
+                ultraTouched.current = true
+                setUltracode(e.target.checked)
+              }}
+            />
+            Ultracode — xhigh effort + standing multi-agent orchestration
+          </label>
+        )}
 
         {backend === 'codex' && (
           <div className="dialog-note">

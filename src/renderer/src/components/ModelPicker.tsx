@@ -1,13 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-
-const EFFORTS = [
-  { value: '', label: 'Auto' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Xhigh' },
-  { value: 'max', label: 'Max' }
-]
+import type { ModelChoice } from '../../../shared/protocol'
 
 /** past this many models the menu gets a search box (cursor-agent lists ~190) */
 const SEARCH_THRESHOLD = 8
@@ -19,21 +11,28 @@ const SEARCH_THRESHOLD = 8
  * variant as its own slug; the CLI has no notion of the GUI's pinned shortlist,
  * so search IS the curation) — and, when the backend supports a real effort
  * flag (claude --effort, codex model_reasoning_effort), the effort chips.
+ *
+ * `efforts` empty hides the effort section entirely (cursor); `onSetUltracode`
+ * omitted hides the ultracode row (claude-only).
  */
 export function ModelPicker({
   choices,
   model,
   effort,
-  showEffort,
+  efforts,
+  ultracode,
   onSetModel,
-  onSetEffort
+  onSetEffort,
+  onSetUltracode
 }: {
   choices: { value: string; label: string }[]
   model: string
   effort: string
-  showEffort: boolean
+  efforts: ModelChoice[]
+  ultracode?: boolean
   onSetModel: (value: string) => void
   onSetEffort: (value: string) => void
+  onSetUltracode?: (on: boolean) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -74,7 +73,11 @@ export function ModelPicker({
   }
 
   const modelLabel = choices.find((c) => c.value === model)?.label ?? choices[0].label
-  const effortLabel = EFFORTS.find((e) => e.value === effort)?.label ?? 'Auto'
+  const showEffort = efforts.length > 0
+  // ultracode pins the session to xhigh — the chips no longer describe it
+  const effortLabel = ultracode
+    ? 'Ultracode'
+    : (efforts.find((e) => e.value === effort)?.label ?? 'Auto')
 
   return (
     <div className="model-picker" ref={ref}>
@@ -117,16 +120,39 @@ export function ModelPicker({
               <div className="model-menu-sep" />
               <div className="model-menu-label">Reasoning effort</div>
               <div className="model-menu-efforts">
-                {EFFORTS.map((e) => (
+                {efforts.map((e) => (
                   <button
                     key={e.value}
-                    className={'effort-chip' + (e.value === effort ? ' effort-chip-on' : '')}
+                    className={
+                      'effort-chip' +
+                      (e.value === effort ? ' effort-chip-on' : '') +
+                      (ultracode ? ' effort-chip-muted' : '')
+                    }
+                    disabled={ultracode}
                     onClick={() => onSetEffort(e.value)}
                   >
                     {e.label}
                   </button>
                 ))}
               </div>
+            </>
+          )}
+          {onSetUltracode && (
+            <>
+              <div className="model-menu-sep" />
+              <label className="model-menu-ultra">
+                <input
+                  type="checkbox"
+                  checked={!!ultracode}
+                  onChange={(e) => onSetUltracode(e.target.checked)}
+                />
+                <span className="model-menu-ultra-text">
+                  Ultracode
+                  <span className="model-menu-ultra-hint">
+                    xhigh effort + standing multi-agent orchestration
+                  </span>
+                </span>
+              </label>
             </>
           )}
         </div>

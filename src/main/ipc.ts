@@ -604,6 +604,13 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   ipcMain.handle('sessions:get-effort', (_e, sessionId: string) =>
     settings.getSetting(`effort:${sessionId}`)
   )
+  ipcMain.handle('sessions:set-ultracode', (_e, sessionId: string, on: boolean) =>
+    sessions.setUltracode(sessionId, on)
+  )
+  ipcMain.handle(
+    'sessions:get-ultracode',
+    (_e, sessionId: string) => settings.getSetting(`ultracode:${sessionId}`) === '1'
+  )
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('settings:get', (_e, key: string) => settings.getSetting(key))
   ipcMain.handle('settings:set', (_e, key: string, value: string) => settings.setSetting(key, value))

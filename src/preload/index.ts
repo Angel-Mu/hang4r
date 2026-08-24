@@ -121,6 +121,10 @@ const api: Hang4rApi = {
   setSessionEffort: (sessionId: string, effort: string) =>
     ipcRenderer.invoke('sessions:set-effort', sessionId, effort),
   getSessionEffort: (sessionId: string) => ipcRenderer.invoke('sessions:get-effort', sessionId),
+  setSessionUltracode: (sessionId: string, on: boolean) =>
+    ipcRenderer.invoke('sessions:set-ultracode', sessionId, on),
+  getSessionUltracode: (sessionId: string) =>
+    ipcRenderer.invoke('sessions:get-ultracode', sessionId),
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value),
   resolveAgentDefault: (backend: BackendId, field: 'model' | 'permissionMode', projectId?: string) =>

@@ -117,4 +117,45 @@ test.describe('real claude session', () => {
     await page.screenshot({ path: 'test-results/real-claude-rewind.png', fullPage: true })
     await app.close()
   })
+
+  /**
+   * `--effort` and ultracode's `--settings` go onto the SAME argv as
+   * stream-json + the stdio permission protocol. A rejected flag kills the
+   * session at spawn, which no fake-agent test can see.
+   */
+  test('a session starts with --effort and ultracode applied', async () => {
+    const userDataDir = mkdtempSync(join(tmpdir(), 'hang4r-real-effort-'))
+    const app = await electron.launch({
+      args: ['out/main/index.js', `--user-data-dir=${userDataDir}`],
+      env: { ...process.env, HANG4R_FAKE_AGENT: '0', HANG4R_USER_DATA_DIR: userDataDir, HANG4R_QUIET_TEST: '1' }
+    })
+    const page = await app.firstWindow()
+    await page.waitForSelector('.app', { timeout: 20_000 })
+
+    await createProject(page, makeScratchRepo())
+    await page.reload()
+    await page.waitForSelector('.app')
+
+    await page.locator('.project-row .ghost-btn').first().click()
+    await page.locator('.dialog-prompt').fill('Reply with exactly the word HANG4R_EFFORT_OK and nothing else.')
+    await page.locator('.dialog select').filter({ has: page.locator('option[value="haiku"]') }).selectOption('haiku')
+    await page.locator('.field-model-row select.field-effort').selectOption('high')
+    await page.locator('.dialog .dialog-check input[type=checkbox]').check()
+    await page.getByRole('button', { name: /Start agent/ }).click()
+
+    const tile = page.locator('.tile').first()
+    await expect(tile.locator('.msg-assistant')).toContainText('HANG4R_EFFORT_OK', { timeout: 180_000 })
+    await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 60_000 })
+
+    const applied = await page.evaluate(async () => {
+      const [s] = await window.hang4r.listSessions()
+      return {
+        effort: await window.hang4r.getSessionEffort(s.id),
+        ultracode: await window.hang4r.getSessionUltracode(s.id)
+      }
+    })
+    expect(applied).toEqual({ effort: 'high', ultracode: true })
+
+    await app.close()
+  })
 })

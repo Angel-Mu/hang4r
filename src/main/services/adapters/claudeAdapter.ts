@@ -105,7 +105,12 @@ export class ClaudeAdapter implements AgentAdapter {
       '--include-partial-messages'
     ]
     if (opts.model) args.push('--model', opts.model)
-    if (opts.effort) args.push('--effort', opts.effort)
+    // ultracode has no flag of its own; --settings takes a JSON string and the
+    // CLI merges it over the user's own settings files for this spawn only. It
+    // pins the session to xhigh, so --effort alongside it would name a level the
+    // CLI overrides.
+    if (opts.ultracode) args.push('--settings', JSON.stringify({ ultracode: true }))
+    else if (opts.effort) args.push('--effort', opts.effort)
     if (opts.resumeSessionId) {
       args.push('--resume', opts.resumeSessionId)
       if (opts.fork) args.push('--fork-session')

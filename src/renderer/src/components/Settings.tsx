@@ -3,7 +3,12 @@ import { useHang4r } from '../state/store'
 import { THEMES, type Theme } from '../theme'
 import type { ModelChoice, SettingsScope, UpdateStatus } from '../../../shared/protocol'
 import type { BridgeStatus } from '../../../shared/bridge'
-import { CLAUDE_MODELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
+import {
+  CLAUDE_MODELS,
+  EFFORT_LEVELS,
+  FALLBACK_CODEX_MODELS,
+  FALLBACK_CURSOR_MODELS
+} from '../modelChoices'
 import { SettingsJsonEditor } from './SettingsJsonEditor'
 import {
   ACTION_LABELS,
@@ -455,6 +460,9 @@ export function Settings(): JSX.Element | null {
   const [claudeModel, setClaudeModel] = useState('')
   const [codexModel, setCodexModel] = useState('')
   const [cursorModel, setCursorModel] = useState('')
+  const [claudeEffort, setClaudeEffort] = useState('')
+  const [codexEffort, setCodexEffort] = useState('')
+  const [claudeUltracode, setClaudeUltracode] = useState(false)
   const [codexModels, setCodexModels] = useState<ModelChoice[]>(FALLBACK_CODEX_MODELS)
   const [cursorModels, setCursorModels] = useState<ModelChoice[]>(FALLBACK_CURSOR_MODELS)
   const [defaultPerm, setDefaultPerm] = useState('acceptEdits')
@@ -492,6 +500,9 @@ export function Settings(): JSX.Element | null {
     ]).then(([m, legacy]) => setClaudeModel(m || legacy || ''))
     void window.hang4r.getSetting('codexModel').then((v) => setCodexModel(v ?? ''))
     void window.hang4r.getSetting('cursorModel').then((v) => setCursorModel(v ?? ''))
+    void window.hang4r.getSetting('claudeEffort').then((v) => setClaudeEffort(v ?? ''))
+    void window.hang4r.getSetting('codexEffort').then((v) => setCodexEffort(v ?? ''))
+    void window.hang4r.getSetting('claudeUltracode').then((v) => setClaudeUltracode(v === 'on'))
     void window.hang4r
       .listCodexModels()
       .then((m) => m?.length && setCodexModels(m))
@@ -541,6 +552,9 @@ export function Settings(): JSX.Element | null {
     await window.hang4r.setSetting('claudeModel', claudeModel)
     await window.hang4r.setSetting('codexModel', codexModel)
     await window.hang4r.setSetting('cursorModel', cursorModel)
+    await window.hang4r.setSetting('claudeEffort', claudeEffort)
+    await window.hang4r.setSetting('codexEffort', codexEffort)
+    await window.hang4r.setSetting('claudeUltracode', claudeUltracode ? 'on' : 'off')
     await window.hang4r.setSetting('defaultPermissionMode', defaultPerm)
     await window.hang4r.setSetting('defaultEnvironment', defaultEnv)
     await window.hang4r.setSetting('terminalShell', terminalShell.trim())
@@ -745,9 +759,38 @@ export function Settings(): JSX.Element | null {
                     {modelOptions(CLAUDE_MODELS, claudeModel)}
                   </select>
                 </Field>
+                <Field label="Claude Code default effort">
+                  <select
+                    className="field"
+                    value={claudeUltracode ? 'ultracode' : claudeEffort}
+                    disabled={claudeUltracode}
+                    onChange={(e) => setClaudeEffort(e.target.value)}
+                  >
+                    {claudeUltracode ? (
+                      <option value="ultracode">Xhigh (ultracode)</option>
+                    ) : (
+                      modelOptions(EFFORT_LEVELS.claude, claudeEffort)
+                    )}
+                  </select>
+                </Field>
+                <Field label="Ultracode by default">
+                  <label className="settings-check">
+                    <input
+                      type="checkbox"
+                      checked={claudeUltracode}
+                      onChange={(e) => setClaudeUltracode(e.target.checked)}
+                    />
+                    Start Claude sessions at xhigh effort with standing multi-agent orchestration
+                  </label>
+                </Field>
                 <Field label="Codex default model">
                   <select className="field" value={codexModel} onChange={(e) => setCodexModel(e.target.value)}>
                     {modelOptions(codexModels, codexModel)}
+                  </select>
+                </Field>
+                <Field label="Codex default effort">
+                  <select className="field" value={codexEffort} onChange={(e) => setCodexEffort(e.target.value)}>
+                    {modelOptions(EFFORT_LEVELS.codex, codexEffort)}
                   </select>
                 </Field>
                 <Field label="Cursor default model">
@@ -756,8 +799,9 @@ export function Settings(): JSX.Element | null {
                   </select>
                 </Field>
                 <p className="settings-note">
-                  Each agent has its own models. The default is used when you start a new session with
-                  that agent (a workspace can still override it).
+                  Each agent has its own models and effort levels. The defaults pre-fill the New
+                  Agent dialog and are stamped onto each new session (a workspace can still override
+                  them; Cursor bakes effort into the model slug, so it has no effort control).
                 </p>
                 <Field label="Claude Code binary path">
                   <input className="field" placeholder="auto-detected (PATH / nvm / homebrew)" value={claudePath} onChange={(e) => setClaudePath(e.target.value)} />

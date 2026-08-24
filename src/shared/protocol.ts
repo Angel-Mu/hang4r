@@ -258,6 +258,10 @@ export interface NewSessionRequest {
   environment: EnvironmentKind
   title?: string
   model?: string
+  /** '' | low | medium | high | xhigh | max — codex clamps anything above 'high'. */
+  effort?: string
+  /** Claude only: xhigh effort plus standing dynamic-workflow orchestration. */
+  ultracode?: boolean
   permissionMode: PermissionMode
   /**
    * The agent's first turn. Optional: omit it to create the session (worktree,
@@ -671,16 +675,18 @@ export interface Hang4rApi {
   setSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<void>
   setSessionEffort(sessionId: string, effort: string): Promise<void>
   getSessionEffort(sessionId: string): Promise<string | null>
+  setSessionUltracode(sessionId: string, on: boolean): Promise<void>
+  getSessionUltracode(sessionId: string): Promise<boolean>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>
   /**
    * Per-backend agent default (agents.<backend>.<field> in settings.json),
    * workspace file overriding the app file. Backs the New Agent dialog's
-   * pre-fill for model + permission mode.
+   * pre-fill and the effort/ultracode stamped onto each new session.
    */
   resolveAgentDefault(
     backend: BackendId,
-    field: 'model' | 'permissionMode',
+    field: 'model' | 'permissionMode' | 'effort' | 'ultracode',
     projectId?: string
   ): Promise<string | null>
   /** absolute path of a settings.json file ('app', or 'workspace' + projectId) */

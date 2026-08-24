@@ -66,7 +66,7 @@ test.describe('New Agent dialog default pre-fill', () => {
     await openDialogFor(repoA)
     await expect(page.locator('.dialog')).toBeVisible()
 
-    const modelSelect = page.locator('.field-model-row select')
+    const modelSelect = page.locator('.field-model-row select.field-model')
     const permSelect = page
       .locator('.dialog select')
       .filter({ has: page.locator('option[value="bypassPermissions"]') })
@@ -126,7 +126,7 @@ test.describe('New Agent dialog default pre-fill', () => {
     await page.locator('.project-row .ghost-btn.project-add').first().click()
     await expect(page.locator('.dialog')).toBeVisible()
 
-    const modelSelect = page.locator('.field-model-row select')
+    const modelSelect = page.locator('.field-model-row select.field-model')
     const permSelect = page
       .locator('.dialog select')
       .filter({ has: page.locator('option[value="bypassPermissions"]') })
@@ -153,7 +153,7 @@ test.describe('New Agent dialog default pre-fill', () => {
     await page.locator('.project-row .ghost-btn.project-add').first().click()
     await expect(page.locator('.dialog')).toBeVisible()
 
-    const modelSelect = page.locator('.field-model-row select')
+    const modelSelect = page.locator('.field-model-row select.field-model')
     const codexBtn = page.locator('.dialog .segmented button', { hasText: 'Codex' })
 
     // pick a Claude-specific model, then switch the backend to Codex

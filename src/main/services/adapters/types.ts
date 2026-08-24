@@ -23,6 +23,8 @@ export interface AdapterStartOptions {
   model?: string
   /** Claude reasoning-effort level: low | medium | high | xhigh | max */
   effort?: string
+  /** Claude only: pass `ultracode` through --settings for this spawn */
+  ultracode?: boolean
   permissionMode: PermissionMode
   /** Backend-native session id to resume (spawns with --resume) */
   resumeSessionId?: string

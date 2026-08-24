@@ -160,6 +160,16 @@ export class SessionManager {
       remoteHostId: req.environment === 'ssh' ? req.remoteHostId : undefined
     })
 
+    // Stamped once, at birth, rather than resolved at every spawn: a later
+    // change to the agent default must not silently re-tune live sessions.
+    const effort =
+      req.effort ?? this.settings.resolveAgentDefault(req.backend, 'effort', req.projectId) ?? ''
+    if (effort.trim()) this.settings.setSetting(`effort:${session.id}`, effort.trim())
+    const ultracode =
+      req.ultracode ??
+      this.settings.resolveAgentDefault(req.backend, 'ultracode', req.projectId) === 'true'
+    if (ultracode) this.settings.setSetting(`ultracode:${session.id}`, '1')
+
     const firstPrompt = req.firstPrompt?.trim() ? req.firstPrompt : null
 
     // The setup script runs FULLY in the background (Angel's call, Jul 16 —
@@ -864,6 +874,16 @@ export class SessionManager {
    */
   setEffort(sessionId: string, effort: string): void {
     this.settings.setSetting(`effort:${sessionId}`, effort)
+    this.respawnOnNextPrompt(sessionId)
+  }
+
+  /** Claude ultracode on/off. Only read at spawn, so it re-spawns like setEffort. */
+  setUltracode(sessionId: string, on: boolean): void {
+    this.settings.setSetting(`ultracode:${sessionId}`, on ? '1' : '')
+    this.respawnOnNextPrompt(sessionId)
+  }
+
+  private respawnOnNextPrompt(sessionId: string): void {
     const adapter = this.adapters.get(sessionId)
     if (adapter) {
       adapter.dispose()
@@ -1597,6 +1617,7 @@ export class SessionManager {
       cwd: session.cwd,
       model: session.model ?? undefined,
       effort: this.settings.getSetting(`effort:${session.id}`)?.trim() || undefined,
+      ultracode: this.settings.getSetting(`ultracode:${session.id}`) === '1',
       permissionMode: session.permissionMode,
       resumeSessionId,
       fork,

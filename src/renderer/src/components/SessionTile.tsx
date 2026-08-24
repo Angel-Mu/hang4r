@@ -30,7 +30,7 @@ import { MentionMenu, useMentionResults } from './MentionMenu'
 import { SlashMenu, slashResults, type SlashItem } from './SlashMenu'
 import { ModelPicker } from './ModelPicker'
 import { Icon } from './Icon'
-import { FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
+import { EFFORT_LEVELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
 import { useClaudeModels } from '../useClaudeModels'
 
 /** Context panel views shown SIDE-BY-SIDE with chat (Cursor's split), not tabs over it. */
@@ -353,8 +353,10 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   const [changedCount, setChangedCount] = useState(0)
   // Claude reasoning-effort (real --effort flag: low|medium|high|xhigh|max)
   const [effort, setEffortState] = useState('')
+  const [ultracode, setUltracodeState] = useState(false)
   useEffect(() => {
     void window.hang4r.getSessionEffort(sessionId).then((v) => setEffortState(v ?? ''))
+    void window.hang4r.getSessionUltracode(sessionId).then(setUltracodeState)
   }, [sessionId])
   // the REAL branch for the header chip — the tile used to fabricate
   // `hang4r/<slug>` from the title, which stopped matching reality
@@ -1429,15 +1431,21 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                         : ''
                     }
                     effort={effort}
-                    // real effort levers exist for claude (--effort) and codex
-                    // (model_reasoning_effort); cursor bakes effort into the
-                    // model slug itself — chips there would be a dead control
-                    showEffort={session.backend !== 'cursor'}
+                    efforts={EFFORT_LEVELS[session.backend]}
+                    ultracode={ultracode}
                     onSetModel={(v) => void window.hang4r.setSessionModel(sessionId, v)}
                     onSetEffort={(v) => {
                       setEffortState(v)
                       void window.hang4r.setSessionEffort(sessionId, v)
                     }}
+                    onSetUltracode={
+                      session.backend === 'claude'
+                        ? (on) => {
+                            setUltracodeState(on)
+                            void window.hang4r.setSessionUltracode(sessionId, on)
+                          }
+                        : undefined
+                    }
                   />
                   {running ? (
                     <button className="ghost-btn composer-stop" onClick={() => interrupt(sessionId)}>

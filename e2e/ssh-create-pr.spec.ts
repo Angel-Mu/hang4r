@@ -96,7 +96,7 @@ test.describe('create PR on an SSH session', () => {
     await tile.locator('.diff-actions button', { hasText: 'PR' }).click()
     // PR now OPENS the pull request in the browser pane ("bring us to the
     // changes"), so the Browser context surfaces with the PR URL loaded.
-    await expect(tile.locator('.browser-url')).toHaveValue(
+    await expect(page.locator('.browser-url')).toHaveValue(
       'https://github.com/fake/repo/pull/1',
       { timeout: 20_000 }
     )

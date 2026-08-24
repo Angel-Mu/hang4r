@@ -53,10 +53,13 @@ function runCli(
   })
 }
 
-/** Create a local session with a Browser tab open; returns its id + the CLI env. */
+/** Create a local session; opens its Browser tab unless `openBrowser` is false
+ *  (a session that never opened one is the only true no-pane cold state, now
+ *  that BrowserLayer keeps a pane alive for any session holding tabs). */
 async function openSessionWithBrowser(
   page: LaunchedApp['page'],
-  userDataDir: string
+  userDataDir: string,
+  openBrowser = true
 ): Promise<{ sessionId: string; env: Record<string, string> }> {
   const repo = makeScratchRepo()
   const project = await createProject(page, repo)
@@ -78,8 +81,10 @@ async function openSessionWithBrowser(
   await page.waitForSelector('.app')
   await page.locator('.session-row', { hasText: 'browser-cli' }).click()
   await page.locator('.tile .status-dot.status-idle').first().waitFor({ timeout: 20_000 })
-  await page.locator('.tile-tabs button', { hasText: 'Browser' }).click()
-  await page.waitForSelector('.browser-pane')
+  if (openBrowser) {
+    await page.locator('.tile-tabs button', { hasText: 'Browser' }).click()
+    await page.waitForSelector('.browser-pane')
+  }
   // token comes from the ctl.token file the app wrote (CLI fallback when
   // HANG4R_CTL_TOKEN is unset) — proves the file path works
   return {
@@ -91,11 +96,11 @@ async function openSessionWithBrowser(
 test('goto COLD-OPENS the browser: it works even when the session tile is not on screen (Angel: the agent must be able to drive it like cmux, not error "open the tab first")', async () => {
   launched = await launchApp()
   const { page, userDataDir } = launched
-  const { sessionId, env } = await openSessionWithBrowser(page, userDataDir)
+  const { sessionId, env } = await openSessionWithBrowser(page, userDataDir, false)
 
-  // put the session OFF SCREEN: close its tile (the session still exists, but
-  // no SessionTile is mounted → no BrowserPane → no guest webContents). This is
-  // the real cold state a background/worktree agent hits.
+  // put the session OFF SCREEN: close its tile. With no tile mounted and no
+  // browser tabs ever opened, nothing holds a pane — the real cold state a
+  // background/worktree agent hits.
   await page.evaluate((sid) => {
     const store = (window as unknown as { __hang4r_store: { getState(): { closeTile(id: string): void } } }).__hang4r_store
     store.getState().closeTile(sid)

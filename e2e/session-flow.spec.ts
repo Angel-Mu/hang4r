@@ -194,7 +194,7 @@ test.describe('agent session flow', () => {
 
     // Browser tab renders its toolbar (webview loads only on user-entered URL).
     await tile.getByRole('button', { name: 'Browser' }).click()
-    await expect(tile.locator('.browser-url')).toBeVisible()
+    await expect(page.locator('.browser-url')).toBeVisible()
 
     // ---- Panes: a second session opens SINGLE, then drag-to-split ----
     await page.locator('.project-row .ghost-btn').first().click()
@@ -1498,7 +1498,7 @@ test.describe('agent session flow', () => {
     // CLI's resolved model once a session reports it. Angel: only the running one
     // used to show a number.
     await page.locator('.dialog .segmented button', { hasText: 'Claude Code' }).click()
-    const modelSelect = page.locator('.field-model-row select')
+    const modelSelect = page.locator('.field-model-row select.field-model')
     await expect(modelSelect.locator('option', { hasText: 'Sonnet 5' })).toHaveCount(1)
 
     // switching the backend to Codex changes the model set — Sonnet is gone

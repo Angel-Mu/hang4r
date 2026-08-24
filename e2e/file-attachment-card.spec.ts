@@ -52,6 +52,7 @@ test('attached file renders as a card (not raw bytes) and click opens an editabl
 
     // Click the card → the file opens as an EDITABLE editor tab (not a modal).
     await card.click()
+    await tile.locator('.preview-source-tab', { hasText: 'Source' }).click()
     const editor = tile.locator('.editor-slot:visible .monaco-editor')
     await expect(editor).toBeVisible({ timeout: 5_000 })
     await expect(editor).toContainText(marker)

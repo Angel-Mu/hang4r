@@ -36,6 +36,8 @@ async function openReadme(tile: ReturnType<LaunchedApp['page']['locator']>): Pro
   await tile.getByRole('button', { name: 'Files' }).click()
   await expect(tile.locator('.context-panel')).toBeVisible()
   await tile.locator('.file-row', { hasText: 'README.md' }).click()
+  // markdown opens rendered; these tests drive the Monaco editor
+  await tile.locator('.preview-source-tab', { hasText: 'Source' }).click()
   await expect(tile.locator('.editor-slot:visible .monaco-editor')).toBeVisible()
 }
 

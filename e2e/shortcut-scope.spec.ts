@@ -61,6 +61,7 @@ test.describe('shortcut scope', () => {
     await tile.getByRole('button', { name: 'Files' }).click()
     await expect(tile.locator('.context-panel')).toBeVisible()
     await tile.locator('.file-row', { hasText: 'README.md' }).click()
+    await tile.locator('.preview-source-tab', { hasText: 'Source' }).click()
     const editor = tile.locator('.editor-slot:visible .monaco-editor')
     await expect(editor).toBeVisible()
     await editor.click()

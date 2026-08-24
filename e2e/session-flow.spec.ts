@@ -143,6 +143,8 @@ test.describe('agent session flow', () => {
     await tile.locator('.file-row', { hasText: 'index.js' }).click()
     await expect(tile.locator('.editor-tab')).toHaveCount(3)
     await tile.locator('.editor-tab', { hasText: 'README.md' }).click()
+    // README opens rendered; this test edits it, so drop to the source
+    await tile.locator('.preview-source-tab', { hasText: 'Source' }).click()
     // active editor = the visible slot
     const activeEditor = tile.locator('.editor-slot:visible')
     await expect(activeEditor.locator('.view-lines')).toContainText('scratch', { timeout: 15_000 })
@@ -396,6 +398,7 @@ test.describe('agent session flow', () => {
     // Make an uncommitted edit (no trailing newline → the \ No newline case that
     // used to corrupt the reconstructed hunk patch).
     await tile.locator('.file-row', { hasText: 'README.md' }).click()
+    await tile.locator('.preview-source-tab', { hasText: 'Source' }).click()
     await tile.locator('.editor-slot:visible .monaco-editor').click()
     await page.keyboard.press('End')
     await page.keyboard.type('\nREVERT_ME_LINE')
@@ -554,17 +557,14 @@ test.describe('agent session flow', () => {
     // agents open chat-only now (Cursor) — open Files for the tree/editor steps
     await tile.getByRole('button', { name: 'Files' }).click()
 
-    // Markdown opens as source (Monaco) by default, like VS Code.
+    // Markdown opens RENDERED (Settings → General "Open previewable files in").
     await tile.locator('.file-row', { hasText: 'docs.md' }).click()
-    await expect(tile.locator('.editor-slot:visible .monaco-editor')).toBeVisible({ timeout: 10_000 })
-    // Switch to rendered preview via the Preview | Source segmented control
-    // next to Save (replaced the old per-tab eye toggle).
-    await tile.locator('.preview-source-tab', { hasText: 'Preview' }).click()
     await expect(tile.locator('.code-editor-preview h1', { hasText: 'Docs Title' })).toBeVisible({ timeout: 10_000 })
     await expect(tile.locator('.code-editor-preview strong', { hasText: 'bold' })).toBeVisible()
-    // and back to source
+    // Preview | Source segmented control next to Save (replaced the old
+    // per-tab eye toggle) drops to the Monaco source.
     await tile.locator('.preview-source-tab', { hasText: 'Source' }).click()
-    await expect(tile.locator('.editor-slot:visible .monaco-editor')).toBeVisible()
+    await expect(tile.locator('.editor-slot:visible .monaco-editor')).toBeVisible({ timeout: 10_000 })
 
     // Image → rendered as a data-URL <img>.
     await tile.locator('.file-row', { hasText: 'logo.svg' }).click()
@@ -749,6 +749,7 @@ test.describe('agent session flow', () => {
 
     // Editing a file marks its tab dirty; saving clears it.
     await tile.locator('.file-row', { hasText: 'README.md' }).click()
+    await tile.locator('.preview-source-tab', { hasText: 'Source' }).click()
     await tile.locator('.editor-slot:visible .monaco-editor').click()
     await page.keyboard.press('End')
     await page.keyboard.type(' X')
@@ -1109,6 +1110,7 @@ test.describe('agent session flow', () => {
 
     // Edit + save README → the new line gets a green 'added' gutter bar.
     await tile.locator('.file-row', { hasText: 'README.md' }).click()
+    await tile.locator('.preview-source-tab', { hasText: 'Source' }).click()
     await tile.locator('.editor-slot:visible .monaco-editor').click()
     await page.keyboard.press('End')
     await page.keyboard.type('\nADDED_LINE')
@@ -1651,6 +1653,7 @@ test.describe('agent session flow', () => {
     // agents open chat-only now (Cursor) — open Files for the tree/editor steps
     await tile.getByRole('button', { name: 'Files' }).click()
     await tile.locator('.file-row', { hasText: 'README.md' }).first().click()
+    await tile.locator('.preview-source-tab', { hasText: 'Source' }).click()
     await tile.locator('.editor-slot:visible .monaco-editor').click()
     await page.keyboard.press('End')
     await page.keyboard.type(' PEEK_EDIT')

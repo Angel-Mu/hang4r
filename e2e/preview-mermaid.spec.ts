@@ -45,9 +45,7 @@ test('the editor markdown preview renders a mermaid diagram, not raw code', asyn
     await expect(card).toBeVisible({ timeout: 5_000 })
     await card.click()
 
-    // opens as an editable tab; switch to Preview → the fence renders as a live SVG
-    await expect(tile.locator('.editor-slot:visible .monaco-editor')).toBeVisible({ timeout: 5_000 })
-    await tile.locator('.preview-source-tab', { hasText: 'Preview' }).click()
+    // opens rendered — the fence is a live SVG, not raw code
     await expect(tile.locator('.code-editor-preview .mermaid-svg svg')).toBeVisible({ timeout: 10_000 })
     // …not the raw code fallback, and no modal
     await expect(tile.locator('.code-editor-preview pre.md-code')).toHaveCount(0)

@@ -27,10 +27,9 @@ test('⌘F over the markdown preview finds + highlights in the rendered preview'
 
   await tile.getByRole('button', { name: 'Files' }).click()
   await tile.locator('.file-row[data-path="docs.md"]').click()
-  await expect(tile.locator('.editor-slot:visible .monaco-editor')).toBeVisible()
 
-  // switch to Preview (this also puts focus on a control inside the editor pane,
-  // so ⌘F routes to the editor, not the conversation)
+  // markdown already opens in Preview; the click puts focus on a control inside
+  // the editor pane, so ⌘F routes to the editor, not the conversation
   await tile.locator('.preview-source-tab', { hasText: 'Preview' }).click()
   await expect(tile.locator('.code-editor-preview .markdown-body')).toBeVisible()
 

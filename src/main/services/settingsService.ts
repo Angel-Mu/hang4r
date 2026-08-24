@@ -65,6 +65,7 @@ const USER_KEYS: Record<string, KeySpec> = {
   },
   'notifications.onError': { path: 'notifications.onError', codec: 'bool', workspaceScoped: true },
   defaultModel: { path: 'defaultModel', codec: 'str', workspaceScoped: false },
+  defaultFileView: { path: 'defaultFileView', codec: 'str', workspaceScoped: false },
   // per-agent default model (agents.<backend>.model) — the SAME path
   // resolveAgentDefault reads, so setting it here becomes each agent's default
   // for new sessions (a workspace agents.<backend>.model still overrides)

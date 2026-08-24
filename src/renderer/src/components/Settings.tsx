@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { useHang4r } from '../state/store'
+import { useHang4r, type FileView } from '../state/store'
 import { THEMES, type Theme } from '../theme'
 import type { ModelChoice, SettingsScope, UpdateStatus } from '../../../shared/protocol'
 import type { BridgeStatus } from '../../../shared/bridge'
@@ -437,6 +437,8 @@ export function Settings(): JSX.Element | null {
   const setEditorFontSize = useHang4r((s) => s.setEditorFontSize)
   const chatFontSize = useHang4r((s) => s.chatFontSize)
   const setChatFontSize = useHang4r((s) => s.setChatFontSize)
+  const defaultFileView = useHang4r((s) => s.defaultFileView)
+  const setDefaultFileView = useHang4r((s) => s.setDefaultFileView)
   const sessionInits = useHang4r((s) => s.sessionInit)
   const openSessionCount = Object.keys(sessionInits).length
 
@@ -626,6 +628,16 @@ export function Settings(): JSX.Element | null {
                     <span className="font-size-value">{editorFontSize}px</span>
                     <button className="ghost-btn" onClick={() => setEditorFontSize(editorFontSize + 1)}>+</button>
                   </div>
+                </Field>
+                <Field label="Open previewable files in">
+                  <select
+                    className="field field-file-view"
+                    value={defaultFileView}
+                    onChange={(e) => setDefaultFileView(e.target.value as FileView)}
+                  >
+                    <option value="preview">Preview — rendered Markdown, HTML, CSV table</option>
+                    <option value="source">Source — the raw text</option>
+                  </select>
                 </Field>
                 <Field label="Chat font size">
                   <div className="font-size-row">

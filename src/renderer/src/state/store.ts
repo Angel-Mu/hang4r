@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import { applyTheme, type Theme } from '../theme'
+
+/** Which side of a previewable file's Preview/Source toggle it opens on. */
+export type FileView = 'preview' | 'source'
 import { forgetSessionUiState, seedSessionUi } from '../sessionUiMemos'
 import type {
   AgentEvent,
@@ -587,6 +590,8 @@ interface Hang4rState {
   /** conversation text size — applied as the --chat-font CSS var */
   chatFontSize: number
   setChatFontSize(px: number): void
+  defaultFileView: FileView
+  setDefaultFileView(view: FileView): void
   /** session ids pinned to the top of the sidebar (persisted) */
   pinnedSessionIds: string[]
   pinnedProjectIds: string[]
@@ -826,6 +831,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       document.documentElement.style.setProperty('--chat-font', `${savedChatFont}px`)
       set({ chatFontSize: savedChatFont })
     }
+    if ((await window.hang4r.getSetting('defaultFileView')) === 'source') {
+      set({ defaultFileView: 'source' })
+    }
 
     // restore the tiled layout (open panes + focus) from the last run
     if (layoutJson) {
@@ -864,6 +872,10 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
           document.documentElement.style.setProperty('--chat-font', `${cf}px`)
           set({ chatFontSize: cf })
         }
+        set({
+          defaultFileView:
+            (await window.hang4r.getSetting('defaultFileView')) === 'source' ? 'source' : 'preview'
+        })
       })()
     })
 
@@ -1474,6 +1486,11 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     document.documentElement.style.setProperty('--chat-font', `${size}px`)
     void window.hang4r.setSetting('chatFontSize', String(size))
     set({ chatFontSize: size })
+  },
+  defaultFileView: 'preview',
+  setDefaultFileView(view) {
+    void window.hang4r.setSetting('defaultFileView', view)
+    set({ defaultFileView: view })
   },
   openDiffFor(sessionId, path) {
     set({ diffToOpen: { sessionId, path, nonce: (get().diffToOpen?.nonce ?? 0) + 1 } })

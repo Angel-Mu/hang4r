@@ -400,13 +400,12 @@ export function CodeEditor({
   // of the old blocking "Couldn't open … for preview" modal Angel kept hitting.
   const [loadError, setLoadError] = useState(false)
   const [hasSel, setHasSel] = useState(false)
-  // Preview/Source segmented control (md/html only) — default is source, like
-  // VS Code; the choice is remembered per doc so leaving the tab and coming
-  // back doesn't snap Preview back to Source.
-  // CSV defaults to the Table view (the whole point — raw CSV is hard to read);
-  // markdown/html default to Source. The choice is still remembered per doc.
+  // Preview/Source segmented control (md/html/csv). Which side a file OPENS on
+  // is Settings → General's "Open previewable files in"; a per-doc choice always
+  // wins over it, so leaving a tab and coming back doesn't snap you back.
+  const defaultFileView = useHang4r((s) => s.defaultFileView)
   const [previewMode, setPreviewModeState] = useState(
-    previewModeMemo.get(`${sessionId}:${path}`) ?? mediaKind(path) === 'csv'
+    previewModeMemo.get(`${sessionId}:${path}`) ?? defaultFileView === 'preview'
   )
   const setPreviewMode = (v: boolean): void => {
     previewModeMemo.set(`${sessionId}:${path}`, v)
@@ -414,8 +413,10 @@ export function CodeEditor({
   }
   // same component instance can be re-pointed at another file — re-read memo
   useEffect(() => {
-    setPreviewModeState(previewModeMemo.get(`${sessionId}:${path}`) ?? mediaKind(path) === 'csv')
-  }, [sessionId, path])
+    setPreviewModeState(
+      previewModeMemo.get(`${sessionId}:${path}`) ?? defaultFileView === 'preview'
+    )
+  }, [sessionId, path, defaultFileView])
   const [previewText, setPreviewText] = useState('')
   const [previewSrc, setPreviewSrc] = useState('')
   const previewNonce = useRef(0)

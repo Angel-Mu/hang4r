@@ -22,7 +22,7 @@ export function AttachMenu({
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    void window.hang4r.listAllFiles(sessionId).then(setFiles)
+    void window.hang4r.listAllFiles(sessionId, true).then(setFiles)
     setTimeout(() => inputRef.current?.focus(), 0)
   }, [sessionId])
 

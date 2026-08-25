@@ -61,13 +61,19 @@ function localPath(root: string, p: string): string {
 const SKIP = new Set(['.git', 'node_modules', '.hang4r-worktrees', '.worktrees', '.DS_Store'])
 /** heavy build/dep dirs kept OUT of the ⌘P finder even when it includes ignored
  *  files, so the quick-open list stays useful (source + docs) not flooded */
+/**
+ * Directories ⌘P and @-mentions never look inside. The line is dependency and
+ * framework CACHES — enormous, and nobody authored them — not build output.
+ *
+ * `out`, `dist`, `build` and `coverage` used to be here and cost Angel a real
+ * file: his generated artwork lands in `out/`, so `@gen-2026…` matched nothing
+ * while the tree showed the images right there. Those names describe a project's
+ * PRODUCT as often as its throwaways, they hold tens of files rather than tens
+ * of thousands, and a file you can see in the tree must be reachable by name.
+ */
 const FINDER_SKIP_DIRS = [
   '.git',
   'node_modules',
-  'dist',
-  'build',
-  'out',
-  'coverage',
   '.next',
   '.nx',
   '.turbo',

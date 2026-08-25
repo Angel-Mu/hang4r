@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type JSX,
-  type MouseEvent,
-  type ClipboardEvent as ReactClipboardEvent,
-  type DragEvent as ReactDragEvent
-} from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import type { BackendId, ModelChoice, PermissionMode } from '../../../shared/protocol'
@@ -532,12 +524,33 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     }
   }, [panelToToggle, sessionId])
 
-  // load the workspace file list once for @-mentions
-  useEffect(() => {
-    void window.hang4r.listAllFiles(sessionId).then(setAllFiles)
+  // The @-mention list used to be fetched ONCE per session and to respect
+  // .gitignore, so the files an agent had just written — the whole reason to
+  // @-mention something mid-conversation — were missing twice over (Angel:
+  // "@out/" and "@gen-" matched nothing while the tree showed them). Now it
+  // includes gitignored files, like ⌘P already did, and re-reads whenever a turn
+  // ends or the menu opens.
+  const filesFetchedAt = useRef(0)
+  const refreshFiles = useCallback(() => {
+    filesFetchedAt.current = Date.now()
+    void window.hang4r
+      .listAllFiles(sessionId, true)
+      .then(setAllFiles)
+      .catch(() => undefined)
   }, [sessionId])
+  const sessionStatus = session?.status
+  useEffect(() => {
+    // every status change is at most a few `git ls-files` per turn, and an idle
+    // session is exactly when the agent has finished writing
+    refreshFiles()
+  }, [refreshFiles, sessionStatus])
 
   const mentionResults = useMentionResults(allFiles, mention?.query ?? '')
+  // opening the menu re-reads too, for files written by something other than a
+  // turn (a terminal, another tool); throttled so holding a key can't spam git
+  const onMentionOpened = (): void => {
+    if (Date.now() - filesFetchedAt.current > 2000) refreshFiles()
+  }
 
   // slash-menu items: built-in commands + session skills/commands + modes
   const slashItems: SlashItem[] = [
@@ -559,6 +572,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     if (m) {
       setMention({ query: m[2], start: caret - m[2].length - 1 })
       setMentionActive(0)
+      onMentionOpened()
     } else {
       setMention(null)
     }

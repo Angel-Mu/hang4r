@@ -23,6 +23,36 @@ export function forgetSessionUiState(sessionId: string): void {
   void window.hang4r.setSetting(`sessionUi:${sessionId}`, '')
 }
 
+type Remap = (sessionId: string, from: string, to: string) => void
+const remappers = new Set<Remap>()
+
+/** A component registers to rewrite the absolute paths it memoized when a
+ *  session's working directory MOVES (renaming a session renames its worktree).
+ *  Without this the open tabs and their scroll positions still name the old
+ *  folder, so every one of them reads as a missing file. */
+export function onRemapSessionPaths(fn: Remap): void {
+  remappers.add(fn)
+}
+
+export function remapSessionPaths(sessionId: string, from: string, to: string): void {
+  for (const fn of remappers) fn(sessionId, from, to)
+}
+
+/** Swap a `${sessionId}:${absolutePath}` memo's key prefix in place. */
+export function remapKeyedMemo<T>(
+  memo: Map<string, T>,
+  sessionId: string,
+  from: string,
+  to: string
+): void {
+  for (const [key, value] of [...memo]) {
+    const path = key.startsWith(`${sessionId}:`) ? key.slice(sessionId.length + 1) : null
+    if (path === null || !path.startsWith(from + '/')) continue
+    memo.delete(key)
+    memo.set(`${sessionId}:${to}${path.slice(from.length)}`, value)
+  }
+}
+
 /** What a session's restorable UI state looks like on disk. */
 export interface SessionUiSnapshot {
   /** FileBrowser layout (open files + split structure), serialized */

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
-import { join, dirname } from 'node:path'
+import { join, dirname, basename } from 'node:path'
 import { promisify } from 'node:util'
 import type { ChangedFile, DiffScope, MediaSide, ScopedFiles, ScopeSummary } from '../../shared/protocol'
 import { LocalExec, shellQuote, type Exec } from './remoteService'
@@ -69,6 +69,50 @@ export const GitService = {
     const branch = `${branchPrefix}${unique}`
     await git(repoDir, ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'])
     return { worktreePath, baseBranch }
+  },
+
+  /**
+   * Move a session's worktree to a folder named `name`, renaming its branch to
+   * match. Collisions get `-2`, `-3`, … like createWorktree. Returns the new
+   * path, or null when git refuses (a locked worktree, a dirty index mid-rebase)
+   * — the caller keeps the old path rather than losing the session's work.
+   *
+   * The branch is renamed second on purpose: `worktree move` is the operation
+   * that can fail, and a half-done rename would leave the folder and branch
+   * disagreeing about the session's name.
+   */
+  async moveWorktree(
+    repoDir: string,
+    worktreePath: string,
+    name: string,
+    worktreeDir: string = DEFAULT_WORKTREE_DIR,
+    branchPrefix = ''
+  ): Promise<string | null> {
+    const container = join(repoDir, worktreeDir)
+    if (!existsSync(container)) mkdirSync(container, { recursive: true })
+    const taken = async (candidate: string): Promise<boolean> => {
+      if (existsSync(join(container, candidate))) return true
+      try {
+        await git(repoDir, ['show-ref', '--verify', `refs/heads/${branchPrefix}${candidate}`])
+        return true
+      } catch {
+        return false
+      }
+    }
+    const oldName = basename(worktreePath)
+    if (oldName === name) return worktreePath // already named that
+    let unique = name
+    for (let n = 2; await taken(unique); n++) unique = `${name}-${n}`
+    const target = join(container, unique)
+    try {
+      await git(repoDir, ['worktree', 'move', worktreePath, target])
+    } catch {
+      return null
+    }
+    // best-effort: a session whose branch was renamed by hand still moves
+    await git(repoDir, ['branch', '-m', `${branchPrefix}${oldName}`, `${branchPrefix}${unique}`])
+      .catch(() => undefined)
+    return target
   },
 
   async removeWorktree(repoDir: string, worktreePath: string): Promise<void> {

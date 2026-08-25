@@ -312,7 +312,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
         sessions.respondPermission(sessionId, requestId, decision),
       respondQuestion: (sessionId: string, requestId: string, answers: QuestionAnswer[]) =>
         sessions.respondQuestion(sessionId, requestId, answers),
-      renameSession: (sessionId: string, title: string) => sessions.rename(sessionId, title),
+      renameSession: (sessionId: string, title: string) => void sessions.rename(sessionId, title),
       archiveSession: (sessionId: string) => sessions.archive(sessionId),
       unarchiveSession: (sessionId: string) => store.updateSession(sessionId, { status: 'idle' }),
       retrySession: (sessionId: string) => sessions.retry(sessionId),

@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { mdComponents } from './MarkdownBlocks'
 import { useHang4r } from '../state/store'
-import { onForgetSession } from '../sessionUiMemos'
+import { onForgetSession, onRemapSessionPaths, remapKeyedMemo } from '../sessionUiMemos'
 import { htmlDataUrl } from '../htmlPreview'
 import { CsvTable } from './CsvTable'
 import { ensureModel, loadProject, tsDefinition } from '../monacoProject'
@@ -313,6 +313,16 @@ onForgetSession((sessionId) => {
     }
   }
 })
+onRemapSessionPaths((sessionId, from, to) => {
+  for (const map of [sharedDirty, previewModeMemo, viewStateMemo, savedVersionMemo]) {
+    remapKeyedMemo(map as Map<string, unknown>, sessionId, from, to)
+  }
+  // the paths changed, so let a failed read be retried under the new name
+  for (const key of [...previewFallbackDone]) {
+    if (key.startsWith(`${sessionId}:`)) previewFallbackDone.delete(key)
+  }
+})
+
 function setSharedDirty(key: string, dirty: boolean): void {
   if ((sharedDirty.get(key) ?? false) === dirty) return
   sharedDirty.set(key, dirty)

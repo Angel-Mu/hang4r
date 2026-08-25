@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState, Fragment, type JSX, type Drag
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import type { DirEntry } from '../../../shared/protocol'
 import { useHang4r } from '../state/store'
-import { onForgetSession, onSeedSessionUi, persistSessionUi } from '../sessionUiMemos'
+import {
+  onForgetSession,
+  onRemapSessionPaths,
+  onSeedSessionUi,
+  persistSessionUi
+} from '../sessionUiMemos'
 import { fileIcon, type FileIcon } from '../fileIcons'
 import { Icon } from './Icon'
 import { SearchPanel } from './SearchPanel'
@@ -70,6 +75,23 @@ onForgetSession((sessionId) => {
 // seed the layout from the persisted snapshot (before the tile mounts) so open
 // files survive an app restart / reload. Only fill an EMPTY memo — never clobber
 // live in-memory state (a session that's already open has the authoritative copy).
+onRemapSessionPaths((sessionId, from, to) => {
+  const move = (p: string): string =>
+    p.startsWith(from + '/') ? to + p.slice(from.length) : p
+  const walk = (node: LayoutNode): void => {
+    if (node.kind === 'split') {
+      node.children.forEach(walk)
+      return
+    }
+    node.group.openFiles = node.group.openFiles.map(move)
+    node.group.active = node.group.active ? move(node.group.active) : null
+  }
+  const layout = layoutMemo.get(sessionId)
+  if (layout) walk(layout)
+  const dirs = expandedDirsMemo.get(sessionId)
+  if (dirs) expandedDirsMemo.set(sessionId, new Set([...dirs].map(move)))
+})
+
 onSeedSessionUi((sessionId, snap) => {
   if (snap.layout && !layoutMemo.has(sessionId)) layoutMemo.set(sessionId, snap.layout as LayoutNode)
 })

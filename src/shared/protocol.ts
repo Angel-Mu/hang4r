@@ -653,7 +653,8 @@ export interface Hang4rApi {
   openRemoteTunnel(sessionId: string, remotePort: number): Promise<{ localPort: number }>
   onUpdateStatus(cb: (status: UpdateStatus) => void): () => void
   unarchiveSession(sessionId: string): Promise<SessionMeta | undefined>
-  renameSession(sessionId: string, title: string): Promise<void>
+  /** resolves to the new working directory when the worktree moved with it */
+  renameSession(sessionId: string, title: string): Promise<string | null>
   respondPermission(sessionId: string, requestId: string, decision: string): Promise<void>
   /** Answer a pending question-request (Claude AskUserQuestion) so the turn continues */
   respondQuestion(sessionId: string, requestId: string, answers: QuestionAnswer[]): Promise<void>

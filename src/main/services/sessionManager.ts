@@ -780,13 +780,48 @@ export class SessionManager {
     }
   }
 
-  rename(sessionId: string, title: string): void {
+  /**
+   * Rename a session, and its worktree folder + branch with it, so the name on
+   * disk keeps matching the name you see.
+   *
+   * The worktree only moves when nothing is standing on it: an in-place session
+   * has none, a dropped one has nothing to move, and moving the directory out
+   * from under a WORKING agent would break the turn — those rename the title
+   * alone. Returns the new working directory when one was moved.
+   */
+  async rename(sessionId: string, title: string): Promise<string | null> {
     const clean = title.trim()
-    if (clean) {
-      this.updateSession(sessionId, { title: clean.slice(0, 120) })
-      // push to the backend too (Codex thread/name/set)
-      this.adapters.get(sessionId)?.setTitle?.(clean)
-    }
+    if (!clean) return null
+    const before = this.store.getSession(sessionId)
+    this.updateSession(sessionId, { title: clean.slice(0, 120) })
+    // push to the backend too (Codex thread/name/set)
+    this.adapters.get(sessionId)?.setTitle?.(clean)
+
+    if (
+      !before ||
+      before.environment !== 'worktree' ||
+      before.status === 'running' ||
+      before.status === 'starting' ||
+      !existsSync(before.cwd)
+    )
+      return null
+    const project = this.store.getProject(before.projectId)
+    if (!project) return null
+    const moved = await GitService.moveWorktree(
+      project.path,
+      before.cwd,
+      worktreeNameFor(clean),
+      this.worktreeDir(project.id),
+      this.branchPrefix(project.id)
+    ).catch(() => null)
+    if (!moved || moved === before.cwd) return null
+
+    this.store.setSessionWorkdir(sessionId, moved, before.baseRef)
+    // the CLI was spawned with the OLD cwd; only a re-spawn picks up the new one
+    this.respawnOnNextPrompt(sessionId)
+    const updated = this.store.getSession(sessionId)
+    if (updated) this.broadcast.sessionUpdated(updated)
+    return moved
   }
 
   respondPermission(sessionId: string, requestId: string, decision: string): void {

@@ -3,7 +3,7 @@ import { applyTheme, type Theme } from '../theme'
 
 /** Which side of a previewable file's Preview/Source toggle it opens on. */
 export type FileView = 'preview' | 'source'
-import { forgetSessionUiState, seedSessionUi } from '../sessionUiMemos'
+import { forgetSessionUiState, remapSessionPaths, seedSessionUi } from '../sessionUiMemos'
 import type {
   AgentEvent,
   AgentQuestion,
@@ -990,6 +990,11 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     window.hang4r.onSessionUpdated((session) => {
       const prev = get().sessions.find((s) => s.id === session.id)
       const wasActive = !!prev && (prev.status === 'running' || prev.status === 'starting')
+      // renaming a session moves its worktree; the memoized absolute paths of
+      // its open tabs would otherwise all point at the old folder
+      if (prev && prev.cwd && session.cwd && prev.cwd !== session.cwd) {
+        remapSessionPaths(session.id, prev.cwd, session.cwd)
+      }
       set((state) => {
         const idx = state.sessions.findIndex((s) => s.id === session.id)
         const sessions =

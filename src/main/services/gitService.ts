@@ -95,6 +95,10 @@ export const GitService = {
     if (existsSync(worktreePath)) return true // already attached
     const container = dirname(worktreePath)
     if (!existsSync(container)) mkdirSync(container, { recursive: true })
+    // A directory deleted WITHOUT `git worktree remove` (rm -rf, a crash) leaves
+    // git still registering it, and the add below then fails as "already
+    // registered". Prune only drops entries whose directory is really gone.
+    await git(repoDir, ['worktree', 'prune']).catch(() => undefined)
     await git(repoDir, ['worktree', 'add', worktreePath, branch])
     return true
   },

@@ -15,6 +15,7 @@ import { InputDialog } from './components/InputDialog'
 import { ArchivedSessions } from './components/ArchivedSessions'
 import { CursorImport } from './components/CursorImport'
 import { QuitConfirm } from './components/QuitConfirm'
+import { WorktreeAsk } from './components/WorktreeAsk'
 import { SidebarRail } from './components/SidebarRail'
 import { Icon } from './components/Icon'
 import { useHang4r } from './state/store'
@@ -385,6 +386,7 @@ export default function App(): JSX.Element {
       <FileFinder />
       <Settings />
       <QuitConfirm />
+      <WorktreeAsk />
       <ContextMenu />
       <InputDialog />
       <ArchivedSessions />

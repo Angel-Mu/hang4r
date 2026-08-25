@@ -6568,6 +6568,11 @@ button:disabled {
 .field-model-row .field-effort { flex: 0 0 auto; width: auto; }
 
 /* inline checkbox rows (New Agent dialog + Settings fields) */
+/* worktree-gone choice: three actions, so it needs more room than the quit confirm */
+.wt-dialog { max-width: 520px; }
+.wt-actions { flex-wrap: wrap; }
+.wt-rebuild { white-space: nowrap; }
+
 .dialog-check,
 .settings-check {
   display: flex;

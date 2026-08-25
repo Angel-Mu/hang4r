@@ -5,6 +5,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc, getPtyService, getBrowserControl, getBridge } from './ipc'
 import { askInterrupt, guardActive, initInterruptGuard, liveWork, resolveInterrupt } from './interruptGuard'
+import { resolveWorktreeChoice, type WorktreeChoice } from './worktreeAsk'
 import { Store } from './services/store'
 import { SettingsService } from './services/settingsService'
 import { UpdateService } from './services/updateService'
@@ -364,6 +365,8 @@ app.whenReady().then(() => {
 
 // the renderer's Cursor-style quit dialog answers here — it also answers the
 // update-restart confirm, which is why the answer goes to the guard first
+ipcMain.handle('worktree:answer', (_e, choice: WorktreeChoice) => resolveWorktreeChoice(choice))
+
 ipcMain.handle('quit:answer', (_e, quit: boolean) => {
   if (resolveInterrupt(quit) || !quit) return
   // answering yes with no confirm on screen pre-authorizes the quit — e2e

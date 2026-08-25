@@ -804,6 +804,9 @@ export interface Hang4rApi {
     cb: (info: { message: string; detail: string; kind?: 'quit' | 'update' }) => void
   ): () => void
   answerQuitConfirm(quit: boolean): Promise<void>
+  /** the worktree for this session is gone — rebuild it, or answer without it */
+  onWorktreeAsk(cb: (info: { sessionId: string; title: string }) => void): () => void
+  answerWorktreeAsk(choice: 'answer' | 'rebuild' | 'cancel'): Promise<void>
   // terminal (id = a per-terminal id; sessionId resolves the working directory)
   startTerminal(id: string, sessionId: string, cols: number, rows: number): Promise<void>
   startProcess(

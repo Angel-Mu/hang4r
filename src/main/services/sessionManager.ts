@@ -45,6 +45,7 @@ import {
   type Exec
 } from './remoteService'
 import { resolveBackgroundTaskState } from './backgroundTask'
+import { askWorktreeChoice } from '../worktreeAsk'
 import type { Store } from './store'
 import type { SettingsService } from './settingsService'
 
@@ -448,11 +449,22 @@ export class SessionManager {
       this.adapters.delete(sessionId)
       adapter = undefined
     }
+    // The worktree was cleaned up (merge-cleanup, `wt remove`, Drop worktree).
+    // Rebuilding costs a whole setup run, so ask instead of assuming: a question
+    // about what was already discussed needs no files at all.
+    const missing = await this.resolveMissingWorktree(session)
+    if (missing === 'cancel') return
+    if (missing === 'rebuild' && adapter) {
+      // the live CLI still holds the deleted directory — only a re-spawn moves it
+      adapter.dispose()
+      this.adapters.delete(sessionId)
+      adapter = undefined
+    }
     if (!adapter) {
-      // Re-spawn (e.g. after app restart, or the recovery drop above): a PROMPT is
-      // an explicit "continue here", so recreate the worktree if it was cleaned
-      // (recreate=true) — passive access leaves it dropped, but working rebuilds it.
-      await this.ensureWorkdir(sessionId, true)
+      // a PROMPT is an explicit "continue here", so a worktree that is merely
+      // absent (never asked about, e.g. after an app restart) is rebuilt — only
+      // an explicit 'answer' keeps it gone
+      await this.ensureWorkdir(sessionId, missing !== 'answer')
       const fresh = recoverAt
         ? this.spawnAdapter(session, session.backendSessionId!, true, recoverAt)
         : this.spawnAdapter(session, session.backendSessionId ?? undefined)
@@ -463,7 +475,14 @@ export class SessionManager {
     // the path to the agent-facing text (the base64 vision block still goes too),
     // so file-based tools have something to point at. The echo keeps the original
     // (un-noted) text — the transcript already shows the image thumbnails.
-    const agentText = this.writeImageAttachments(session, text, images)
+    let agentText = this.writeImageAttachments(session, text, images)
+    if (missing === 'answer') {
+      // the agent would otherwise spend the turn failing file reads; the echo
+      // keeps the user's own words, so this never shows up in the transcript
+      agentText +=
+        '\n\n[hang4r: this session\'s worktree has been removed, so the project files are' +
+        ' not available. Answer from this conversation; do not try to read or edit files.]'
+    }
     const echoDisplay = displayText ?? (agentText !== text ? text : undefined)
     adapter.prompt(
       agentText,
@@ -1195,6 +1214,24 @@ export class SessionManager {
     }
   }
 
+  /**
+   * What to do about a worktree session whose directory is gone: 'rebuild' (the
+   * old always-rebuild behavior), 'answer' (run without it), or 'cancel'. Any
+   * session with its worktree intact answers 'rebuild' without asking, and the
+   * choice sticks per session so a follow-up question doesn't re-ask.
+   */
+  private async resolveMissingWorktree(
+    session: SessionMeta
+  ): Promise<'ok' | 'rebuild' | 'answer' | 'cancel'> {
+    if (session.environment !== 'worktree' || existsSync(session.cwd)) return 'ok'
+    const key = `worktreeChoice:${session.id}`
+    const remembered = this.settings.getSetting(key)
+    if (remembered === 'answer' || remembered === 'rebuild') return remembered
+    const choice = await askWorktreeChoice(session.id, session.title)
+    if (choice !== 'cancel') this.settings.setSetting(key, choice)
+    return choice
+  }
+
   async ensureWorkdir(sessionId: string, recreate = false): Promise<string> {
     const session = this.requireSession(sessionId)
     if (session.environment === 'ssh') return session.cwd // remote path — not ours to create
@@ -1239,6 +1276,7 @@ export class SessionManager {
     )
     this.store.setSessionWorkdir(sessionId, wt.worktreePath, wt.baseBranch)
     this.store.updateSession(sessionId, { worktreeDropped: false }) // rebuilt → no longer dropped
+    this.settings.setSetting(`worktreeChoice:${sessionId}`, '')
     // background: a prompt that triggered this recreate must not hang for the
     // length of an npm install (Angel hit exactly that wait)
     void this.runSetup(sessionId, wt.worktreePath, project.path, project.id)

@@ -230,6 +230,13 @@ const api: Hang4rApi = {
     return () => ipcRenderer.removeListener('quit:confirm', handler)
   },
   answerQuitConfirm: (quit: boolean) => ipcRenderer.invoke('quit:answer', quit),
+  onWorktreeAsk: (cb: (info: { sessionId: string; title: string }) => void) => {
+    const handler = (_e: unknown, info: { sessionId: string; title: string }): void => cb(info)
+    ipcRenderer.on('worktree:ask', handler)
+    return () => ipcRenderer.removeListener('worktree:ask', handler)
+  },
+  answerWorktreeAsk: (choice: 'answer' | 'rebuild' | 'cancel') =>
+    ipcRenderer.invoke('worktree:answer', choice),
   startTerminal: (id: string, sessionId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('pty:start', id, sessionId, cols, rows),
   startProcess: (id: string, sessionId: string, command: string, cols: number, rows: number) =>

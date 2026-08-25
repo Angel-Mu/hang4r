@@ -17,6 +17,8 @@ interface Sources {
   runningSessions: () => number
   /** terminals with a real foreground process — idle shells don't count */
   busyProcesses: () => { count: number; names: string[] }
+  /** commands whose pty leader exited but whose process group is still alive */
+  detachedProcesses: () => { count: number; names: string[] }
   /** run_in_background Bash tasks still writing — these outlive their turn, so
    *  their session is usually idle by the time you quit */
   backgroundTasks: () => Promise<{ count: number; names: string[] }>
@@ -49,6 +51,7 @@ export async function liveWork(): Promise<LiveWork | null> {
   if (!sources) return null
   const agents = sources.runningSessions()
   const busy = sources.busyProcesses()
+  const detached = sources.detachedProcesses()
   let tasks = { count: 0, names: [] as string[] }
   try {
     // the probe shells out to lsof; neither a failure nor a slow disk may leave
@@ -62,7 +65,7 @@ export async function liveWork(): Promise<LiveWork | null> {
   } catch {
     /* treated as nothing running */
   }
-  if (agents === 0 && busy.count === 0 && tasks.count === 0) return null
+  if (agents === 0 && busy.count === 0 && detached.count === 0 && tasks.count === 0) return null
 
   const parts: string[] = []
   if (agents > 0)
@@ -73,6 +76,12 @@ export async function liveWork(): Promise<LiveWork | null> {
         ? `a terminal is still running ${busy.names[0]}`
         : `${busy.count} terminals are still running (${busy.names.join(', ')})`
     )
+  if (detached.count > 0)
+    parts.push(
+      detached.count === 1
+        ? `${detached.names[0]} is still running in the background`
+        : `${detached.count} detached processes are still running (${detached.names.join(', ')})`
+    )
   if (tasks.count > 0)
     parts.push(
       tasks.count === 1
@@ -81,7 +90,7 @@ export async function liveWork(): Promise<LiveWork | null> {
     )
   const detail = [
     agents > 0 ? 'Agents stop now and pick up right where they left off when you reopen their session.' : '',
-    busy.count > 0 || tasks.count > 0 ? 'Those processes will be killed.' : ''
+    busy.count > 0 || detached.count > 0 || tasks.count > 0 ? 'Those processes will be killed.' : ''
   ]
     .filter(Boolean)
     .join(' ')

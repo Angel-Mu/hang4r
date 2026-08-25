@@ -348,6 +348,7 @@ app.whenReady().then(() => {
       store?.listSessions().filter((s) => s.status === 'running' || s.status === 'starting')
         .length ?? 0,
     busyProcesses: () => getPtyService()?.busyCount() ?? { count: 0, names: [] },
+    detachedProcesses: () => getPtyService()?.detached() ?? { count: 0, names: [] },
     backgroundTasks: () =>
       sessionManager?.runningBackgroundTasks() ?? Promise.resolve({ count: 0, names: [] })
   })

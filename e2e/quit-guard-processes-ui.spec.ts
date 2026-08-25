@@ -270,24 +270,22 @@ test('PATH2 autoStart "run on agent start" (no TerminalView)', async () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PATH 3 — REPRODUCTION: a self-detaching dev server. The command backgrounds a
-// SIGHUP-ignoring port-holder and RETURNS, so the pty shell LEADER exits right
-// away. pty.onExit then deletes the id from BOTH ptys and commandPtys, so
-// busyCount() forgets it — while the detached grandchild keeps holding the port.
-// This is path-independent (manual Start and autoStart both call startCommand);
-// we use autoStart for determinism. Expected to REPRODUCE Angel: no quit prompt,
-// and the port holder survives the quit.
+// PATH 3 — a self-detaching dev server. The command backgrounds a SIGHUP-ignoring
+// port-holder and RETURNS, so the pty LEADER exits immediately and pty.onExit
+// drops the id from every map. That used to make the survivor invisible: no quit
+// prompt, and the port stayed occupied after the app closed.
+//
+// hang4r now records the pty's process GROUP at spawn (node-pty setsid()s, so
+// pty.pid IS the pgid) and keeps it after the leader dies — the backgrounded
+// child is still in that group, so it stays both findable and killable.
 // ─────────────────────────────────────────────────────────────────────────────
-test('PATH3 self-detaching dev server (leader exits early) — REPRODUCES no-prompt', async () => {
+test('PATH3 self-detaching dev server stays tracked, warns on quit, and dies with the app', async () => {
   launched = await launchApp({ env: { HANG4R_TEST_QUIT_GUARD: '1' } })
   const { page, app } = launched
-  const repo = makeScratchRepo()
-  const project = await createProject(page, repo)
+  const project = await createProject(page, makeScratchRepo())
   const pidFile = newPidFile()
 
-  // background a HUP-ignoring child, then EXIT — the leader does not stay foreground.
-  // `trap "" HUP` before the spawn makes the ignored disposition inherit into sleep,
-  // so it survives the pty hangup; the leader returns immediately (no `wait`).
+  // background a HUP-ignoring child, then EXIT — the leader does not stay foreground
   const detachingCmd = `sh -c 'trap "" HUP; sleep 100000 & echo $! > ${pidFile}; exit 0'`
   cleanupPidFiles.add(pidFile)
 
@@ -302,46 +300,33 @@ test('PATH3 self-detaching dev server (leader exits early) — REPRODUCES no-pro
 
   const sid = await makeIdleSession(page, project.id, 'detach-proc')
   const procId = `dev:${sid}:0`
-
-  // the port-holder grandchild comes alive…
   const childPid = await pollChildPid(pidFile)
-  // …and we wait for the pty LEADER to exit (the detaching command returns fast),
-  // which is exactly the state Angel is in when he later quits.
-  let runningAfterDetach = true
-  for (let i = 0; i < 30; i++) {
-    runningAfterDetach = await page.evaluate((id) => window.hang4r.processRunning(id), procId)
-    if (!runningAfterDetach) break
-    await new Promise((r) => setTimeout(r, 100))
-  }
 
-  // now quit — with the leader gone, busyCount() has forgotten the process
+  // the port holder outlives its leader, so the command must still read RUNNING
+  // (it used to flip to false the moment the leader exited)
+  await new Promise((r) => setTimeout(r, 1000))
+  const stillRunning = await page.evaluate((id) => window.hang4r.processRunning(id), procId)
+
   const quit = await probeQuit(launched)
-
-  // ensure the app is fully down, then check whether the port holder survived
-  await app.close().catch(() => {})
-  launched = null
-  await new Promise((r) => setTimeout(r, 500))
-  const childSurvivedQuit = pidAlive(childPid)
 
   console.log(
     '\n[PATH3 self-detaching] EVIDENCE ' +
       JSON.stringify(
-        {
-          procId,
-          childPidStarted: childPid,
-          runningAfterDetach, // false → pty leader already exited (id dropped from busyCount)
-          quitConfirmFired: quit.fired, // false → NO prompt (reproduces Angel)
-          quitMessage: quit.message,
-          childSurvivedQuit // true → orphaned port holder outlives the app (port stays occupied)
-        },
+        { procId, childPidStarted: childPid, stillRunning, quitConfirmFired: quit.fired, quitMessage: quit.message },
         null,
         2
       )
   )
 
-  // this documents the BUG (diagnostic): with the leader gone, the guard is blind
+  // let the guard through so teardown can run
+  await page.evaluate(() => window.hang4r.answerQuitConfirm(true)).catch(() => {})
+  await app.close().catch(() => {})
+  launched = null
+  await new Promise((r) => setTimeout(r, 700))
+
   expect(childPid).toBeGreaterThan(0)
-  expect(runningAfterDetach).toBe(false)
-  expect(quit.fired).toBe(false) // ← reproduces "no quit-confirmation prompt"
-  expect(childSurvivedQuit).toBe(true) // ← reproduces "port stays occupied"
+  expect(stillRunning).toBe(true) // tracked via its process group
+  expect(quit.fired).toBe(true) // and it warns instead of dying silently
+  expect(quit.message.toLowerCase()).toContain('still running')
+  expect(pidAlive(childPid)).toBe(false) // the port is free after the app closes
 })

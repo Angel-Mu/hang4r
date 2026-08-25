@@ -985,7 +985,9 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       ptyService!.startCommand(id, cwd, command, cols, rows, env)
     }
   )
-  ipcMain.handle('pty:running', (_e, id: string) => ptyService!.isRunning(id))
+  // "running" must mean anything this id started is alive — a command that
+  // backgrounds a child and returns leaves the child holding the port
+  ipcMain.handle('pty:running', (_e, id: string) => ptyService!.hasLiveGroup(id))
   ipcMain.handle('pty:write', (_e, id: string, data: string) => ptyService!.write(id, data))
   ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
     ptyService!.resize(id, cols, rows)

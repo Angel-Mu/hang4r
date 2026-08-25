@@ -57,6 +57,18 @@ export class PtyService {
    *  and got NO warning). */
   private commandPtys = new Map<string, string>()
 
+  /**
+   * Every command pty we have started, keyed by its process GROUP id — node-pty
+   * setsid()s, so `pty.pid` IS the pgid.
+   *
+   * This is the ONLY handle that survives a command which backgrounds a child
+   * and returns: `pty.onExit` drops the id from every other map the moment the
+   * LEADER exits, and the backgrounded child — still in the leader's group, and
+   * reparented to init — then holds its port with nothing tracking it. Kept
+   * until the group has no live members left.
+   */
+  private startedGroups = new Map<number, { id: string; command: string }>()
+
   constructor(
     private onData: (id: string, data: string) => void,
     private onExit: (id: string, code: number) => void
@@ -171,7 +183,67 @@ export class PtyService {
     }
     this.appendBuffer(id, `\r\n\x1b[2m$ ${command}\x1b[0m\r\n`)
     this.commandPtys.set(id, command)
+    if (pty.pid > 1) this.startedGroups.set(pty.pid, { id, command })
     this.attach(id, pty)
+  }
+
+  /** pids still alive in a process group, leader included. */
+  private groupMembers(pgid: number): number[] {
+    if (platform() === 'win32') return []
+    try {
+      return execFileSync('ps', ['-o', 'pid=', '-g', String(pgid)], { timeout: 4000 })
+        .toString()
+        .split('\n')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => Number.isInteger(n) && n > 1)
+    } catch {
+      // no members left (ps exits non-zero on an empty group)
+      return []
+    }
+  }
+
+  /**
+   * Commands whose pty LEADER is gone but whose process group still has live
+   * members — the self-detaching dev server that keeps its port with nothing
+   * tracking it. Prunes groups that have finally emptied.
+   *
+   * A child that calls setsid() for itself leaves the group and is genuinely
+   * beyond our reach; everything that merely backgrounds with `&` stays.
+   */
+  detached(): { count: number; names: string[] } {
+    const names: string[] = []
+    for (const [pgid, info] of [...this.startedGroups]) {
+      if (this.ptys.has(info.id)) continue // leader alive → busyCount() has it
+      if (this.groupMembers(pgid).length === 0) {
+        this.startedGroups.delete(pgid)
+        continue
+      }
+      names.push(info.command.trim().split(/\s+/)[0] || info.command)
+    }
+    return { count: names.length, names }
+  }
+
+  /** true while anything the id started is still alive — the leader, or a child
+   *  it left behind. */
+  hasLiveGroup(id: string): boolean {
+    if (this.ptys.has(id)) return true
+    for (const [pgid, info] of this.startedGroups) {
+      if (info.id === id && this.groupMembers(pgid).length > 0) return true
+    }
+    return false
+  }
+
+  /** SIGKILL whatever an id left behind after its leader exited. */
+  killDetached(id: string): void {
+    for (const [pgid, info] of [...this.startedGroups]) {
+      if (info.id !== id) continue
+      try {
+        process.kill(-pgid, 'SIGKILL')
+      } catch {
+        /* group already gone */
+      }
+      this.startedGroups.delete(pgid)
+    }
   }
 
   /** whether a pty with this id is currently alive */
@@ -301,6 +373,9 @@ export class PtyService {
   }
 
   dispose(id: string): void {
+    // before the early return: a detached command has no live leader, and its
+    // survivor is exactly what Stop needs to reach
+    this.killDetached(id)
     const pty = this.ptys.get(id)
     if (!pty) return
     // drop bookkeeping up front so busyCount()/re-attach treat it as gone even
@@ -334,6 +409,17 @@ export class PtyService {
       this.buffers.delete(id)
       this.sizes.delete(id)
       this.killGroup(pty, 'SIGKILL')
+    }
+    // …and the groups whose leader already exited, which the loop above can no
+    // longer see. Without this a self-detached dev server outlives the app and
+    // keeps its port until it's hunted down by hand.
+    for (const pgid of [...this.startedGroups.keys()]) {
+      try {
+        process.kill(-pgid, 'SIGKILL')
+      } catch {
+        /* group already gone */
+      }
+      this.startedGroups.delete(pgid)
     }
   }
 }

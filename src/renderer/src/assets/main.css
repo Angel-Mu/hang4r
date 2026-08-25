@@ -6568,6 +6568,36 @@ button:disabled {
 .field-model-row .field-effort { flex: 0 0 auto; width: auto; }
 
 /* inline checkbox rows (New Agent dialog + Settings fields) */
+/* `:shortcode` emoji strip — horizontal, because the glyph is the label */
+.emoji-menu {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.emoji-item {
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 5px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.emoji-item:hover { background: var(--panel-2); }
+.emoji-item-active { border-color: var(--accent); background: var(--accent-dim); }
+.emoji-menu-hint {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
 /* worktree-gone choice: three actions, so it needs more room than the quit confirm */
 .wt-dialog { max-width: 520px; }
 .wt-actions { flex-wrap: wrap; }

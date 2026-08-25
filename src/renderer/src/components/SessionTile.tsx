@@ -28,6 +28,7 @@ import { BrowserSlot } from './BrowserLayer'
 import { AttachMenu } from './AttachMenu'
 import { MentionMenu, useMentionResults } from './MentionMenu'
 import { SlashMenu, slashResults, type SlashItem } from './SlashMenu'
+import { EmojiMenu, emojiResults, type EmojiItem } from './EmojiMenu'
 import { ModelPicker } from './ModelPicker'
 import { Icon } from './Icon'
 import { EFFORT_LEVELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
@@ -349,6 +350,9 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   const init = useHang4r((s) => s.sessionInit[sessionId])
   const [slash, setSlash] = useState<{ query: string; start: number } | null>(null)
   const [slashActive, setSlashActive] = useState(0)
+  // `:shortcode` emoji typeahead
+  const [emoji, setEmoji] = useState<{ query: string; start: number } | null>(null)
+  const [emojiActive, setEmojiActive] = useState(0)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const [changedCount, setChangedCount] = useState(0)
   // Claude reasoning-effort (real --effort flag: low|medium|high|xhigh|max)
@@ -558,6 +562,37 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     } else {
       setMention(null)
     }
+  }
+
+  const emojiList = emoji ? emojiResults(emoji.query) : []
+
+  // detect a `:token` → open the emoji typeahead. Two letters minimum: a lone
+  // `:` fires constantly in prose (ratios, "note:"), and one letter still matches
+  // hundreds of shortcodes, so neither is worth a popup.
+  const detectEmoji = (value: string, caret: number): void => {
+    const m = /(^|[\s(])[:]([a-z0-9_+-]{2,})$/i.exec(value.slice(0, caret))
+    if (m) {
+      setEmoji({ query: m[2].toLowerCase(), start: caret - m[2].length - 1 })
+      setEmojiActive(0)
+    } else {
+      setEmoji(null)
+    }
+  }
+
+  const pickEmoji = (item: EmojiItem): void => {
+    const el = composerRef.current
+    const caret = el?.selectionStart ?? draft.length
+    const start = emoji?.start ?? 0
+    // the emoji CHARACTER goes in, not the shortcode — what the agent (and any
+    // other reader of the transcript) gets is the glyph itself
+    const next = draft.slice(0, start) + item.emoji + draft.slice(caret)
+    setDraft(sessionId, next)
+    setEmoji(null)
+    setTimeout(() => {
+      el?.focus()
+      const pos = start + item.emoji.length
+      el?.setSelectionRange(pos, pos)
+    }, 0)
   }
 
   // detect a /token at composer start → open the slash-command menu
@@ -1295,6 +1330,14 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                     onHover={setMentionActive}
                   />
                 )}
+                {emoji && emojiList.length > 0 && (
+                  <EmojiMenu
+                    items={emojiList}
+                    active={emojiActive}
+                    onPick={pickEmoji}
+                    onHover={setEmojiActive}
+                  />
+                )}
                 {slash && slashList.length > 0 && (
                   <SlashMenu
                     items={slashItems}
@@ -1313,6 +1356,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                     setDraft(sessionId, e.target.value)
                     detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
                     detectSlash(e.target.value, e.target.selectionStart ?? e.target.value.length)
+                    detectEmoji(e.target.value, e.target.selectionStart ?? e.target.value.length)
                   }}
                   onPaste={onComposerPaste}
                   onKeyDown={(e) => {
@@ -1364,6 +1408,28 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                       if (e.key === 'Escape') {
                         e.preventDefault()
                         setSlash(null)
+                        return
+                      }
+                    }
+                    if (emoji && emojiList.length > 0) {
+                      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setEmojiActive((a) => Math.min(a + 1, emojiList.length - 1))
+                        return
+                      }
+                      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setEmojiActive((a) => Math.max(a - 1, 0))
+                        return
+                      }
+                      if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault()
+                        pickEmoji(emojiList[emojiActive])
+                        return
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setEmoji(null)
                         return
                       }
                     }

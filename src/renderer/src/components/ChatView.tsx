@@ -1,6 +1,8 @@
 import { memo, useEffect, useMemo, useRef, useState, type JSX, type RefObject } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { remarkEmoji } from '../remarkEmoji'
+import { replaceShortcodes } from '../../../shared/emoji'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { subagentLabelForPermission } from './SubagentInspector'
 import { MdCode, MdPre, mdComponents, openFileHref } from './MarkdownBlocks'
@@ -521,9 +523,9 @@ function TranscriptItemView({
           ⇄ interactive CLI
         </span>
         {item.role === 'assistant' ? (
-          <Markdown remarkPlugins={[remarkGfm]} components={mdComponents(sessionId)}>{item.text}</Markdown>
+          <Markdown remarkPlugins={[remarkGfm, remarkEmoji]} components={mdComponents(sessionId)}>{item.text}</Markdown>
         ) : (
-          <div className="msg-user-text">{item.text}</div>
+          <div className="msg-user-text">{replaceShortcodes(item.text)}</div>
         )}
       </div>
     )
@@ -532,7 +534,7 @@ function TranscriptItemView({
   if (item.blockType !== 'text' || !item.text) return null
   return (
     <div className={'msg-assistant' + (item.parentToolUseId ? ' msg-subagent' : '')}>
-      <Markdown remarkPlugins={[remarkGfm]} components={chatMdComponents(sessionId)}>
+      <Markdown remarkPlugins={[remarkGfm, remarkEmoji]} components={chatMdComponents(sessionId)}>
         {item.text}
       </Markdown>
     </div>
@@ -694,12 +696,12 @@ function UserMessageCard({
       {item.text &&
         (/(^|\n)(```|>)/.test(item.text) ? (
           <div className="msg-user-md markdown-body">
-            <Markdown remarkPlugins={[remarkGfm]} components={chatMdComponents(sessionId)}>
+            <Markdown remarkPlugins={[remarkGfm, remarkEmoji]} components={chatMdComponents(sessionId)}>
               {item.text}
             </Markdown>
           </div>
         ) : (
-          item.text
+          replaceShortcodes(item.text)
         ))}
     </div>
   )

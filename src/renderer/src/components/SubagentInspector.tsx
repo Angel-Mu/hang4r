@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { remarkEmoji } from '../remarkEmoji'
 import { mdComponents } from './MarkdownBlocks'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { onSeedSessionUi, onForgetSession, persistSessionUi } from '../sessionUiMemos'
@@ -187,7 +188,7 @@ function SubagentThread({
             ) : (
               m.text.trim() && (
                 <div key={m.key} className="subagent-text">
-                  <Markdown remarkPlugins={[remarkGfm]} components={mdComponents(sessionId)}>{m.text}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm, remarkEmoji]} components={mdComponents(sessionId)}>{m.text}</Markdown>
                 </div>
               )
             )
@@ -198,7 +199,7 @@ function SubagentThread({
           {run.resultText && (
             <div className="subagent-result">
               <div className="subagent-result-label">result</div>
-              <Markdown remarkPlugins={[remarkGfm]} components={mdComponents(sessionId)}>{run.resultText}</Markdown>
+              <Markdown remarkPlugins={[remarkGfm, remarkEmoji]} components={mdComponents(sessionId)}>{run.resultText}</Markdown>
             </div>
           )}
         </div>

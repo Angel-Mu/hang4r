@@ -6568,6 +6568,28 @@ button:disabled {
 .field-model-row .field-effort { flex: 0 0 auto; width: auto; }
 
 /* inline checkbox rows (New Agent dialog + Settings fields) */
+/* quit/restart dialog: one row per live thing, each stoppable in place */
+.quit-live {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.quit-live-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.quit-live-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quit-live-kind { color: var(--text-muted); font-size: 11px; flex: 0 0 auto; }
+.quit-live-stop { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; }
+
 /* `:shortcode` emoji strip — horizontal, because the glyph is the label */
 .emoji-menu {
   display: flex;

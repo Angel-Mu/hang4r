@@ -17,6 +17,7 @@ import { pathToFileURL } from 'url'
 import type {
   BackendId,
   DiffScope,
+  LiveWorkItem,
   NewSessionRequest,
   PermissionMode,
   PromptFile,
@@ -428,6 +429,23 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   )
   ipcMain.handle('update:check', () => UpdateService.check())
   ipcMain.handle('update:download', () => UpdateService.download())
+  // Stop ONE thing the quit/restart dialog listed. A stuck turn used to be a
+  // dead end there: the dialog named it, then made you cancel, find the session,
+  // press Stop, and quit again.
+  ipcMain.handle('live:stop', async (_e, item: LiveWorkItem) => {
+    if (item.kind === 'agent') {
+      sessions.interrupt(item.id)
+      return
+    }
+    if (item.kind === 'terminal' || item.kind === 'detached') {
+      // dispose() kills the whole group, and reaches a detached survivor whose
+      // pty leader is already gone
+      ptyService?.dispose(item.id)
+      return
+    }
+    await stopBackgroundTask(item.id, !!remoteFor(item.sessionId ?? '')).catch(() => undefined)
+  })
+
   ipcMain.handle('update:install', async () => {
     // quitAndInstall() tears the app down without ever reaching app.quit(), so
     // the before-quit guard never sees it — ask here instead

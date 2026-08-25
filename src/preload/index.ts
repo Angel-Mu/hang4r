@@ -2,10 +2,11 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   BackendId,
   BrowserEnsureTab,
-  BrowserHotkey,
   BrowserGuestReport,
+  BrowserHotkey,
   DiffScope,
   Hang4rApi,
+  LiveWorkItem,
   NewSessionRequest,
   PermissionMode,
   PromptFile,
@@ -224,12 +225,20 @@ const api: Hang4rApi = {
   resyncSession: (sessionId: string) => ipcRenderer.invoke('sessions:resync', sessionId),
   agentAlive: (sessionId: string) => ipcRenderer.invoke('sessions:agent-alive', sessionId),
   getPermissionRules: (sessionId: string) => ipcRenderer.invoke('sessions:permission-rules', sessionId),
-  onQuitConfirm: (cb: (info: { message: string; detail: string; kind?: 'quit' | 'update' }) => void) => {
+  onQuitConfirm: (
+    cb: (info: {
+      message: string
+      detail: string
+      kind?: 'quit' | 'update'
+      items?: LiveWorkItem[]
+    }) => void
+  ) => {
     const handler = (_e: unknown, info: { message: string; detail: string }): void => cb(info)
     ipcRenderer.on('quit:confirm', handler)
     return () => ipcRenderer.removeListener('quit:confirm', handler)
   },
   answerQuitConfirm: (quit: boolean) => ipcRenderer.invoke('quit:answer', quit),
+  stopLiveWork: (item: LiveWorkItem) => ipcRenderer.invoke('live:stop', item),
   onWorktreeAsk: (cb: (info: { sessionId: string; title: string }) => void) => {
     const handler = (_e: unknown, info: { sessionId: string; title: string }): void => cb(info)
     ipcRenderer.on('worktree:ask', handler)

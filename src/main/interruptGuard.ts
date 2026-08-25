@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron'
+import type { LiveWorkItem } from '../shared/protocol'
 
 /**
  * The confirm shown before anything that cuts live work short. `before-quit`
@@ -11,17 +12,22 @@ export type InterruptKind = 'quit' | 'update'
 export interface LiveWork {
   message: string
   detail: string
+  /** the same work, itemised — the dialog offers a Stop per row so a stuck turn
+   *  can be cleared without cancelling, hunting it down, and quitting again */
+  items: LiveWorkItem[]
 }
 
 interface Sources {
-  runningSessions: () => number
+  /** working agents; a live subagent shows up here, since subagents run
+   *  in-process and keep their session 'running' */
+  runningAgents: () => LiveWorkItem[]
   /** terminals with a real foreground process — idle shells don't count */
-  busyProcesses: () => { count: number; names: string[] }
+  busyProcesses: () => LiveWorkItem[]
   /** commands whose pty leader exited but whose process group is still alive */
-  detachedProcesses: () => { count: number; names: string[] }
+  detachedProcesses: () => LiveWorkItem[]
   /** run_in_background Bash tasks still writing — these outlive their turn, so
    *  their session is usually idle by the time you quit */
-  backgroundTasks: () => Promise<{ count: number; names: string[] }>
+  backgroundTasks: () => Promise<LiveWorkItem[]>
 }
 
 /** how long the background-task probe may delay a quit before we let it go */
@@ -49,52 +55,57 @@ export function initInterruptGuard(s: Sources): void {
  */
 export async function liveWork(): Promise<LiveWork | null> {
   if (!sources) return null
-  const agents = sources.runningSessions()
+  const agents = sources.runningAgents()
   const busy = sources.busyProcesses()
   const detached = sources.detachedProcesses()
-  let tasks = { count: 0, names: [] as string[] }
+  let tasks: LiveWorkItem[] = []
   try {
     // the probe shells out to lsof; neither a failure nor a slow disk may leave
     // the app feeling unquittable, so it races a deadline and loses ties
     tasks = await Promise.race([
       sources.backgroundTasks(),
-      new Promise<{ count: number; names: string[] }>((resolve) =>
-        setTimeout(() => resolve({ count: 0, names: [] }), PROBE_TIMEOUT_MS)
-      )
+      new Promise<LiveWorkItem[]>((resolve) => setTimeout(() => resolve([]), PROBE_TIMEOUT_MS))
     ])
   } catch {
     /* treated as nothing running */
   }
-  if (agents === 0 && busy.count === 0 && detached.count === 0 && tasks.count === 0) return null
+  const items = [...agents, ...busy, ...detached, ...tasks]
+  if (items.length === 0) return null
 
   const parts: string[] = []
-  if (agents > 0)
-    parts.push(agents === 1 ? 'An agent is still working' : `${agents} agents are still working`)
-  if (busy.count > 0)
+  if (agents.length > 0)
     parts.push(
-      busy.count === 1
-        ? `a terminal is still running ${busy.names[0]}`
-        : `${busy.count} terminals are still running (${busy.names.join(', ')})`
+      agents.length === 1 ? 'An agent is still working' : `${agents.length} agents are still working`
     )
-  if (detached.count > 0)
+  if (busy.length > 0)
     parts.push(
-      detached.count === 1
-        ? `${detached.names[0]} is still running in the background`
-        : `${detached.count} detached processes are still running (${detached.names.join(', ')})`
+      busy.length === 1
+        ? `a terminal is still running ${busy[0].label}`
+        : `${busy.length} terminals are still running (${busy.map((b) => b.label).join(', ')})`
     )
-  if (tasks.count > 0)
+  if (detached.length > 0)
     parts.push(
-      tasks.count === 1
-        ? `a background task is still running in ${tasks.names[0]}`
-        : `${tasks.count} background tasks are still running (${[...new Set(tasks.names)].join(', ')})`
+      detached.length === 1
+        ? `${detached[0].label} is still running in the background`
+        : `${detached.length} detached processes are still running (${detached.map((d) => d.label).join(', ')})`
+    )
+  if (tasks.length > 0)
+    parts.push(
+      tasks.length === 1
+        ? `a background task is still running in ${tasks[0].label}`
+        : `${tasks.length} background tasks are still running`
     )
   const detail = [
-    agents > 0 ? 'Agents stop now and pick up right where they left off when you reopen their session.' : '',
-    busy.count > 0 || detached.count > 0 || tasks.count > 0 ? 'Those processes will be killed.' : ''
+    agents.length > 0
+      ? 'Agents stop now and pick up right where they left off when you reopen their session.'
+      : '',
+    busy.length > 0 || detached.length > 0 || tasks.length > 0
+      ? 'Those processes will be killed.'
+      : ''
   ]
     .filter(Boolean)
     .join(' ')
-  return { message: parts.join(' and ') + '.', detail }
+  return { message: parts.join(' and ') + '.', detail, items }
 }
 
 /**

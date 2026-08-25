@@ -3,14 +3,15 @@ import type {
   BackendId,
   ChangedFile,
   DiffScope,
+  LiveWorkItem,
   NewSessionRequest,
   PermissionMode,
   PromptFile,
   PromptImage,
   QuestionAnswer,
   ReviewComment,
-  ScopedFiles,
   ScopeSummary,
+  ScopedFiles,
   SessionEvent,
   SessionMeta
 } from '../../shared/protocol'
@@ -462,9 +463,11 @@ export class SessionManager {
     }
     if (!adapter) {
       // a PROMPT is an explicit "continue here", so a worktree that is merely
-      // absent (never asked about, e.g. after an app restart) is rebuilt — only
-      // an explicit 'answer' keeps it gone
-      await this.ensureWorkdir(sessionId, missing !== 'answer')
+      // absent (never asked about, e.g. after an app restart) is rebuilt. An
+      // explicit 'answer' skips the call entirely: ensureWorkdir's passive branch
+      // now falls back to the project root, and handing the agent the MAIN repo
+      // is exactly the isolation break the worktree existed to prevent.
+      if (missing !== 'answer') await this.ensureWorkdir(sessionId, true)
       const fresh = recoverAt
         ? this.spawnAdapter(session, session.backendSessionId!, true, recoverAt)
         : this.spawnAdapter(session, session.backendSessionId ?? undefined)
@@ -935,8 +938,8 @@ export class SessionManager {
    * `resolveBackgroundTaskState` can only assume 'running' and would nag on
    * every quit forever after one remote task.
    */
-  async runningBackgroundTasks(): Promise<{ count: number; names: string[] }> {
-    const probes: Promise<string | null>[] = []
+  async runningBackgroundTasks(): Promise<LiveWorkItem[]> {
+    const probes: Promise<LiveWorkItem | null>[] = []
     for (const [sessionId, logs] of this.bgTaskLogs) {
       const session = this.store.getSession(sessionId)
       if (!session || session.environment === 'ssh') continue
@@ -946,14 +949,15 @@ export class SessionManager {
             // a finished log is terminal — forget it so a long session doesn't
             // accumulate an lsof per turn on every quit
             if (state !== 'running') logs.delete(log)
-            return state === 'running' ? session.title : null
+            return state === 'running'
+              ? { kind: 'task' as const, id: log, label: session.title, sessionId }
+              : null
           })
         )
       }
     }
     // one round trip, not one per task: each probe can cost an lsof
-    const names = (await Promise.all(probes)).filter((n): n is string => n !== null)
-    return { count: names.length, names }
+    return (await Promise.all(probes)).filter((t): t is LiveWorkItem => t !== null)
   }
 
   setEffort(sessionId: string, effort: string): void {
@@ -1282,7 +1286,13 @@ export class SessionManager {
         const s = this.store.updateSession(sessionId, { worktreeDropped: true })
         if (s) this.broadcast.sessionUpdated(s)
       }
-      return session.cwd
+      // The worktree is gone, but the PROJECT still is not: browsing, search,
+      // git and the terminal fall back to it instead of a dead path, so a
+      // cleaned-up session stays readable (Angel: "if worktree already deleted,
+      // should go to main"). The agent never arrives here — prompt() either
+      // rebuilds or deliberately runs with no files at all.
+      const project = this.store.getProject(session.projectId)
+      return project && existsSync(project.path) ? project.path : session.cwd
     }
     const project = this.store.getProject(session.projectId)
     if (!project || !(await GitService.isRepo(project.path))) return session.cwd

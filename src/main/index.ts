@@ -345,13 +345,23 @@ app.whenReady().then(() => {
   })
   sessionManager = registerIpc(store, settings)
   initInterruptGuard({
-    runningSessions: () =>
-      store?.listSessions().filter((s) => s.status === 'running' || s.status === 'starting')
-        .length ?? 0,
-    busyProcesses: () => getPtyService()?.busyCount() ?? { count: 0, names: [] },
-    detachedProcesses: () => getPtyService()?.detached() ?? { count: 0, names: [] },
-    backgroundTasks: () =>
-      sessionManager?.runningBackgroundTasks() ?? Promise.resolve({ count: 0, names: [] })
+    runningAgents: () =>
+      (store?.listSessions() ?? [])
+        .filter((s) => s.status === 'running' || s.status === 'starting')
+        .map((s) => ({ kind: 'agent' as const, id: s.id, label: s.title })),
+    busyProcesses: () =>
+      (getPtyService()?.busyItems() ?? []).map((p) => ({
+        kind: 'terminal' as const,
+        id: p.id,
+        label: p.name
+      })),
+    detachedProcesses: () =>
+      (getPtyService()?.detachedItems() ?? []).map((p) => ({
+        kind: 'detached' as const,
+        id: p.id,
+        label: p.name
+      })),
+    backgroundTasks: () => sessionManager?.runningBackgroundTasks() ?? Promise.resolve([])
   })
   UpdateService.init()
   UpdateService.armAutoCheck()

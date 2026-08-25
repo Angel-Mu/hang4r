@@ -262,6 +262,41 @@ export class PtyService {
    * reports the current foreground process name; when it's just the shell
    * itself (or the transient `login`), nothing of the user's is running.
    */
+  /** the same terminals busyCount() counts, but addressable — the quit dialog
+   *  offers a Stop per row */
+  busyItems(): { id: string; name: string }[] {
+    const IDLE = new Set(['fish', 'zsh', 'bash', 'sh', 'dash', 'login', 'powershell.exe', ''])
+    const out: { id: string; name: string }[] = []
+    for (const [id, pty] of this.ptys) {
+      const cmd = this.commandPtys.get(id)
+      if (cmd) {
+        out.push({ id, name: cmd.trim().split(/\s+/)[0] || cmd })
+        continue
+      }
+      try {
+        const name = (pty.process ?? '').split('/').pop() ?? ''
+        if (!IDLE.has(name.toLowerCase())) out.push({ id, name })
+      } catch {
+        /* pty died mid-iteration — not busy */
+      }
+    }
+    return out
+  }
+
+  /** detached survivors, addressable the same way */
+  detachedItems(): { id: string; name: string }[] {
+    const out: { id: string; name: string }[] = []
+    for (const [pgid, info] of [...this.startedGroups]) {
+      if (this.ptys.has(info.id)) continue
+      if (this.groupMembers(pgid).length === 0) {
+        this.startedGroups.delete(pgid)
+        continue
+      }
+      out.push({ id: info.id, name: info.command.trim().split(/\s+/)[0] || info.command })
+    }
+    return out
+  }
+
   busyCount(): { count: number; names: string[] } {
     const IDLE = new Set(['fish', 'zsh', 'bash', 'sh', 'dash', 'login', 'powershell.exe', ''])
     const names: string[] = []

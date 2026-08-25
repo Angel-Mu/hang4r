@@ -252,6 +252,19 @@ export type UpdateStatus =
   | { state: 'downloaded'; version: string }
   | { state: 'error'; message: string }
 
+/**
+ * One thing an abrupt quit/restart would interrupt, addressable so the dialog can
+ * offer a Stop beside it. `id` is whatever that kind's stop needs: a sessionId,
+ * a pty id, or a background task's output path.
+ */
+export interface LiveWorkItem {
+  kind: 'agent' | 'terminal' | 'detached' | 'task'
+  id: string
+  label: string
+  /** the session a task belongs to — a task's own id is a file path */
+  sessionId?: string
+}
+
 export interface NewSessionRequest {
   projectId: string
   backend: BackendId
@@ -802,9 +815,16 @@ export interface Hang4rApi {
   ): Promise<{ rule: string; kind: 'allow' | 'deny'; source: string }[]>
   /** Cursor-style quit confirm: main asks, the renderer dialog answers */
   onQuitConfirm(
-    cb: (info: { message: string; detail: string; kind?: 'quit' | 'update' }) => void
+    cb: (info: {
+      message: string
+      detail: string
+      kind?: 'quit' | 'update'
+      items?: LiveWorkItem[]
+    }) => void
   ): () => void
   answerQuitConfirm(quit: boolean): Promise<void>
+  /** stop ONE thing the quit/restart dialog listed, without leaving the dialog */
+  stopLiveWork(item: LiveWorkItem): Promise<void>
   /** the worktree for this session is gone — rebuild it, or answer without it */
   onWorktreeAsk(cb: (info: { sessionId: string; title: string }) => void): () => void
   answerWorktreeAsk(choice: 'answer' | 'rebuild' | 'cancel'): Promise<void>

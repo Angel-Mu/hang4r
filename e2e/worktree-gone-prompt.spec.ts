@@ -116,3 +116,37 @@ test('an intact worktree never asks', async () => {
   await page.waitForTimeout(1500)
   await expect(page.locator('.wt-dialog')).toHaveCount(0)
 })
+
+test('a removed worktree browses the main project instead of a dead directory', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  const repo = makeScratchRepo()
+  const { id, cwd } = await sessionWithRemovedWorktree(page, repo)
+
+  // the tree must still show the project's files, not an empty panel
+  const entries = await page.evaluate((sid) => window.hang4r.listDir(sid, ''), id)
+  expect(entries.map((e) => e.name)).toContain('README.md')
+
+  // …read from the project root, not the worktree that no longer exists
+  const readme = await page.evaluate((sid) => window.hang4r.readFile(sid, 'README.md'), id)
+  expect(readme.content).toContain('scratch')
+  expect(existsSync(cwd)).toBe(false)
+})
+
+test('answering from the conversation still does not hand the agent the main repo', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  const { id, cwd } = await sessionWithRemovedWorktree(page, makeScratchRepo())
+
+  void page.evaluate((sid) => window.hang4r.prompt(sid, 'what did we decide?'), id)
+  await expect(page.locator('.wt-dialog')).toBeVisible({ timeout: 15_000 })
+  await page.locator('.wt-dialog').getByRole('button', { name: /Answer from the conversation/ }).click()
+
+  // the session keeps pointing at its own (missing) worktree — browsing falls
+  // back to main, the AGENT does not
+  await page.waitForTimeout(1500)
+  const after = (await page.evaluate(() => window.hang4r.listSessions()))[0]
+  expect(after.cwd).toBe(cwd)
+  expect(existsSync(cwd)).toBe(false)
+})
+

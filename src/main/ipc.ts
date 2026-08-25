@@ -431,7 +431,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   ipcMain.handle('update:install', async () => {
     // quitAndInstall() tears the app down without ever reaching app.quit(), so
     // the before-quit guard never sees it — ask here instead
-    const work = guardActive() ? liveWork() : null
+    const work = guardActive() ? await liveWork() : null
     if (work && !(await askInterrupt('update', work))) return
     UpdateService.install()
   })

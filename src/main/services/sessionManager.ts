@@ -44,6 +44,7 @@ import {
   sshExec,
   type Exec
 } from './remoteService'
+import { resolveBackgroundTaskState } from './backgroundTask'
 import type { Store } from './store'
 import type { SettingsService } from './settingsService'
 
@@ -63,6 +64,8 @@ const MAX_AUTO_CONTINUE = 3
 
 export class SessionManager {
   private adapters = new Map<string, AgentAdapter>()
+  /** sessionId → output files of its run_in_background Bash tasks */
+  private bgTaskLogs = new Map<string, Set<string>>()
   /** monotonically increasing turn counter per session, for commit messages */
   private turnCounters = new Map<string, number>()
   /** setup-script outcome per session (true = ran clean) — dev-process
@@ -872,6 +875,33 @@ export class SessionManager {
    * There's no live control request for it, so we dispose the adapter — the next
    * prompt re-spawns claude with --effort applied.
    */
+  /**
+   * Background (`run_in_background`) tasks still writing to their log, named by
+   * session title. SSH tasks are skipped: their log lives on the other host, so
+   * `resolveBackgroundTaskState` can only assume 'running' and would nag on
+   * every quit forever after one remote task.
+   */
+  async runningBackgroundTasks(): Promise<{ count: number; names: string[] }> {
+    const probes: Promise<string | null>[] = []
+    for (const [sessionId, logs] of this.bgTaskLogs) {
+      const session = this.store.getSession(sessionId)
+      if (!session || session.environment === 'ssh') continue
+      for (const log of logs) {
+        probes.push(
+          resolveBackgroundTaskState(log, false).then(({ state }) => {
+            // a finished log is terminal — forget it so a long session doesn't
+            // accumulate an lsof per turn on every quit
+            if (state !== 'running') logs.delete(log)
+            return state === 'running' ? session.title : null
+          })
+        )
+      }
+    }
+    // one round trip, not one per task: each probe can cost an lsof
+    const names = (await Promise.all(probes)).filter((n): n is string => n !== null)
+    return { count: names.length, names }
+  }
+
   setEffort(sessionId: string, effort: string): void {
     this.settings.setSetting(`effort:${sessionId}`, effort)
     this.respawnOnNextPrompt(sessionId)
@@ -1715,6 +1745,19 @@ export class SessionManager {
     if (ev.kind === 'block-delta') {
       this.broadcast.agentEvent({ sessionId, seq: 0, ts: Date.now(), event: ev })
       return
+    }
+    // A run_in_background Bash task OUTLIVES its turn, so the session goes idle
+    // while it keeps running — remember its log so the quit/update guard can ask
+    // whether it's still alive (BackgroundTasks.tsx parses the same line).
+    if (ev.kind === 'tool-result' && typeof ev.content === 'string') {
+      const log = /Command running in background with ID:[^]*?written to:\s*(\S+)/i
+        .exec(ev.content)?.[1]
+        ?.replace(/[.,]$/, '')
+      if (log) {
+        let logs = this.bgTaskLogs.get(sessionId)
+        if (!logs) this.bgTaskLogs.set(sessionId, (logs = new Set()))
+        logs.add(log)
+      }
     }
     // Relabel the CLI's OPAQUE error_during_execution as an interrupted turn when
     // hang4r's OWN signals prove it — BEFORE persist/broadcast so the transcript

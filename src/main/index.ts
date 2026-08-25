@@ -347,7 +347,9 @@ app.whenReady().then(() => {
     runningSessions: () =>
       store?.listSessions().filter((s) => s.status === 'running' || s.status === 'starting')
         .length ?? 0,
-    busyProcesses: () => getPtyService()?.busyCount() ?? { count: 0, names: [] }
+    busyProcesses: () => getPtyService()?.busyCount() ?? { count: 0, names: [] },
+    backgroundTasks: () =>
+      sessionManager?.runningBackgroundTasks() ?? Promise.resolve({ count: 0, names: [] })
   })
   UpdateService.init()
   UpdateService.armAutoCheck()
@@ -371,16 +373,16 @@ ipcMain.handle('quit:answer', (_e, quit: boolean) => {
 
 app.on('before-quit', (event) => {
   if (!quitConfirmed && guardActive()) {
-    const work = liveWork()
-    if (work) {
-      event.preventDefault()
-      void askInterrupt('quit', work).then((ok) => {
-        if (!ok) return
-        quitConfirmed = true
-        app.quit()
-      })
-      return
-    }
+    // liveWork() has to lsof the background-task logs, so the answer can't be
+    // had synchronously: hold the quit, then either re-quit or ask. The re-quit
+    // sets quitConfirmed first, so this branch can't loop.
+    event.preventDefault()
+    void liveWork().then(async (work) => {
+      if (work && !(await askInterrupt('quit', work))) return
+      quitConfirmed = true
+      app.quit()
+    })
+    return
   }
 
   try {

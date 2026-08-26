@@ -82,6 +82,34 @@ export class FakeAdapter implements AgentAdapter {
       return
     }
 
+    // an Agent call that never gets a result, and THEN the turn dies — the shape
+    // an aborted turn really leaves behind, and the only one where "no result"
+    // is the honest label
+    if (text.includes('abort mid subagent')) {
+      const abortMsg = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId: abortMsg,
+        blockIndex: 11,
+        block: {
+          type: 'tool_use',
+          id: randomUUID(),
+          name: 'Agent',
+          input: { description: 'cut short by the abort', subagent_type: 'general-purpose' }
+        },
+        parentToolUseId: null
+      })
+      setTimeout(() => {
+        this.emit({
+          kind: 'turn-complete',
+          isError: true,
+          result: 'error_during_execution',
+          errorMessage: 'error_during_execution'
+        })
+      }, 40)
+      return
+    }
+
     if (text.includes('trigger error')) {
       // mirror a real Claude failure: the opaque error_during_execution on the
       // result, with the REAL reason on stderr — run it through the same

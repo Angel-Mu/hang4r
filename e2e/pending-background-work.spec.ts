@@ -4,12 +4,11 @@ import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './h
 /**
  * Angel, relaying a user: "hang4r no te está diciendo que anda esperando a los
  * workflows, se pone como que ya terminó pero pues está esperando las respuestas
- * del server." The turn footer said "done" and nothing else in the conversation
- * mentioned the agents still working — you had to open the panel and ask.
+ * del server."
  *
- * The second half is the status itself: an ordinary subagent runs IN-PROCESS, so
- * once the turn ends it cannot still be running. Runs left at "running" were the
- * ones Angel could never stop — there was nothing left to stop.
+ * The fix is the WORD: the last turn's footer says what it is waiting on instead
+ * of "done". An earlier attempt also put a button above the composer; Angel
+ * asked what it was and had it removed — one indicator, where the wrong word was.
  */
 let launched: LaunchedApp | null = null
 
@@ -39,30 +38,28 @@ test('a finished turn says what it left running, instead of only "done"', async 
   await expect(footer).toContainText('1 agent')
   await expect(footer).not.toContainText('done')
 
-  // and the strip agrees with it, from the same model
-  const strip = page.locator('.composer-runs')
-  await expect(strip).toBeVisible()
-  await expect(strip).toContainText('Still running:')
-  await expect(strip).toContainText('1 ended with no result')
+  // there is no second indicator to disagree with it
+  await expect(page.locator('.composer-runs')).toHaveCount(0)
 })
 
-test('the strip opens the Subagents panel, where the statuses agree with it', async () => {
+test('the Subagents panel agrees with the footer', async () => {
   launched = await launchApp()
   const { page } = launched
   await turnWithBackgroundAgents(page)
 
-  await page.locator('.composer-runs').click()
+  await page.locator('.tile-tabs button', { hasText: 'Subagents' }).click()
   const panel = page.locator('.tile .subagent-run')
   await expect(panel.filter({ hasText: 'long haul research' })).toContainText(
     'running in background'
   )
-  // the run that never returned reads honestly instead of "running" forever
-  await expect(panel.filter({ hasText: 'the one that never returns' })).toContainText(
-    'no result'
+  // …and after a CLEAN turn the resultless run is not called "running" either,
+  // nor accused of failing
+  await expect(panel.filter({ hasText: 'the one that never returns' })).not.toContainText(
+    'running'
   )
 })
 
-test('a session that has taken no turn shows no strip', async () => {
+test('a session that has taken no turn says nothing about pending work', async () => {
   launched = await launchApp()
   const { page } = launched
   await createProject(page, makeScratchRepo())
@@ -72,7 +69,7 @@ test('a session that has taken no turn shows no strip', async () => {
   await page.locator('.dialog .primary-btn', { hasText: /Start agent/ }).click()
   await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
 
-  await expect(page.locator('.composer-runs')).toHaveCount(0)
+  await expect(page.locator('.tile .turn-info-waiting')).toHaveCount(0)
 })
 
 // Angel, on 1.0.123: "I have updated to the version you enhanced, the done but
@@ -95,8 +92,39 @@ test('an armed watcher keeps the finished turn from reading as the last word', a
   await expect(footer).toContainText('Monitor')
   await expect(footer).not.toContainText('done')
 
-  const strip = page.locator('.composer-runs')
-  await expect(strip).toBeVisible()
-  await expect(strip).toContainText('Monitor')
+  await expect(page.locator('.composer-runs')).toHaveCount(0)
 })
 
+
+// The other half of the same rule: a turn that ABORTED really can strand a run,
+// and only there is "no result" the honest label.
+test('an aborted turn does strand its unfinished run', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn.project-add').first().click()
+  await page.locator('.dialog-prompt').fill('abort mid subagent')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+
+  // an aborted turn is the one case where "no result" is honest; it shows in the
+  // Subagents panel, which is where a per-run status belongs
+  await page.locator('.tile-tabs button', { hasText: 'Subagents' }).click()
+  await expect(page.locator('.tile .subagent-run').first()).toContainText('no result', {
+    timeout: 20_000
+  })
+})
+
+// The footer can't reach you from another session, so the sidebar row carries
+// the same fact. Cyan, deliberately not amber: amber already means "blocked on
+// you" (a permission wait), and this needs nothing from you.
+test('the sidebar marks a session that is still working after its turn', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await turnWithBackgroundAgents(page)
+
+  const row = page.locator('.session-row').first()
+  await expect(row.locator('.status-dot.status-pending')).toBeVisible({ timeout: 15_000 })
+  await expect(row.locator('.status-dot.status-awaiting')).toHaveCount(0)
+})

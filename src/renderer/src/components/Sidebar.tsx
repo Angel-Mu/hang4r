@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { hasPendingWork, pendingWork } from '../pendingWork'
 import type {
   BackendId,
   ClaudeUsageSnapshot,
@@ -91,6 +92,18 @@ export function Sidebar(): JSX.Element {
   const filter = useHang4r((s) => s.sessionFilter)
   const setFilter = useHang4r((s) => s.setSessionFilter)
   const transcripts = useHang4r((s) => s.transcripts)
+  // Sessions still working after their turn ended. Derived from the transcripts
+  // this run has actually loaded — a session never opened has nothing to read,
+  // so it simply gets no dot rather than a guess.
+  const pendingSessionIds = useMemo(() => {
+    const out = new Set<string>()
+    for (const s of sessions) {
+      if (s.status === 'running' || s.status === 'starting') continue
+      const items = transcripts[s.id]?.items
+      if (items && hasPendingWork(pendingWork(items, false))) out.add(s.id)
+    }
+    return out
+  }, [sessions, transcripts])
 
   const isPinned = (id: string): boolean => pinned.includes(id)
   // Amber "waiting on you" state: the session's transcript has a permission
@@ -414,15 +427,23 @@ export function Sidebar(): JSX.Element {
                     // idle => no visible dot (kept in the DOM, transparent, for
                     // alignment + e2e); permission-wait overrides to amber; an
                     // unseen finish lights it so you can spot which one completed.
+                    // the turn ended but the session did not — an async agent,
+                    // background command, Workflow or Monitor is still going.
+                    // Only for sessions whose transcript this run has loaded;
+                    // one never opened has nothing to read.
+                    const stillWorking = pendingSessionIds.has(session.id)
                     const dotClass =
                       `status-dot status-${session.status}` +
                       (awaiting ? ' status-awaiting' : '') +
-                      (unseenDone ? ' status-unseen' : '')
+                      (stillWorking && !awaiting ? ' status-pending' : '') +
+                      (unseenDone && !stillWorking ? ' status-unseen' : '')
                     const dotTitle = awaiting
                       ? 'waiting for your response'
-                      : unseenDone
-                        ? 'Finished — open to view'
-                        : STATUS_LABEL[session.status]
+                      : stillWorking
+                        ? 'Turn finished, but this session is still working'
+                        : unseenDone
+                          ? 'Finished — open to view'
+                          : STATUS_LABEL[session.status]
                     return (
                       <div
                         key={session.id}

@@ -301,11 +301,16 @@ function parseTaskResult(result: unknown): {
  * `turnLive` is the honest half: a Task/Agent run is only 'running' while its
  * tool_use has no result yet, and an ordinary subagent runs IN-PROCESS inside
  * the CLI — it cannot outlive the turn that hosted it. So once the turn has
- * ended, anything still marked 'running' never returned a result (an aborted or
- * poisoned turn leaves the tool_use dangling) and is reported as 'stalled'
- * instead. It read as "running" forever, which is why stopping one appeared
- * impossible: there was nothing left to stop. Async ('background') launches are
- * different — those really do outlive the turn.
+ * ended, a run still marked 'running' is not running.
+ *
+ * What it is instead depends on HOW the turn ended, and getting that wrong
+ * accused a working subagent: one that had made 65 tool calls and delivered its
+ * report was labelled "no result", because hang4r simply never saw a
+ * tool_result for it. A dangling tool_use is what an ABORTED turn leaves
+ * behind — so only a turn that ended in error can strand a run ('stalled'). A
+ * turn that ended cleanly did its work whether or not the result reached us.
+ * Async ('background') launches are different again: those really do outlive
+ * the turn.
  */
 export function collectRuns(items: TranscriptItem[], turnLive = true): SubagentRun[] {
   const runs = new Map<string, SubagentRun>()
@@ -423,7 +428,16 @@ export function collectRuns(items: TranscriptItem[], turnLive = true): SubagentR
 
   // pass 4: the turn is over, so nothing in-process is still running
   if (!turnLive) {
-    for (const run of runs.values()) if (run.status === 'running') run.status = 'stalled'
+    let aborted = false
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]
+      if (it.type !== 'turn-info') continue
+      aborted = !!it.isError
+      break
+    }
+    for (const run of runs.values()) {
+      if (run.status === 'running') run.status = aborted ? 'stalled' : 'done'
+    }
   }
 
   return [...runs.values()]

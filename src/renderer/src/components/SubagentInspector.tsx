@@ -436,7 +436,7 @@ export function collectRuns(items: TranscriptItem[], turnLive = true): SubagentR
  * Agent, then Workflow, then Monitor, each reported as "it says done but it
  * isn't"), so new ones belong on this list rather than in another special case.
  */
-const DEFERRED_TOOLS = new Set(['Monitor', 'Workflow'])
+const DEFERRED_TOOLS = new Set(['Monitor'])
 
 /**
  * What the conversation needs to know without opening a panel: work that

@@ -28,7 +28,7 @@ interface BgTask {
  * Output is being written to: <file>" — we surface those here with live output,
  * since they're otherwise invisible (the Subagents tab only shows Task subagents).
  */
-function collectTasks(items: TranscriptItem[]): BgTask[] {
+export function collectTasks(items: TranscriptItem[]): BgTask[] {
   const tasks: BgTask[] = []
   const killed = new Set<string>()
   // truthful completion (same philosophy as the subagent-thread fix): the

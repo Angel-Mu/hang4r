@@ -21,7 +21,7 @@ import { AttachMenu } from './AttachMenu'
 import { MentionMenu, useMentionResults } from './MentionMenu'
 import { SlashMenu, slashResults, type SlashItem } from './SlashMenu'
 import { EmojiMenu, emojiResults, type EmojiItem } from './EmojiMenu'
-import { summarizeRuns } from './SubagentInspector'
+import { hasPendingWork, pendingLabel, pendingWork } from '../pendingWork'
 import { ModelPicker } from './ModelPicker'
 import { Icon } from './Icon'
 import { EFFORT_LEVELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
@@ -556,12 +556,8 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     const st = s.sessions.find((x) => x.id === sessionId)?.status
     return st === 'running' || st === 'starting'
   })
-  const {
-    background: bgRuns,
-    stalled: stalledRuns,
-    deferred: deferredRuns
-  } = useMemo(
-    () => summarizeRuns(transcriptForRuns?.items ?? [], turnLive),
+  const pending = useMemo(
+    () => pendingWork(transcriptForRuns?.items ?? [], turnLive),
     [transcriptForRuns, turnLive]
   )
   // opening the menu re-reads too, for files written by something other than a
@@ -1209,7 +1205,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
             )}
             <footer className="composer-wrap">
               {notice && <div className="composer-notice">{notice}</div>}
-              {(bgRuns > 0 || stalledRuns > 0 || (deferredRuns.length > 0 && !turnLive)) && (
+              {(hasPendingWork(pending) || pending.stalled > 0) && !turnLive && (
                 <button
                   className="composer-runs"
                   title="Open the Subagents panel"
@@ -1218,21 +1214,15 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                     openSubagents(sessionId)
                   }}
                 >
-                  {bgRuns > 0 && (
+                  {hasPendingWork(pending) && (
                     <span className="composer-runs-bg">
-                      ● {bgRuns} agent{bgRuns === 1 ? '' : 's'} still running in the background
+                      ● Still running: {pendingLabel(pending)} — this session can continue on its own
                     </span>
                   )}
-                  {deferredRuns.length > 0 && !turnLive && (
-                    <span className="composer-runs-bg">
-                      {bgRuns > 0 ? ' · ' : '● '}
-                      {deferredRuns.join(' · ')} still pending — this turn can continue on its own
-                    </span>
-                  )}
-                  {stalledRuns > 0 && (
+                  {pending.stalled > 0 && (
                     <span className="composer-runs-stalled">
-                      {bgRuns > 0 ? ' · ' : ''}
-                      {stalledRuns} ended with no result
+                      {hasPendingWork(pending) ? ' · ' : ''}
+                      {pending.stalled} ended with no result
                     </span>
                   )}
                 </button>

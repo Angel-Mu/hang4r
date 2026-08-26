@@ -33,13 +33,16 @@ test('a finished turn says what it left running, instead of only "done"', async 
   const { page } = launched
   await turnWithBackgroundAgents(page)
 
-  // the turn itself is done…
-  await expect(page.locator('.tile .turn-info').last()).toContainText('done')
+  // the footer must NOT say "done" — that is the word Angel reads
+  const footer = page.locator('.tile .turn-info').last()
+  await expect(footer).toContainText('waiting on')
+  await expect(footer).toContainText('1 agent')
+  await expect(footer).not.toContainText('done')
 
-  // …but the conversation now says what outlived it, without opening anything
+  // and the strip agrees with it, from the same model
   const strip = page.locator('.composer-runs')
   await expect(strip).toBeVisible()
-  await expect(strip).toContainText('1 agent still running in the background')
+  await expect(strip).toContainText('Still running:')
   await expect(strip).toContainText('1 ended with no result')
 })
 
@@ -87,11 +90,13 @@ test('an armed watcher keeps the finished turn from reading as the last word', a
   await page.getByRole('button', { name: /Start agent/ }).click()
   await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
 
-  await expect(page.locator('.tile .turn-info').last()).toContainText('done')
+  const footer = page.locator('.tile .turn-info').last()
+  await expect(footer).toContainText('waiting on')
+  await expect(footer).toContainText('Monitor')
+  await expect(footer).not.toContainText('done')
+
   const strip = page.locator('.composer-runs')
   await expect(strip).toBeVisible()
-  // named after what the agent itself said it armed
   await expect(strip).toContainText('Monitor')
-  await expect(strip).toContainText('still pending — this turn can continue on its own')
 })
 

@@ -6568,6 +6568,9 @@ button:disabled {
 .field-model-row .field-effort { flex: 0 0 auto; width: auto; }
 
 /* inline checkbox rows (New Agent dialog + Settings fields) */
+/* the turn footer when the turn left work running — "done" would be a lie */
+.turn-info-waiting { color: var(--amber); font-weight: 600; }
+
 /* pending background work, surfaced where "done" would otherwise be the last word */
 .composer-runs {
   display: flex;

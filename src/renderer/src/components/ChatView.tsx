@@ -3,6 +3,7 @@ import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkEmoji } from '../remarkEmoji'
 import { replaceShortcodes } from '../../../shared/emoji'
+import { hasPendingWork, pendingLabel, pendingWork } from '../pendingWork'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { subagentLabelForPermission } from './SubagentInspector'
 import { MdCode, MdPre, mdComponents, openFileHref } from './MarkdownBlocks'
@@ -216,6 +217,23 @@ function ChatViewImpl({
   )
   const units = useMemo(() => groupActivity(visibleItems), [visibleItems])
 
+  // Only the LAST turn can still be waiting on anything: an earlier turn's
+  // Monitor either fired — which is what produced the turn after it — or is
+  // counted again there. So exactly one footer ever swaps "done" for "waiting".
+  const turnLive = useHang4r((s) => {
+    const st = s.sessions.find((x) => x.id === sessionId)?.status
+    return st === 'running' || st === 'starting'
+  })
+  const lastTurnInfo = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) if (items[i].type === 'turn-info') return items[i]
+    return null
+  }, [items])
+  const pending = useMemo(() => {
+    if (turnLive || !lastTurnInfo) return null
+    const p = pendingWork(items, turnLive)
+    return hasPendingWork(p) ? pendingLabel(p) : null
+  }, [items, turnLive, lastTurnInfo])
+
   // per user message: how many identical user messages come AFTER it — the
   // stable "occurrence from the end" key the rewind flow matches on
   const userOccurrences = useMemo(() => {
@@ -272,6 +290,7 @@ function ChatViewImpl({
                 subagentLabel={
                   u.item.type === 'permission' ? subagentLabelForPermission(items, u.item) : null
                 }
+                pending={u.item === lastTurnInfo ? pending : null}
               />
             </div>
           )
@@ -454,12 +473,15 @@ function TranscriptItemView({
   item,
   sessionId,
   userOccurrence,
-  subagentLabel
+  subagentLabel,
+  pending
 }: {
   item: TranscriptItem
   sessionId: string
   userOccurrence?: number
   subagentLabel?: string | null
+  /** set only on the LAST turn's footer — what that turn left running */
+  pending?: string | null
 }): JSX.Element | null {
   if (item.type === 'user') {
     return <UserMessageCard item={item} sessionId={sessionId} occurrenceFromEnd={userOccurrence ?? 0} />
@@ -484,7 +506,14 @@ function TranscriptItemView({
               : undefined
           }
         >
-          {item.durationMs ? `done · ${(item.durationMs / 1000).toFixed(1)}s` : 'done'}
+          {pending ? (
+            <span className="turn-info-waiting">waiting on {pending}</span>
+          ) : item.durationMs ? (
+            `done · ${(item.durationMs / 1000).toFixed(1)}s`
+          ) : (
+            'done'
+          )}
+          {pending && item.durationMs ? ` · ${(item.durationMs / 1000).toFixed(1)}s` : ''}
           {item.costUsd ? ` · session $${item.costUsd.toFixed(2)}` : ''}
         </div>
       )

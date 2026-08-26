@@ -430,20 +430,57 @@ export function collectRuns(items: TranscriptItem[], turnLive = true): SubagentR
 }
 
 /**
- * What the conversation needs to know without opening the panel: work that
+ * Tools whose CONTRACT is "I return now, the work continues" — the reason a turn
+ * can read `done` while the session is still going to produce more on its own.
+ * Enumerating them beat guessing per tool: each was found the hard way (async
+ * Agent, then Workflow, then Monitor, each reported as "it says done but it
+ * isn't"), so new ones belong on this list rather than in another special case.
+ */
+const DEFERRED_TOOLS = new Set(['Monitor', 'Workflow'])
+
+/**
+ * What the conversation needs to know without opening a panel: work that
  * outlives the finished turn, and runs that ended without a result.
+ *
+ * `deferred` counts the LAST turn's deferred tool calls. A Monitor armed two
+ * turns ago either fired — which is what produced the turn after it — or is
+ * counted again there, so only the final turn can still be waiting on one.
  */
 export function summarizeRuns(
   items: TranscriptItem[],
   turnLive: boolean
-): { background: number; stalled: number } {
+): { background: number; stalled: number; deferred: string[] } {
   let background = 0
   let stalled = 0
   for (const run of collectRuns(items, turnLive)) {
     if (run.status === 'background') background++
     else if (run.status === 'stalled') stalled++
   }
-  return { background, stalled }
+
+  // the last turn spans from the previous turn-info to the end
+  let prevTurnEnd = -1
+  const turnEnds: number[] = []
+  items.forEach((it, i) => {
+    if (it.type === 'turn-info') turnEnds.push(i)
+  })
+  if (turnEnds.length >= 2) prevTurnEnd = turnEnds[turnEnds.length - 2]
+  // named, not counted: "Monitor" is what the agent itself said it armed, so
+  // that is the word to echo back
+  const deferred: string[] = []
+  for (let i = prevTurnEnd + 1; i < items.length; i++) {
+    const it = items[i]
+    if (
+      it.type === 'block' &&
+      it.blockType === 'tool_use' &&
+      it.toolName &&
+      DEFERRED_TOOLS.has(it.toolName) &&
+      !it.parentToolUseId &&
+      !deferred.includes(it.toolName)
+    ) {
+      deferred.push(it.toolName)
+    }
+  }
+  return { background, stalled, deferred }
 }
 
 /** strip harness/tag scaffolding from an injected completion note */

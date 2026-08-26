@@ -556,7 +556,11 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     const st = s.sessions.find((x) => x.id === sessionId)?.status
     return st === 'running' || st === 'starting'
   })
-  const { background: bgRuns, stalled: stalledRuns } = useMemo(
+  const {
+    background: bgRuns,
+    stalled: stalledRuns,
+    deferred: deferredRuns
+  } = useMemo(
     () => summarizeRuns(transcriptForRuns?.items ?? [], turnLive),
     [transcriptForRuns, turnLive]
   )
@@ -1205,7 +1209,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
             )}
             <footer className="composer-wrap">
               {notice && <div className="composer-notice">{notice}</div>}
-              {(bgRuns > 0 || stalledRuns > 0) && (
+              {(bgRuns > 0 || stalledRuns > 0 || (deferredRuns.length > 0 && !turnLive)) && (
                 <button
                   className="composer-runs"
                   title="Open the Subagents panel"
@@ -1217,6 +1221,12 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                   {bgRuns > 0 && (
                     <span className="composer-runs-bg">
                       ● {bgRuns} agent{bgRuns === 1 ? '' : 's'} still running in the background
+                    </span>
+                  )}
+                  {deferredRuns.length > 0 && !turnLive && (
+                    <span className="composer-runs-bg">
+                      {bgRuns > 0 ? ' · ' : '● '}
+                      {deferredRuns.join(' · ')} still pending — this turn can continue on its own
                     </span>
                   )}
                   {stalledRuns > 0 && (

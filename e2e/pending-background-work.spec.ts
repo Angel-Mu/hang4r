@@ -59,16 +59,39 @@ test('the strip opens the Subagents panel, where the statuses agree with it', as
   )
 })
 
-test('a plain turn leaves nothing pending — no strip', async () => {
+test('a session that has taken no turn shows no strip', async () => {
   launched = await launchApp()
   const { page } = launched
   await createProject(page, makeScratchRepo())
   await page.reload()
   await page.waitForSelector('.app')
   await page.locator('.project-row .ghost-btn.project-add').first().click()
-  await page.locator('.dialog-prompt').fill('just a normal turn')
-  await page.getByRole('button', { name: /Start agent/ }).click()
+  await page.locator('.dialog .primary-btn', { hasText: /Start agent/ }).click()
   await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
 
   await expect(page.locator('.composer-runs')).toHaveCount(0)
 })
+
+// Angel, on 1.0.123: "I have updated to the version you enhanced, the done but
+// really is not done". A Monitor had been armed — the turn read "done", the
+// Tasks panel said "No tasks yet", and the strip counted subagents only. Monitor
+// and Workflow return immediately by design and keep working; they now count.
+test('an armed watcher keeps the finished turn from reading as the last word', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn.project-add').first().click()
+  await page.locator('.dialog-prompt').fill('arm a monitor')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+  await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  await expect(page.locator('.tile .turn-info').last()).toContainText('done')
+  const strip = page.locator('.composer-runs')
+  await expect(strip).toBeVisible()
+  // named after what the agent itself said it armed
+  await expect(strip).toContainText('Monitor')
+  await expect(strip).toContainText('still pending — this turn can continue on its own')
+})
+

@@ -172,6 +172,30 @@ export class FakeAdapter implements AgentAdapter {
       parentToolUseId: null
     })
 
+    // a deferred-by-contract tool: returns now, keeps watching, re-invokes later
+    if (text.includes('arm a monitor')) {
+      const monId = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 10,
+        block: {
+          type: 'tool_use',
+          id: monId,
+          name: 'Monitor',
+          input: { command: 'gh pr checks 2567', until: 'all checks settle' }
+        },
+        parentToolUseId: null
+      })
+      this.emit({
+        kind: 'tool-result',
+        toolUseId: monId,
+        content: 'Monitor armed. It will report when the condition is met.',
+        isError: false,
+        parentToolUseId: null
+      })
+    }
+
     // the two subagent shapes that OUTLIVE or OUTLAST a turn: an async launch
     // (really still working after the turn ends) and a run whose tool_use never
     // gets a result (an aborted turn leaves it dangling). Both used to read as

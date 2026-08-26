@@ -730,16 +730,16 @@ export function Settings(): JSX.Element | null {
                           checked={autoContinue}
                           onChange={(e) => setAutoContinue(e.target.checked)}
                         />
-                        Auto-recover a stuck conversation (send “continue” past an interactive-CLI
-                        error)
+                        Auto-recover a stuck conversation (send “continue” past an aborted turn)
                       </label>
                       <p className="notify-hint">
-                        When a turn taken in an external interactive CLI (e.g.{' '}
-                        <code>/remote-control</code>) aborts mid-tool, it leaves the conversation in a
-                        state Claude refuses to resume (<code>error_during_execution</code>). With
-                        this on, hang4r forks past it and continues automatically — but only when it
-                        can find a clean fork point, and capped at a few tries in a row. Turn it off
-                        to always recover by hand.
+                        A turn that dies mid-tool — the CLI crashing, the process being restarted, an
+                        API abort — leaves a dangling tool call that Claude refuses to resume (
+                        <code>error_during_execution</code>). With this on, hang4r forks past it and
+                        continues automatically, but only when it can find a clean fork point, and
+                        capped at a few tries in a row. The recovery prompt is labelled in the
+                        transcript, so it never reads as something you typed. Turn it off to recover
+                        by hand.
                       </p>
                     </div>
                   </>

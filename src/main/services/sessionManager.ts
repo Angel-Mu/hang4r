@@ -63,6 +63,9 @@ type Broadcast = {
 /** max CONSECUTIVE auto-continues (poisoned-tail recovery) before we stop and
  *  wait for a manual prompt — a repeated-crash loop can't burn turns forever. */
 const MAX_AUTO_CONTINUE = 3
+/** Shown instead of a bare "continue", which was indistinguishable from a
+ *  message the user had typed (the CLI still receives plain "continue"). */
+const AUTO_CONTINUE_LABEL = '↻ hang4r auto-recovery — continuing past an aborted turn'
 
 export class SessionManager {
   private adapters = new Map<string, AgentAdapter>()
@@ -77,6 +80,9 @@ export class SessionManager {
    *  is deferred until turn-complete, where we compare against the session's
    *  (already-updated) mode and dispose the stale adapter if they diverge. */
   private spawnedPermissionMode = new Map<string, PermissionMode>()
+  /** effort + ultracode the live CLI was SPAWNED with. Neither can be changed on
+   *  a running process, so a mid-turn change waits for the turn to end. */
+  private spawnedTuning = new Map<string, string>()
   /** CONSECUTIVE auto-continues of a poisoned tail since the last MANUAL prompt —
    *  capped at MAX_AUTO_CONTINUE so a repeated-crash loop can never burn turns
    *  forever. Reset only when the user manually sends something (prompt auto=false). */
@@ -633,7 +639,14 @@ export class SessionManager {
     // resume input, kept visible in the transcript so the auto-recovery is honest.
     // auto=true so it does NOT reset the consecutive-auto counter.
     try {
-      await this.prompt(sessionId, 'continue', undefined, undefined, undefined, true)
+      await this.prompt(
+        sessionId,
+        'continue',
+        undefined,
+        undefined,
+        AUTO_CONTINUE_LABEL,
+        true
+      )
     } catch {
       /* couldn't spawn — leave it; the user can retry manually */
     }
@@ -769,6 +782,7 @@ export class SessionManager {
       this.adapters.delete(sessionId)
     }
     this.spawnedPermissionMode.delete(sessionId)
+    this.spawnedTuning.delete(sessionId)
     this.updateSession(sessionId, { status: 'idle', lastError: null })
     this.recordSyncWatermark(sessionId, 0)
   }
@@ -962,12 +976,34 @@ export class SessionManager {
 
   setEffort(sessionId: string, effort: string): void {
     this.settings.setSetting(`effort:${sessionId}`, effort)
-    this.respawnOnNextPrompt(sessionId)
+    this.applyTuning(sessionId)
   }
 
   /** Claude ultracode on/off. Only read at spawn, so it re-spawns like setEffort. */
   setUltracode(sessionId: string, on: boolean): void {
     this.settings.setSetting(`ultracode:${sessionId}`, on ? '1' : '')
+    this.applyTuning(sessionId)
+  }
+
+  /** effort/ultracode as the settings currently say — compared against what the
+   *  live process was spawned with. */
+  private tuningOf(sessionId: string): string {
+    const effort = this.settings.getSetting(`effort:${sessionId}`)?.trim() ?? ''
+    const ultra = this.settings.getSetting(`ultracode:${sessionId}`) === '1' ? '1' : ''
+    return `${effort}|${ultra}`
+  }
+
+  /**
+   * A turn in flight OWNS its process. Tearing it down mid-turn kills everything
+   * living inside it — subagents, workflows, Monitor watchers — and leaves a
+   * dangling tool_use that the next resume has to heal, which is what surfaced
+   * to Angel as "Monitors died with the session restart" followed by an
+   * auto-"continue". The turn-complete branch re-spawns instead, exactly as a
+   * mid-turn permission-mode change already did.
+   */
+  private applyTuning(sessionId: string): void {
+    const session = this.store.getSession(sessionId)
+    if (session && (session.status === 'running' || session.status === 'starting')) return
     this.respawnOnNextPrompt(sessionId)
   }
 
@@ -998,6 +1034,7 @@ export class SessionManager {
       adapter.dispose()
       this.adapters.delete(sessionId)
       this.spawnedPermissionMode.delete(sessionId)
+      this.spawnedTuning.delete(sessionId)
     }
   }
 
@@ -1190,6 +1227,7 @@ export class SessionManager {
     this.adapters.get(sessionId)?.dispose()
     this.adapters.delete(sessionId)
     this.spawnedPermissionMode.delete(sessionId)
+    this.spawnedTuning.delete(sessionId)
     if (session?.environment === 'worktree') {
       const project = this.store.getProject(session.projectId)
       if (project) void GitService.removeWorktree(project.path, session.cwd)
@@ -1217,6 +1255,7 @@ export class SessionManager {
     for (const adapter of this.adapters.values()) adapter.dispose()
     this.adapters.clear()
     this.spawnedPermissionMode.clear()
+    this.spawnedTuning.clear()
   }
 
   /** The session's REAL current branch (worktree HEAD) — the UI must never fabricate one. */
@@ -1695,6 +1734,7 @@ export class SessionManager {
     // record the mode this process is being baked with, so a later mid-turn
     // switch can detect divergence and respawn on the next prompt
     this.spawnedPermissionMode.set(session.id, session.permissionMode)
+    this.spawnedTuning.set(session.id, this.tuningOf(session.id))
     if (FAKE_AGENT) {
       const fake = new FakeAdapter()
       fake.onEvent((ev) => this.handleAgentEvent(session.id, ev))
@@ -1887,15 +1927,25 @@ export class SessionManager {
         this.adapters.get(sessionId)?.dispose()
         this.adapters.delete(sessionId)
         this.spawnedPermissionMode.delete(sessionId)
+        this.spawnedTuning.delete(sessionId)
       }
       // a permission-mode change requested mid-turn only updated the DB row;
       // now that the turn is done, drop the adapter if it was spawned with a
       // stale mode so the next prompt re-spawns the CLI with the new one
+      // same for effort / ultracode: the change waited rather than killing the
+      // turn's own process, and lands on the next prompt
+      const spawnedTuning = this.spawnedTuning.get(sessionId)
+      if (spawnedTuning !== undefined && spawnedTuning !== this.tuningOf(sessionId)) {
+        this.adapters.get(sessionId)?.dispose()
+        this.adapters.delete(sessionId)
+        this.spawnedTuning.delete(sessionId)
+      }
       const spawnedMode = this.spawnedPermissionMode.get(sessionId)
       if (spawnedMode !== undefined && session && session.permissionMode !== spawnedMode) {
         this.adapters.get(sessionId)?.dispose()
         this.adapters.delete(sessionId)
         this.spawnedPermissionMode.delete(sessionId)
+        this.spawnedTuning.delete(sessionId)
       }
       // sync watermark for external-CLI re-sync: once immediately (so a fast
       // follow-up prompt can't re-import our own turn) and once after a flush
@@ -1913,6 +1963,7 @@ export class SessionManager {
       this.adapters.get(sessionId)?.dispose()
       this.adapters.delete(sessionId)
       this.spawnedPermissionMode.delete(sessionId)
+      this.spawnedTuning.delete(sessionId)
     }
   }
 

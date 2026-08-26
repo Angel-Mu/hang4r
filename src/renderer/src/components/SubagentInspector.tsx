@@ -9,7 +9,7 @@ import { onSeedSessionUi, onForgetSession, persistSessionUi } from '../sessionUi
 type BlockItem = Extract<TranscriptItem, { type: 'block' }>
 type PermissionItem = Extract<TranscriptItem, { type: 'permission' }>
 
-type RunStatus = 'running' | 'waiting' | 'background' | 'done' | 'error'
+type RunStatus = 'running' | 'waiting' | 'background' | 'done' | 'error' | 'stalled'
 
 interface SubagentRun {
   toolUseId: string
@@ -30,7 +30,8 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   waiting: 'waiting for approval',
   background: 'running in background',
   done: 'done',
-  error: 'failed'
+  error: 'failed',
+  stalled: 'no result'
 }
 
 /**
@@ -45,7 +46,10 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
   const running = useHang4r(
     (s) => s.sessions.find((x) => x.id === sessionId)?.status === 'running'
   )
-  const runs = useMemo(() => collectRuns(transcript?.items ?? []), [transcript])
+  const runs = useMemo(
+    () => collectRuns(transcript?.items ?? [], running),
+    [transcript, running]
+  )
   // the ⤷ "View thread" signal — carries the clicked run's toolUseId so the
   // matching thread can expand + scroll itself into view (below)
   const focusSig = useHang4r((s) => s.subagentsToOpen)
@@ -291,7 +295,19 @@ function parseTaskResult(result: unknown): {
   return { asyncLaunch: false, text: text.trim() }
 }
 
-function collectRuns(items: TranscriptItem[]): SubagentRun[] {
+/**
+ * Subagent runs read out of the transcript.
+ *
+ * `turnLive` is the honest half: a Task/Agent run is only 'running' while its
+ * tool_use has no result yet, and an ordinary subagent runs IN-PROCESS inside
+ * the CLI — it cannot outlive the turn that hosted it. So once the turn has
+ * ended, anything still marked 'running' never returned a result (an aborted or
+ * poisoned turn leaves the tool_use dangling) and is reported as 'stalled'
+ * instead. It read as "running" forever, which is why stopping one appeared
+ * impossible: there was nothing left to stop. Async ('background') launches are
+ * different — those really do outlive the turn.
+ */
+export function collectRuns(items: TranscriptItem[], turnLive = true): SubagentRun[] {
   const runs = new Map<string, SubagentRun>()
   const ensure = (id: string): SubagentRun => {
     let r = runs.get(id)
@@ -405,7 +421,29 @@ function collectRuns(items: TranscriptItem[]): SubagentRun[] {
     }
   }
 
+  // pass 4: the turn is over, so nothing in-process is still running
+  if (!turnLive) {
+    for (const run of runs.values()) if (run.status === 'running') run.status = 'stalled'
+  }
+
   return [...runs.values()]
+}
+
+/**
+ * What the conversation needs to know without opening the panel: work that
+ * outlives the finished turn, and runs that ended without a result.
+ */
+export function summarizeRuns(
+  items: TranscriptItem[],
+  turnLive: boolean
+): { background: number; stalled: number } {
+  let background = 0
+  let stalled = 0
+  for (const run of collectRuns(items, turnLive)) {
+    if (run.status === 'background') background++
+    else if (run.status === 'stalled') stalled++
+  }
+  return { background, stalled }
 }
 
 /** strip harness/tag scaffolding from an injected completion note */

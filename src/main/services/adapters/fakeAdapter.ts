@@ -172,6 +172,46 @@ export class FakeAdapter implements AgentAdapter {
       parentToolUseId: null
     })
 
+    // the two subagent shapes that OUTLIVE or OUTLAST a turn: an async launch
+    // (really still working after the turn ends) and a run whose tool_use never
+    // gets a result (an aborted turn leaves it dangling). Both used to read as
+    // "running" forever.
+    if (text.includes('spawn background agents')) {
+      const asyncId = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 8,
+        block: {
+          type: 'tool_use',
+          id: asyncId,
+          name: 'Agent',
+          input: { description: 'long haul research', subagent_type: 'general-purpose' }
+        },
+        parentToolUseId: null
+      })
+      this.emit({
+        kind: 'tool-result',
+        toolUseId: asyncId,
+        content: `Async agent launched successfully. agentId: bg_${asyncId.slice(0, 12)}`,
+        isError: false,
+        parentToolUseId: null
+      })
+      // …and one that never returns: tool_use with no matching tool-result
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 9,
+        block: {
+          type: 'tool_use',
+          id: randomUUID(),
+          name: 'Agent',
+          input: { description: 'the one that never returns', subagent_type: 'general-purpose' }
+        },
+        parentToolUseId: null
+      })
+    }
+
     // exercise the answerable QUESTION loop when asked (covers the AskUserQuestion
     // card — Claude surfaces these as question-request events). Holds the turn
     // until respondQuestion, then continues, mirroring the permission hold.

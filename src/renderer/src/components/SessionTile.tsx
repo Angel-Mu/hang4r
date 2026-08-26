@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent } from 'react'
+import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type JSX, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import type { BackendId, ModelChoice, PermissionMode } from '../../../shared/protocol'
@@ -21,6 +21,7 @@ import { AttachMenu } from './AttachMenu'
 import { MentionMenu, useMentionResults } from './MentionMenu'
 import { SlashMenu, slashResults, type SlashItem } from './SlashMenu'
 import { EmojiMenu, emojiResults, type EmojiItem } from './EmojiMenu'
+import { summarizeRuns } from './SubagentInspector'
 import { ModelPicker } from './ModelPicker'
 import { Icon } from './Icon'
 import { EFFORT_LEVELS, FALLBACK_CODEX_MODELS, FALLBACK_CURSOR_MODELS } from '../modelChoices'
@@ -295,6 +296,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   const draft = useHang4r((s) => s.drafts[sessionId] ?? '')
   const setDraft = useHang4r((s) => s.setDraft)
   const renameSession = useHang4r((s) => s.renameSession)
+  const openSubagents = useHang4r((s) => s.openSubagents)
   const setSessionPermissionMode = useHang4r((s) => s.setSessionPermissionMode)
 
   /** which context panel is open next to chat (null = chat full width).
@@ -546,6 +548,18 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   }, [refreshFiles, sessionStatus])
 
   const mentionResults = useMentionResults(allFiles, mention?.query ?? '')
+  // "done" on the turn is the truth about the TURN, not about the work it left
+  // behind: async agents outlive it, and a turn that aborted leaves runs that
+  // never returned. Neither was visible without opening the panel and asking.
+  const transcriptForRuns = useHang4r((s) => s.transcripts[sessionId])
+  const turnLive = useHang4r((s) => {
+    const st = s.sessions.find((x) => x.id === sessionId)?.status
+    return st === 'running' || st === 'starting'
+  })
+  const { background: bgRuns, stalled: stalledRuns } = useMemo(
+    () => summarizeRuns(transcriptForRuns?.items ?? [], turnLive),
+    [transcriptForRuns, turnLive]
+  )
   // opening the menu re-reads too, for files written by something other than a
   // turn (a terminal, another tool); throttled so holding a key can't spam git
   const onMentionOpened = (): void => {
@@ -1191,6 +1205,28 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
             )}
             <footer className="composer-wrap">
               {notice && <div className="composer-notice">{notice}</div>}
+              {(bgRuns > 0 || stalledRuns > 0) && (
+                <button
+                  className="composer-runs"
+                  title="Open the Subagents panel"
+                  onClick={() => {
+                    focusSession(sessionId)
+                    openSubagents(sessionId)
+                  }}
+                >
+                  {bgRuns > 0 && (
+                    <span className="composer-runs-bg">
+                      ● {bgRuns} agent{bgRuns === 1 ? '' : 's'} still running in the background
+                    </span>
+                  )}
+                  {stalledRuns > 0 && (
+                    <span className="composer-runs-stalled">
+                      {bgRuns > 0 ? ' · ' : ''}
+                      {stalledRuns} ended with no result
+                    </span>
+                  )}
+                </button>
+              )}
               {changedCount > 0 && (
                 <div className="composer-git">
                   <span

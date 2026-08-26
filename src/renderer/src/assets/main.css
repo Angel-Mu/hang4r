@@ -6568,6 +6568,29 @@ button:disabled {
 .field-model-row .field-effort { flex: 0 0 auto; width: auto; }
 
 /* inline checkbox rows (New Agent dialog + Settings fields) */
+/* pending background work, surfaced where "done" would otherwise be the last word */
+.composer-runs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 5px 10px;
+  margin-bottom: 6px;
+  border: 1px solid #3a2e14;
+  border-left: 2px solid var(--amber);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #1a1610, #14120c);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+.composer-runs:hover { border-color: var(--amber); }
+.composer-runs-bg { color: var(--amber); }
+.composer-runs-stalled { color: var(--text-muted); }
+.subagent-status-stalled { color: var(--text-muted); }
+.subagent-dot-stalled { background: var(--faint); }
+
 /* quit/restart dialog: one row per live thing, each stoppable in place */
 .quit-live {
   display: flex;

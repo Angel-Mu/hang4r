@@ -471,6 +471,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
       ['browser', s.browserToShow],
       ['terminal', s.terminalToToggle],
       ['subagents', s.subagentsToOpen],
+      ['tasks', s.tasksToOpen],
       ['panel', s.panelToToggle]
     ]
     for (const [name, sig] of pending) {
@@ -516,6 +517,11 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   useEffect(() => {
     if (freshSignal('subagents', sessionId, subagentsToOpen)) setContextTab('Subagents')
   }, [subagentsToOpen, sessionId])
+  // the turn footer's "1 background command" / "workflow …" → the Tasks panel
+  const tasksToOpen = useHang4r((s) => s.tasksToOpen)
+  useEffect(() => {
+    if (freshSignal('tasks', sessionId, tasksToOpen)) setContextTab('Tasks')
+  }, [tasksToOpen, sessionId])
   // ⌥⌘B: open → close (remembering the tab); closed → reopen the remembered tab
   const panelToToggle = useHang4r((s) => s.panelToToggle)
   useEffect(() => {

@@ -555,8 +555,10 @@ interface Hang4rState {
   consumeTerminalCommand(nonce: number): void
   /** jump to the session's Subagents panel (the ⤷ button on agent rows in chat) */
   subagentsToOpen: { sessionId: string; toolUseId?: string; nonce: number } | null
+  tasksToOpen: { sessionId: string; nonce: number } | null
   /** toolUseId focuses + expands that specific run's thread in the panel */
   openSubagents(sessionId: string, toolUseId?: string): void
+  openTasks(sessionId: string): void
   /** ⌥⌘B: toggle the focused session's context panel (open → remembers tab
    *  and closes; closed → reopens the remembered tab, Files by default) */
   panelToToggle: { sessionId: string; nonce: number } | null
@@ -751,6 +753,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   terminalToToggle: null,
   terminalCommandToRun: null,
   subagentsToOpen: null,
+  tasksToOpen: null,
   panelToToggle: null,
   gitNonce: 0,
   pinnedSessionIds: [],
@@ -1432,6 +1435,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
   openSubagents(sessionId, toolUseId) {
     set({ subagentsToOpen: { sessionId, toolUseId, nonce: (get().subagentsToOpen?.nonce ?? 0) + 1 } })
+  },
+  openTasks(sessionId) {
+    set({ tasksToOpen: { sessionId, nonce: (get().tasksToOpen?.nonce ?? 0) + 1 } })
   },
   togglePanel() {
     const sessionId = get().focusedSessionId

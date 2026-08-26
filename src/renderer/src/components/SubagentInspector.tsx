@@ -450,7 +450,7 @@ export function collectRuns(items: TranscriptItem[], turnLive = true): SubagentR
  * Agent, then Workflow, then Monitor, each reported as "it says done but it
  * isn't"), so new ones belong on this list rather than in another special case.
  */
-const DEFERRED_TOOLS = new Set(['Monitor'])
+const DEFERRED_TOOLS = new Set(['Monitor', 'Workflow'])
 
 /**
  * What the conversation needs to know without opening a panel: work that
@@ -463,12 +463,15 @@ const DEFERRED_TOOLS = new Set(['Monitor'])
 export function summarizeRuns(
   items: TranscriptItem[],
   turnLive: boolean
-): { background: number; stalled: number; deferred: string[] } {
+): { background: number; stalled: number; deferred: string[]; backgroundIds: string[] } {
   let background = 0
   let stalled = 0
+  const backgroundIds: string[] = []
   for (const run of collectRuns(items, turnLive)) {
-    if (run.status === 'background') background++
-    else if (run.status === 'stalled') stalled++
+    if (run.status === 'background') {
+      background++
+      backgroundIds.push(run.toolUseId)
+    } else if (run.status === 'stalled') stalled++
   }
 
   // the last turn spans from the previous turn-info to the end
@@ -494,7 +497,7 @@ export function summarizeRuns(
       deferred.push(it.toolName)
     }
   }
-  return { background, stalled, deferred }
+  return { background, stalled, deferred, backgroundIds }
 }
 
 /** strip harness/tag scaffolding from an injected completion note */

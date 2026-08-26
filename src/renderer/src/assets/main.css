@@ -6572,6 +6572,19 @@ button:disabled {
    for "blocked on you" (.status-awaiting, a subagent waiting for approval), and
    this is the opposite — it is going fine without you. */
 .turn-info-waiting { color: var(--cyan); font-weight: 600; }
+/* each named piece jumps to where that work can be watched */
+.turn-info-jump {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.turn-info-jump:hover { text-decoration-style: solid; }
 
 /* quit/restart dialog: one row per live thing, each stoppable in place */
 .quit-live {

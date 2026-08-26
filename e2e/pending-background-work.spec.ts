@@ -128,3 +128,65 @@ test('the sidebar marks a session that is still working after its turn', async (
   await expect(row.locator('.status-dot.status-pending')).toBeVisible({ timeout: 15_000 })
   await expect(row.locator('.status-dot.status-awaiting')).toHaveCount(0)
 })
+
+// Angel: "is it possible to click on it and take us to the sub agent, subtask,
+// sub background process that is waiting for?"
+test('each thing the footer names jumps to where that work can be watched', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await turnWithBackgroundAgents(page)
+
+  const tile = page.locator('.tile').first()
+  const footer = tile.locator('.turn-info').last()
+
+  // the agent piece opens the Subagents panel ON that run
+  await footer.locator('.turn-info-jump', { hasText: 'agent' }).click()
+  await expect(tile.locator('.subagent-run').first()).toBeVisible({ timeout: 10_000 })
+  await expect(
+    tile.locator('.subagent-run').filter({ hasText: 'long haul research' })
+  ).toBeVisible()
+
+  // the Workflow piece opens Tasks instead
+  await footer.locator('.turn-info-jump', { hasText: 'Workflow' }).click()
+  await expect(tile.locator('.bgtasks-view')).toBeVisible({ timeout: 10_000 })
+})
+
+test('a Monitor is not pretending to be a link — it has no panel', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn.project-add').first().click()
+  await page.locator('.dialog-prompt').fill('arm a monitor')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+  await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  const footer = page.locator('.tile .turn-info').last()
+  await expect(footer).toContainText('Monitor')
+  await expect(footer.locator('.turn-info-jump', { hasText: 'Monitor' })).toHaveCount(0)
+})
+
+
+// Angel: "after the sub process completed, the agent got me the result of it,
+// however it kept saying waiting… I needed to send another message so it
+// cleared". The transcript only learns a command finished if a later note names
+// it, so a quiet exit left the footer stuck. Whether anything still holds the
+// output file open is the real answer.
+test('the footer clears itself once the command actually exits', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn.project-add').first().click()
+  await page.locator('.dialog-prompt').fill('just a turn with a background command')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+  await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  // the fake agent's background command writes its log and exits, so nothing
+  // holds the file open — the probe retires it WITHOUT another message. (The
+  // Workflow it also emits has no file to probe and is scoped to the last turn.)
+  const footer = page.locator('.tile .turn-info-waiting')
+  await expect(footer).not.toContainText('background command', { timeout: 20_000 })
+})

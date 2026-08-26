@@ -3,7 +3,8 @@ import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkEmoji } from '../remarkEmoji'
 import { replaceShortcodes } from '../../../shared/emoji'
-import { hasPendingWork, pendingLabel, pendingWork } from '../pendingWork'
+import type { PendingPart } from '../pendingWork'
+import { useVerifiedPending } from '../useVerifiedPending'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { subagentLabelForPermission } from './SubagentInspector'
 import { MdCode, MdPre, mdComponents, openFileHref } from './MarkdownBlocks'
@@ -228,11 +229,8 @@ function ChatViewImpl({
     for (let i = items.length - 1; i >= 0; i--) if (items[i].type === 'turn-info') return items[i]
     return null
   }, [items])
-  const pending = useMemo(() => {
-    if (turnLive || !lastTurnInfo) return null
-    const p = pendingWork(items, turnLive)
-    return hasPendingWork(p) ? pendingLabel(p) : null
-  }, [items, turnLive, lastTurnInfo])
+  const verified = useVerifiedPending(sessionId, items, turnLive)
+  const pending = lastTurnInfo ? verified : null
 
   // per user message: how many identical user messages come AFTER it — the
   // stable "occurrence from the end" key the rewind flow matches on
@@ -469,6 +467,45 @@ function firstWordOfCommand(input: unknown): string {
   return ''
 }
 
+/**
+ * The waiting-on line, one clickable piece per kind: agents open the Subagents
+ * panel ON that run (it expands and scrolls to it), commands and workflows open
+ * Tasks. A Monitor has no panel of its own, so it stays plain text rather than
+ * pretending to lead somewhere.
+ */
+function PendingParts({
+  parts,
+  sessionId
+}: {
+  parts: PendingPart[]
+  sessionId: string
+}): JSX.Element {
+  const openSubagents = useHang4r((s) => s.openSubagents)
+  const openTasks = useHang4r((s) => s.openTasks)
+  return (
+    <>
+      {parts.map((p, i) => (
+        <span key={p.text}>
+          {i > 0 ? ' · ' : ''}
+          {p.panel === null ? (
+            p.text
+          ) : (
+            <button
+              className="turn-info-jump"
+              title={p.panel === 'tasks' ? 'Open the Tasks panel' : 'Show this agent'}
+              onClick={() =>
+                p.panel === 'tasks' ? openTasks(sessionId) : openSubagents(sessionId, p.toolUseId)
+              }
+            >
+              {p.text}
+            </button>
+          )}
+        </span>
+      ))}
+    </>
+  )
+}
+
 function TranscriptItemView({
   item,
   sessionId,
@@ -481,7 +518,7 @@ function TranscriptItemView({
   userOccurrence?: number
   subagentLabel?: string | null
   /** set only on the LAST turn's footer — what that turn left running */
-  pending?: string | null
+  pending?: PendingPart[] | null
 }): JSX.Element | null {
   if (item.type === 'user') {
     return <UserMessageCard item={item} sessionId={sessionId} occurrenceFromEnd={userOccurrence ?? 0} />
@@ -507,7 +544,9 @@ function TranscriptItemView({
           }
         >
           {pending ? (
-            <span className="turn-info-waiting">waiting on {pending}</span>
+            <span className="turn-info-waiting">
+              waiting on <PendingParts parts={pending} sessionId={sessionId} />
+            </span>
           ) : item.durationMs ? (
             `done · ${(item.durationMs / 1000).toFixed(1)}s`
           ) : (

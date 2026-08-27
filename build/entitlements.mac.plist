@@ -8,5 +8,22 @@
     <true/>
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
+    <!--
+      An agent or terminal command running in hang4r is attributed to hang4r by
+      TCC (it is the responsible process), and under the hardened runtime these
+      services refuse outright without the matching entitlement:
+        "kTCCServicePhotos requires entitlement
+         com.apple.security.personal-information.photos-library but it is
+         missing for responsible=dev.hang4r.app, accessing=com.anthropic.claude-code"
+      Without them the prompt cannot be granted, so it returns every time. The
+      usage strings in electron-builder.yml say plainly that hang4r itself never
+      reads these.
+    -->
+    <key>com.apple.security.personal-information.photos-library</key>
+    <true/>
+    <key>com.apple.security.personal-information.addressbook</key>
+    <true/>
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
   </dict>
 </plist>

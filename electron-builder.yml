@@ -84,6 +84,12 @@ mac:
     NSAppleMusicUsageDescription: >-
       An agent or terminal command running in hang4r tried to read your
       media library. hang4r itself never does — denying is safe.
+    NSContactsUsageDescription: >-
+      An agent or terminal command running in hang4r tried to read your
+      contacts. hang4r itself never does — denying is safe.
+    NSCalendarsUsageDescription: >-
+      An agent or terminal command running in hang4r tried to read your
+      calendar. hang4r itself never does — denying is safe.
     NSLocalNetworkUsageDescription: >-
       Used only when a dev server or agent tool you run communicates on your
       local network.

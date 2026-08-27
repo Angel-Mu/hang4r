@@ -90,6 +90,18 @@ export function composeMessage(
 }
 
 /** A renderable transcript item, reduced from the agent event stream */
+/** What a session's `init` event tells the UI: the model it resolved to, and
+ *  the skills / slash commands the `/` menu offers. */
+export interface SessionInit {
+  model: string
+  version: string
+  tools: string[]
+  skills: string[]
+  slashCommands: string[]
+  mcpServers: { name: string; status: string }[]
+  plugins: { name: string }[]
+}
+
 export type TranscriptItem =
   | {
       type: 'user'
@@ -201,6 +213,9 @@ interface LoadedTranscript {
   outputTokens: number
   contextTokens: number
   contextWindowTokens: number | undefined
+  /** the session's persisted init, so the `/` menu has its skills before the
+   *  next turn re-announces them */
+  init: SessionInit | undefined
 }
 
 /**
@@ -225,9 +240,26 @@ async function loadTranscriptData(sessionId: string): Promise<LoadedTranscript> 
   let outTok = 0
   let ctxTok = 0
   let ctxWindow: number | undefined
+  // The init event carries the session's SKILLS and slash commands, and it is
+  // persisted like any other — but it was only ever read from the LIVE stream,
+  // so reopening a session (or restarting the app) left the `/` menu with the
+  // built-ins alone until the next turn re-announced them. Angel: "it works for
+  // internal commands, but my skills are not shown".
+  let init: SessionInit | undefined
   for (const e of events) {
     applyEvent(t, e.event)
     t.lastSeq = Math.max(t.lastSeq, e.seq)
+    if (e.event.kind === 'init') {
+      init = {
+        model: e.event.model,
+        version: e.event.version,
+        tools: e.event.tools,
+        skills: e.event.skills,
+        slashCommands: e.event.slashCommands,
+        mcpServers: e.event.mcpServers,
+        plugins: e.event.plugins
+      }
+    }
     if (e.event.kind === 'turn-complete') {
       inTok += e.event.inputTokens ?? 0
       outTok += e.event.outputTokens ?? 0
@@ -243,7 +275,8 @@ async function loadTranscriptData(sessionId: string): Promise<LoadedTranscript> 
     inputTokens: inTok,
     outputTokens: outTok,
     contextTokens: ctxTok,
-    contextWindowTokens: ctxWindow
+    contextWindowTokens: ctxWindow,
+    init
   }
 }
 
@@ -456,15 +489,7 @@ interface Hang4rState {
   /** per-session loaded context from the init event (skills, mcp, plugins, tools) */
   sessionInit: Record<
     string,
-    {
-      model: string
-      version: string
-      tools: string[]
-      skills: string[]
-      slashCommands: string[]
-      mcpServers: { name: string; status: string }[]
-      plugins: { name: string }[]
-    }
+    SessionInit
   >
   /** latest rate-limit state per type (e.g. five_hour, weekly) */
   rateLimits: Record<string, { status: string; resetsAt: number; isUsingOverage: boolean }>
@@ -1226,6 +1251,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       }
       return {
         transcripts: { ...s.transcripts, [sessionId]: loaded.transcript },
+        sessionInit: loaded.init
+          ? { ...s.sessionInit, [sessionId]: s.sessionInit[sessionId] ?? loaded.init }
+          : s.sessionInit,
         openSessionIds,
         focusedSessionId: sessionId,
         finishedUnseen,
@@ -1254,6 +1282,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     const loaded = await loadTranscriptData(sessionId)
     set((s) => ({
       transcripts: { ...s.transcripts, [sessionId]: loaded.transcript },
+      sessionInit: loaded.init
+        ? { ...s.sessionInit, [sessionId]: s.sessionInit[sessionId] ?? loaded.init }
+        : s.sessionInit,
       sessionUsage: {
         ...s.sessionUsage,
         [sessionId]: {

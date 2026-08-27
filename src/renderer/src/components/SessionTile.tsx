@@ -884,6 +884,13 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   const submit = (): void => {
     const text = draft.trim()
     if (!text && attachments.length === 0) return
+    // The typeahead menus key off the DRAFT, which is about to be emptied, but
+    // they kept their own open state — so a menu could surface AFTER sending,
+    // matching a query whose text was already gone (Angel: the skills list
+    // appeared the moment he hit Send, pointing at nothing).
+    setSlash(null)
+    setMention(null)
+    setEmoji(null)
     // slash commands are local UI actions — run them immediately, even mid-turn
     // (handleSlash is a no-op returning false for anything it doesn't recognize)
     if (text.startsWith('/') && handleSlash(text)) {

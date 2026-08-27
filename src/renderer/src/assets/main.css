@@ -5163,6 +5163,10 @@ button:disabled {
   color: var(--text);
   box-shadow: 0 0 0 1px var(--border-strong);
 }
+/* focusable so pane-scoped shortcuts reach it; the ring would be noise on a
+   whole document, and the tab it lives in already shows which file is active */
+.code-editor-preview:focus,
+.code-editor-preview:focus-visible { outline: none; }
 .code-editor-preview {
   flex: 1;
   min-height: 0;

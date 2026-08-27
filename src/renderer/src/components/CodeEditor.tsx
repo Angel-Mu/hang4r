@@ -1171,6 +1171,12 @@ export function CodeEditor({
       {previewable && previewMode && (
         <div
           ref={previewRef}
+          // Focusable on purpose. Rendered markdown is not, so clicking it drops
+          // focus to <body> — which focusPane() reads as "the conversation", and
+          // ⌘W then closed the whole SESSION instead of the file, and ⌘N opened
+          // the new-agent dialog instead of an untitled file (Angel). Monaco
+          // takes focus for the source side; the preview has to do the same.
+          tabIndex={0}
           className={
             'code-editor-preview' +
             (kind === 'html' ? ' code-editor-preview-html' : '') +

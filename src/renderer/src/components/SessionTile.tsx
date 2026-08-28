@@ -120,6 +120,54 @@ function blobToBase64(blob: Blob): Promise<string> {
   })
 }
 
+/**
+ * Shrink an attached image to something the model will actually accept.
+ *
+ * Claude re-scales anything past ~1568px on its long edge server-side and caps a
+ * single image at roughly 5MB, so bigger costs upload time and buys nothing —
+ * and going over does lasting damage: the API drops the image and warns
+ * "an image in the conversation could not be processed and was removed" on EVERY
+ * later request in that session, because the oversized block stays in the CLI's
+ * transcript. Angel's store had one at 35MB and four more over 4MB.
+ *
+ * Falls back to the original bytes if the browser can't decode it — a smaller
+ * image the model rejects is worse than the one it might have taken.
+ */
+const MAX_IMAGE_EDGE = 1568
+const MAX_IMAGE_BYTES = 3_500_000
+
+async function fitImageForModel(
+  blob: Blob
+): Promise<{ base64: string; mediaType: string } | null> {
+  try {
+    const bitmap = await createImageBitmap(blob)
+    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height))
+    const small = blob.size <= MAX_IMAGE_BYTES && scale === 1
+    if (small) return null // already fine — keep the original bytes untouched
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close?.()
+    // PNG keeps screenshot text crisp; JPEG only if PNG is still too heavy
+    for (const [type, quality] of [
+      ['image/png', undefined],
+      ['image/jpeg', 0.85],
+      ['image/jpeg', 0.6]
+    ] as const) {
+      const out = await new Promise<Blob | null>((r) => canvas.toBlob(r, type, quality))
+      if (out && out.size <= MAX_IMAGE_BYTES) {
+        return { base64: await blobToBase64(out), mediaType: type }
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 /** rough slug used for the new-branch-name suggestion in the commit menu */
 function slugish(title: string): string {
   return (
@@ -640,10 +688,11 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   // add a File/Blob (pasted, dropped, or picked) as an attachment
   const addFileAttachment = async (file: File, fallbackName = 'pasted-image'): Promise<void> => {
     if (file.type.startsWith('image/')) {
-      const base64 = await blobToBase64(file)
+      const fitted = await fitImageForModel(file)
+      const base64 = fitted ? fitted.base64 : await blobToBase64(file)
       addAttachment(sessionId, {
         label: file.name || `${fallbackName}.${file.type.split('/')[1] || 'png'}`,
-        image: { base64, mediaType: file.type }
+        image: { base64, mediaType: fitted ? fitted.mediaType : file.type }
       })
     } else {
       const text = await file.text()

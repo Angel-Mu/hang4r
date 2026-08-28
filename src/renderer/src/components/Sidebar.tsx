@@ -435,14 +435,14 @@ export function Sidebar(): JSX.Element {
                     const dotClass =
                       `status-dot status-${session.status}` +
                       (awaiting ? ' status-awaiting' : '') +
-                      (stillWorking && !awaiting ? ' status-pending' : '') +
-                      (unseenDone && !stillWorking ? ' status-unseen' : '')
+                      (unseenDone ? ' status-unseen' : '') +
+                      (stillWorking && !awaiting && !unseenDone ? ' status-pending' : '')
                     const dotTitle = awaiting
                       ? 'waiting for your response'
-                      : stillWorking
-                        ? 'Turn finished, but this session is still working'
-                        : unseenDone
-                          ? 'Finished — open to view'
+                      : unseenDone
+                        ? 'Finished — open to view'
+                        : stillWorking
+                          ? 'Turn finished, but this session is still working'
                           : STATUS_LABEL[session.status]
                     return (
                       <div

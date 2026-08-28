@@ -362,6 +362,14 @@ button:disabled {
 .status-dot.status-unseen {
   background: var(--accent);
 }
+/* the turn ended but the session did not: an async agent, background command,
+   Workflow or Monitor is still going. Cyan because amber above already means
+   "blocked on you" and this needs nothing from you; slower pulse than a live
+   turn — working, just not in front of you. */
+.status-dot.status-pending {
+  background: var(--cyan);
+  animation: pulse 2.4s ease-in-out infinite;
+}
 
 @keyframes pulse {
   50% {

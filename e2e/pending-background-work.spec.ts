@@ -125,8 +125,16 @@ test('the sidebar marks a session that is still working after its turn', async (
   await turnWithBackgroundAgents(page)
 
   const row = page.locator('.session-row').first()
-  await expect(row.locator('.status-dot.status-pending')).toBeVisible({ timeout: 15_000 })
+  const dot = row.locator('.status-dot.status-pending')
+  await expect(dot).toBeVisible({ timeout: 15_000 })
   await expect(row.locator('.status-dot.status-awaiting')).toHaveCount(0)
+
+  // toBeVisible passes on an unstyled dot — it still has size. Asserting the
+  // painted colour is what catches a class with no rule behind it, which is
+  // exactly how the pending dot shipped invisible in v1.0.126.
+  const painted = await dot.evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(painted).not.toBe('rgba(0, 0, 0, 0)')
+  expect(painted).not.toBe('transparent')
 })
 
 // Angel: "is it possible to click on it and take us to the sub agent, subtask,
@@ -189,4 +197,29 @@ test('the footer clears itself once the command actually exits', async () => {
   // Workflow it also emits has no file to probe and is scoped to the last turn.)
   const footer = page.locator('.tile .turn-info-waiting')
   await expect(footer).not.toContainText('background command', { timeout: 20_000 })
+})
+
+// Angel: "I think we removed the purple indicator for when something needs
+// attention on the sidebar, I remember it was there + the bell icon". A session
+// that finished a turn you have not read outranks one merely still working —
+// the bell is asking you to look.
+test('a finished-unseen session keeps its accent dot next to the bell', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await turnWithBackgroundAgents(page)
+
+  // make it "unseen": close the tile so the finish is not on screen
+  await page.evaluate(async () => {
+    const [s] = await window.hang4r.listSessions()
+    const store = (
+      window as unknown as { __hang4r_store: { getState(): { closeTile(id: string): void } } }
+    ).__hang4r_store
+    store.getState().closeTile(s.id)
+  })
+  await page.locator('.composer-input').first().waitFor({ state: 'detached' }).catch(() => {})
+
+  const row = page.locator('.session-row').first()
+  const dot = row.locator('.status-dot')
+  const painted = await dot.evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(painted).not.toBe('rgba(0, 0, 0, 0)')
 })

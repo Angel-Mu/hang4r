@@ -17,6 +17,7 @@ interface WebviewEl extends HTMLElement {
   getWebContentsId(): number
   getURL(): string
   getTitle(): string
+  loadURL(url: string): Promise<void>
 }
 
 let tabCounter = 0
@@ -41,6 +42,43 @@ function tabTitle(t: BrowserTab): string {
  * mounted so switching tabs never reloads the page. ⌘W closes the active TAB
  * (scoped close) — never the pane, never the window.
  */
+/**
+ * Undo Google's website-translation proxy.
+ *
+ * Search results served to a non-English locale can route a click through
+ * `translate.google.com/websitetranslationui`, which then serves the site from
+ * `<host>.translate.goog` — so you click a result and land on a machine
+ * translation of it instead of the page (Angel: "I'm starting to see
+ * 'traductor'"). You asked for the site; you get the site.
+ *
+ * Google encodes the original host by turning dots into `-` and literal dashes
+ * into `--`, so `www-example-com` is `www.example.com` and `my--site-com` is
+ * `my-site.com`.
+ */
+export function untranslateUrl(raw: string): string | null {
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return null
+  }
+  // the wrapper UI carries the real target in `pfu` (falling back to `parent`),
+  // which is itself usually a .translate.goog address
+  if (u.hostname === 'translate.google.com' && u.pathname.startsWith('/websitetranslationui')) {
+    const inner = u.searchParams.get('pfu') ?? u.searchParams.get('parent')
+    return inner ? (untranslateUrl(inner) ?? inner) : null
+  }
+  if (!u.hostname.endsWith('.translate.goog')) return null
+  const sub = u.hostname.slice(0, -'.translate.goog'.length)
+  u.hostname = sub
+    .split('--')
+    .map((part) => part.replace(/-/g, '.'))
+    .join('-')
+  // the proxy's own language params mean nothing on the real site
+  for (const k of [...u.searchParams.keys()]) if (k.startsWith('_x_tr_')) u.searchParams.delete(k)
+  return u.toString()
+}
+
 export function BrowserPane({
   sessionId,
   visible = true
@@ -359,6 +397,16 @@ export function BrowserPane({
       if (!wv) continue
       const onNav = (e: Event): void => {
         const navUrl = (e as Event & { url?: string }).url
+        // A server-side redirect into Google's translate proxy only shows up
+        // once we have landed on it, so bounce straight back to the real page.
+        // Unless the user ASKED for a translated address — unwrapping that would
+        // make it impossible to open one on purpose.
+        const asked = !!t.url && untranslateUrl(t.url) !== null
+        const real = navUrl && !asked ? untranslateUrl(navUrl) : null
+        if (real) {
+          wv.loadURL(real)
+          return
+        }
         // while tunneling, the webview browses the LOCAL tunnel end — keep the
         // bar showing the remote address the user typed
         if (navUrl && t.tunneledPort === null) patchTab(t.id, { url: navUrl })

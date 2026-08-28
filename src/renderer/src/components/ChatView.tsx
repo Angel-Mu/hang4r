@@ -776,7 +776,7 @@ function UserMessageCard({
 }
 
 /** short uppercase extension badge for a file card (PDF, XLSX, MD, …) */
-function fileBadge(name: string): string {
+export function fileBadge(name: string): string {
   const ext = name.slice(name.lastIndexOf('.') + 1).toUpperCase()
   return ext && ext !== name.toUpperCase() ? ext.slice(0, 4) : 'FILE'
 }

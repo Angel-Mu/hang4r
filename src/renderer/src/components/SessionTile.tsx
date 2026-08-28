@@ -6,7 +6,7 @@ import { useHang4r, type TranscriptItem } from '../state/store'
 import { resumeCliCommand } from '../resumeCli'
 import { onForgetSession, onSeedSessionUi, persistSessionUi } from '../sessionUiMemos'
 import { contextWindow } from '../contextWindow'
-import { ChatView } from './ChatView'
+import { ChatView, fileBadge } from './ChatView'
 import { ChatFindBar } from './ChatFindBar'
 import { DiffView } from './DiffView'
 import { TerminalPanel } from './TerminalPanel'
@@ -1374,7 +1374,10 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                     {attachments.map((a, i) => (
                       <span
                         key={i}
-                        className={'context-chip' + (a.image ? ' context-chip-image' : '')}
+                        className={
+                          'context-chip' +
+                          (a.image ? ' context-chip-image' : ' context-chip-file')
+                        }
                         title={a.image ? a.label : a.text?.slice(0, 400)}
                       >
                         {a.image ? (
@@ -1384,7 +1387,10 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                             alt={a.label}
                           />
                         ) : (
-                          '⌗ '
+                          // the same badge the sent message shows, so an attached
+                          // file reads as one BEFORE sending too — a bare glyph
+                          // and a name looked like text someone had typed
+                          <span className="chip-badge">{fileBadge(a.label)}</span>
                         )}
                         {a.label}
                         <button

@@ -9,7 +9,7 @@ import { onSeedSessionUi, onForgetSession, persistSessionUi } from '../sessionUi
 type BlockItem = Extract<TranscriptItem, { type: 'block' }>
 type PermissionItem = Extract<TranscriptItem, { type: 'permission' }>
 
-type RunStatus = 'running' | 'waiting' | 'background' | 'done' | 'error' | 'stalled'
+type RunStatus = 'running' | 'waiting' | 'background' | 'done' | 'error' | 'stalled' | 'ended'
 
 interface SubagentRun {
   toolUseId: string
@@ -31,7 +31,8 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   background: 'running in background',
   done: 'done',
   error: 'failed',
-  stalled: 'no result'
+  stalled: 'no result',
+  ended: 'ended with the session restart'
 }
 
 /**
@@ -46,9 +47,10 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
   const running = useHang4r(
     (s) => s.sessions.find((x) => x.id === sessionId)?.status === 'running'
   )
+  const liveAgents = useHang4r((s) => s.liveAgents[sessionId])
   const runs = useMemo(
-    () => collectRuns(transcript?.items ?? [], running),
-    [transcript, running]
+    () => collectRuns(transcript?.items ?? [], running, liveAgents && new Set(liveAgents)),
+    [transcript, running, liveAgents]
   )
   // the ⤷ "View thread" signal — carries the clicked run's toolUseId so the
   // matching thread can expand + scroll itself into view (below)
@@ -312,7 +314,12 @@ function parseTaskResult(result: unknown): {
  * Async ('background') launches are different again: those really do outlive
  * the turn.
  */
-export function collectRuns(items: TranscriptItem[], turnLive = true): SubagentRun[] {
+export function collectRuns(
+  items: TranscriptItem[],
+  turnLive = true,
+  /** agentIds the session's LIVE process still owns; undefined = don't judge */
+  liveAgentIds?: ReadonlySet<string>
+): SubagentRun[] {
   const runs = new Map<string, SubagentRun>()
   const ensure = (id: string): SubagentRun => {
     let r = runs.get(id)
@@ -426,6 +433,18 @@ export function collectRuns(items: TranscriptItem[], turnLive = true): SubagentR
     }
   }
 
+  // pass 3.5: an async agent lives INSIDE the process that launched it, so a
+  // re-spawn — auto-recovery, an aborted turn, an app restart — took it with it.
+  // Main clears its set on every spawn, so an agentId missing from it is not a
+  // guess about a stalled agent: that process is gone. Angel watched five of
+  // these sit at "running in background" forever after an auto-recovery.
+  if (liveAgentIds) {
+    for (const run of runs.values()) {
+      if (run.status !== 'background') continue
+      if (run.agentId && !liveAgentIds.has(run.agentId)) run.status = 'ended'
+    }
+  }
+
   // pass 4: the turn is over, so nothing in-process is still running
   if (!turnLive) {
     let aborted = false
@@ -462,12 +481,13 @@ const DEFERRED_TOOLS = new Set(['Monitor', 'Workflow'])
  */
 export function summarizeRuns(
   items: TranscriptItem[],
-  turnLive: boolean
+  turnLive: boolean,
+  liveAgentIds?: ReadonlySet<string>
 ): { background: number; stalled: number; deferred: string[]; backgroundIds: string[] } {
   let background = 0
   let stalled = 0
   const backgroundIds: string[] = []
-  for (const run of collectRuns(items, turnLive)) {
+  for (const run of collectRuns(items, turnLive, liveAgentIds)) {
     if (run.status === 'background') {
       background++
       backgroundIds.push(run.toolUseId)

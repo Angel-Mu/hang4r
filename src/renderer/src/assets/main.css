@@ -1695,6 +1695,13 @@ button:disabled {
 .subagent-status-done {
   color: var(--green);
 }
+/* neither succeeded nor failed: 'stalled' never returned a result, 'ended' was
+   killed when its CLI process re-spawned. Muted — they are outcomes to notice,
+   not failures to alarm about. */
+.subagent-status-stalled,
+.subagent-status-ended {
+  color: var(--text-muted);
+}
 .subagent-status-error {
   color: var(--red);
 }
@@ -1754,6 +1761,7 @@ button:disabled {
 .subagent-dot-waiting { background: var(--amber); animation: pulse 1s ease-in-out infinite; }
 .subagent-dot-done { background: var(--green); }
 .subagent-dot-error { background: var(--red); }
+.subagent-dot-stalled, .subagent-dot-ended { background: var(--text-faint); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .subagent-meta { font-size: 10px; color: var(--text-faint); white-space: nowrap; }
 .subagent-status-waiting { color: var(--amber); }

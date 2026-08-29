@@ -487,6 +487,10 @@ interface Hang4rState {
     { inputTokens: number; outputTokens: number; contextTokens: number; contextWindowTokens?: number }
   >
   /** per-session loaded context from the init event (skills, mcp, plugins, tools) */
+  /** async agents this session's LIVE CLI process still owns; anything the
+   *  transcript calls "running in background" but is missing here died with an
+   *  earlier process */
+  liveAgents: Record<string, string[]>
   sessionInit: Record<
     string,
     SessionInit
@@ -753,6 +757,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   newSessionProjectId: null,
   usage: { inputTokens: 0, outputTokens: 0 },
   sessionUsage: {},
+  liveAgents: {},
   sessionInit: {},
   rateLimits: {},
   drafts: {},
@@ -1023,6 +1028,14 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       if (prev && prev.cwd && session.cwd && prev.cwd !== session.cwd) {
         remapSessionPaths(session.id, prev.cwd, session.cwd)
       }
+      // a re-spawn turns the live async-agent set over, and a status change is
+      // when that happens — re-read it rather than trusting the old one
+      if (!prev || prev.status !== session.status) {
+        void window.hang4r
+          .liveAgentIds(session.id)
+          .then((ids) => set((s) => ({ liveAgents: { ...s.liveAgents, [session.id]: ids } })))
+          .catch(() => undefined)
+      }
       set((state) => {
         const idx = state.sessions.findIndex((s) => s.id === session.id)
         const sessions =
@@ -1218,6 +1231,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
 
   async openSession(sessionId, opts) {
     const loaded = await loadTranscriptData(sessionId)
+    // a restored transcript can name async agents from processes long gone
+    const live = await window.hang4r.liveAgentIds(sessionId).catch(() => [] as string[])
+    set((s) => ({ liveAgents: { ...s.liveAgents, [sessionId]: live } }))
     // seed this session's persisted UI (open files + active panel) into the
     // component memos BEFORE the tile mounts, so it restores after a restart /
     // reload. seedSessionUi only fills EMPTY memos, so a session that's already

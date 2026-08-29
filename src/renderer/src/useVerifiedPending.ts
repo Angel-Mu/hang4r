@@ -21,7 +21,8 @@ const PROBE_INTERVAL_MS = 4000
 export function useVerifiedPending(
   sessionId: string,
   items: TranscriptItem[],
-  turnLive: boolean
+  turnLive: boolean,
+  liveAgentIds?: ReadonlySet<string>
 ): PendingPart[] | null {
   const [finished, setFinished] = useState<ReadonlySet<string>>(new Set())
   const paths = useMemo(() => (turnLive ? [] : pendingTaskPaths(items)), [items, turnLive])
@@ -53,7 +54,7 @@ export function useVerifiedPending(
 
   return useMemo(() => {
     if (turnLive) return null
-    const p = pendingWork(items, turnLive, finished)
+    const p = pendingWork(items, turnLive, finished, liveAgentIds)
     return hasPendingWork(p) ? pendingParts(p) : null
-  }, [items, turnLive, finished])
+  }, [items, turnLive, finished, liveAgentIds])
 }

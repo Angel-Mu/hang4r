@@ -55,9 +55,16 @@ export function pendingWork(
   items: TranscriptItem[],
   turnLive: boolean,
   /** output paths an lsof probe has since proved finished */
-  finishedPaths: ReadonlySet<string> = new Set()
+  finishedPaths: ReadonlySet<string> = new Set(),
+  /** async agents the live CLI process still owns — the rest died with an
+   *  earlier one and must not be reported as still running */
+  liveAgentIds?: ReadonlySet<string>
 ): PendingWork {
-  const { background, stalled, deferred, backgroundIds } = summarizeRuns(items, turnLive)
+  const { background, stalled, deferred, backgroundIds } = summarizeRuns(
+    items,
+    turnLive,
+    liveAgentIds
+  )
   // Only claim what can be RETIRED. A command with no output file can never be
   // proved finished, so counting it would strand the footer on "waiting"
   // forever — under-claiming beats lying.

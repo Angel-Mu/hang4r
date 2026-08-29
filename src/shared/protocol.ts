@@ -690,6 +690,8 @@ export interface Hang4rApi {
   setSessionEffort(sessionId: string, effort: string): Promise<void>
   getSessionEffort(sessionId: string): Promise<string | null>
   setSessionUltracode(sessionId: string, on: boolean): Promise<void>
+  /** async agents still owned by this session's live CLI process */
+  liveAgentIds(sessionId: string): Promise<string[]>
   getSessionUltracode(sessionId: string): Promise<boolean>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>

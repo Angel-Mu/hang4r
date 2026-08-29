@@ -71,6 +71,14 @@ export class SessionManager {
   private adapters = new Map<string, AgentAdapter>()
   /** sessionId → output files of its run_in_background Bash tasks */
   private bgTaskLogs = new Map<string, Set<string>>()
+  /**
+   * sessionId → agentIds of async agents launched by the CLI process that is
+   * running RIGHT NOW. An async agent lives inside the process that launched it,
+   * so a re-spawn — auto-recovery, an aborted turn, an app restart — takes every
+   * one of them with it. Cleared on each spawn, which makes "is it still alive?"
+   * answerable instead of a guess: anything not in here is gone.
+   */
+  private liveAsyncAgents = new Map<string, Set<string>>()
   /** monotonically increasing turn counter per session, for commit messages */
   private turnCounters = new Map<string, number>()
   /** setup-script outcome per session (true = ran clean) — dev-process
@@ -952,6 +960,12 @@ export class SessionManager {
    * `resolveBackgroundTaskState` can only assume 'running' and would nag on
    * every quit forever after one remote task.
    */
+  /** agentIds still owned by this session's LIVE process; anything else the
+   *  transcript shows as "running in background" died with an earlier one. */
+  liveAgentIds(sessionId: string): string[] {
+    return [...(this.liveAsyncAgents.get(sessionId) ?? [])]
+  }
+
   async runningBackgroundTasks(): Promise<LiveWorkItem[]> {
     const probes: Promise<LiveWorkItem | null>[] = []
     for (const [sessionId, logs] of this.bgTaskLogs) {
@@ -1735,6 +1749,8 @@ export class SessionManager {
     // switch can detect divergence and respawn on the next prompt
     this.spawnedPermissionMode.set(session.id, session.permissionMode)
     this.spawnedTuning.set(session.id, this.tuningOf(session.id))
+    // a fresh process owns no async agents yet — every one from the last is gone
+    this.liveAsyncAgents.set(session.id, new Set())
     if (FAKE_AGENT) {
       const fake = new FakeAdapter()
       fake.onEvent((ev) => this.handleAgentEvent(session.id, ev))
@@ -1873,6 +1889,15 @@ export class SessionManager {
     // while it keeps running — remember its log so the quit/update guard can ask
     // whether it's still alive (BackgroundTasks.tsx parses the same line).
     if (ev.kind === 'tool-result' && typeof ev.content === 'string') {
+      // "Async agent launched successfully … agentId: a001d14ea2e816024"
+      const agentId = /agent[_ ]?id:?\s*['"]?([A-Za-z0-9._-]{6,})/i.exec(
+        /async agent launched|agent launched successfully/i.test(ev.content) ? ev.content : ''
+      )?.[1]
+      if (agentId) {
+        let live = this.liveAsyncAgents.get(sessionId)
+        if (!live) this.liveAsyncAgents.set(sessionId, (live = new Set()))
+        live.add(agentId)
+      }
       const log = /Command running in background with ID:[^]*?written to:\s*(\S+)/i
         .exec(ev.content)?.[1]
         ?.replace(/[.,]$/, '')

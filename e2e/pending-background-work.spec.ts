@@ -223,3 +223,58 @@ test('a finished-unseen session keeps its accent dot next to the bell', async ()
   const painted = await dot.evaluate((el) => getComputedStyle(el).backgroundColor)
   expect(painted).not.toBe('rgba(0, 0, 0, 0)')
 })
+
+// Angel: five agents sat at "running in background" forever after an
+// auto-recovery, while the main session knew they were dead. An async agent
+// lives INSIDE the process that launched it, so a re-spawn takes it with it —
+// main clears its live set on every spawn, which makes this answerable.
+test('async agents from a dead process are retired, not reported as running', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await turnWithBackgroundAgents(page)
+
+  // the launch is owned by the live process, so it counts
+  await expect(page.locator('.tile .turn-info-waiting')).toContainText('agent', {
+    timeout: 15_000
+  })
+
+  // force a re-spawn the way auto-recovery does — the async agent cannot have
+  // survived it
+  const sid = (await page.evaluate(() => window.hang4r.listSessions()))[0].id
+  await page.evaluate((id) => window.hang4r.setSessionEffort(id, 'high'), sid)
+  await page.evaluate((id) => window.hang4r.prompt(id, 'another turn'), sid)
+  await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  // it is no longer claimed anywhere
+  await expect
+    .poll(
+      async () =>
+        (await page.locator('.tile .turn-info-waiting').last().textContent()) ?? '',
+      { timeout: 15_000 }
+    )
+    .not.toContain('agent')
+
+  await page.locator('.tile-tabs button', { hasText: 'Subagents' }).click()
+  await expect(
+    page.locator('.tile .subagent-run').filter({ hasText: 'long haul research' })
+  ).toContainText('ended with the session restart')
+})
+
+// every status the panel can show must have a rule behind it — 'stalled' shipped
+// in v1.0.123 with none, and the sidebar's pending dot did the same in v1.0.126
+test('every subagent status paints a colour', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await turnWithBackgroundAgents(page)
+  await page.locator('.tile-tabs button', { hasText: 'Subagents' }).click()
+
+  const unstyled = await page.evaluate(() => {
+    const out: string[] = []
+    for (const el of document.querySelectorAll('.tile [class*="subagent-dot-"]')) {
+      const bg = getComputedStyle(el).backgroundColor
+      if (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') out.push(el.className)
+    }
+    return out
+  })
+  expect(unstyled).toEqual([])
+})

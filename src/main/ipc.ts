@@ -636,6 +636,9 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     'sessions:get-ultracode',
     (_e, sessionId: string) => settings.getSetting(`ultracode:${sessionId}`) === '1'
   )
+  ipcMain.handle('sessions:live-agents', (_e, sessionId: string) =>
+    sessions.liveAgentIds(sessionId)
+  )
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('settings:get', (_e, key: string) => settings.getSetting(key))
   ipcMain.handle('settings:set', (_e, key: string, value: string) => settings.setSetting(key, value))

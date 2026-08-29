@@ -229,7 +229,12 @@ function ChatViewImpl({
     for (let i = items.length - 1; i >= 0; i--) if (items[i].type === 'turn-info') return items[i]
     return null
   }, [items])
-  const verified = useVerifiedPending(sessionId, items, turnLive)
+  const liveAgents = useHang4r((s) => s.liveAgents[sessionId])
+  const liveAgentSet = useMemo(
+    () => (liveAgents ? new Set(liveAgents) : undefined),
+    [liveAgents]
+  )
+  const verified = useVerifiedPending(sessionId, items, turnLive, liveAgentSet)
   const pending = lastTurnInfo ? verified : null
 
   // per user message: how many identical user messages come AFTER it — the

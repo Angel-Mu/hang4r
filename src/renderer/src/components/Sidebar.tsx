@@ -92,6 +92,7 @@ export function Sidebar(): JSX.Element {
   const filter = useHang4r((s) => s.sessionFilter)
   const setFilter = useHang4r((s) => s.setSessionFilter)
   const transcripts = useHang4r((s) => s.transcripts)
+  const liveAgents = useHang4r((s) => s.liveAgents)
   // Sessions still working after their turn ended. Derived from the transcripts
   // this run has actually loaded — a session never opened has nothing to read,
   // so it simply gets no dot rather than a guess.
@@ -100,10 +101,12 @@ export function Sidebar(): JSX.Element {
     for (const s of sessions) {
       if (s.status === 'running' || s.status === 'starting') continue
       const items = transcripts[s.id]?.items
-      if (items && hasPendingWork(pendingWork(items, false))) out.add(s.id)
+      const live = liveAgents[s.id]
+      if (items && hasPendingWork(pendingWork(items, false, undefined, live && new Set(live))))
+        out.add(s.id)
     }
     return out
-  }, [sessions, transcripts])
+  }, [sessions, transcripts, liveAgents])
 
   const isPinned = (id: string): boolean => pinned.includes(id)
   // Amber "waiting on you" state: the session's transcript has a permission

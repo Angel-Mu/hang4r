@@ -1296,8 +1296,11 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   async ensureTranscript(sessionId) {
     if (get().transcripts[sessionId]) return
     const loaded = await loadTranscriptData(sessionId)
+    // the sidebar reads this for sessions that are never opened
+    const live = await window.hang4r.liveAgentIds(sessionId).catch(() => [] as string[])
     set((s) => ({
       transcripts: { ...s.transcripts, [sessionId]: loaded.transcript },
+      liveAgents: { ...s.liveAgents, [sessionId]: live },
       sessionInit: loaded.init
         ? { ...s.sessionInit, [sessionId]: s.sessionInit[sessionId] ?? loaded.init }
         : s.sessionInit,

@@ -278,3 +278,35 @@ test('every subagent status paints a colour', async () => {
   })
   expect(unstyled).toEqual([])
 })
+
+// Angel: the footer had stopped claiming dead agents but the sidebar dot had
+// not. The sidebar renders sessions it never opened, and a missing live-agent
+// entry was read as "don't judge" rather than "nothing is live" — which is what
+// main actually reports for a session it has no process for. The invariant is
+// that both read the same truth, not that either is always empty.
+test('the sidebar dot and the footer agree about what is still running', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await turnWithBackgroundAgents(page)
+
+  const sid = (await page.evaluate(() => window.hang4r.listSessions()))[0].id
+  // a re-spawn kills the async agent, exactly as auto-recovery does
+  await page.evaluate((id) => window.hang4r.setSessionEffort(id, 'high'), sid)
+  await page.evaluate((id) => window.hang4r.prompt(id, 'another turn'), sid)
+  await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  // the dead agent is gone from the footer…
+  const footer = page.locator('.tile .turn-info-waiting').last()
+  await expect
+    .poll(async () => (await footer.count()) === 0 || ((await footer.textContent()) ?? ''), {
+      timeout: 15_000
+    })
+    .not.toContain('agent')
+
+  // …and the sidebar, reading the same live set, must not still claim one
+  const row = page.locator('.session-row').first()
+  const dotPending = await row.locator('.status-dot.status-pending').count()
+  const footerText = (await footer.count()) ? ((await footer.textContent()) ?? '') : ''
+  // a dot only when the footer is also still waiting on something
+  expect(dotPending > 0).toBe(footerText.includes('waiting on'))
+})

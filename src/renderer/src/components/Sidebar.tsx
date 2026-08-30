@@ -101,9 +101,11 @@ export function Sidebar(): JSX.Element {
     for (const s of sessions) {
       if (s.status === 'running' || s.status === 'starting') continue
       const items = transcripts[s.id]?.items
-      const live = liveAgents[s.id]
-      if (items && hasPendingWork(pendingWork(items, false, undefined, live && new Set(live))))
-        out.add(s.id)
+      // no entry means main has no live process for this session, which is
+      // exactly what it reports as []. Reading that as "don't judge" instead
+      // left the dot lit for agents that died with a process long gone.
+      const live = new Set(liveAgents[s.id] ?? [])
+      if (items && hasPendingWork(pendingWork(items, false, undefined, live))) out.add(s.id)
     }
     return out
   }, [sessions, transcripts, liveAgents])

@@ -15,6 +15,7 @@ import type {
   SessionEvent,
   SessionMeta
 } from '../../shared/protocol'
+import { powerSaveBlocker } from 'electron'
 import { findBinary } from './binaryDiscovery'
 import { buildHandoffSeed, backendLabel } from './handoff'
 import { ClaudeAdapter } from './adapters/claudeAdapter'
@@ -79,6 +80,7 @@ export class SessionManager {
    * answerable instead of a guess: anything not in here is gone.
    */
   private liveAsyncAgents = new Map<string, Set<string>>()
+  private sleepBlockId: number | null = null
   /** monotonically increasing turn counter per session, for commit messages */
   private turnCounters = new Map<string, number>()
   /** setup-script outcome per session (true = ran clean) — dev-process
@@ -2023,6 +2025,10 @@ export class SessionManager {
   }
 
   private async commitCheckpoint(session: SessionMeta): Promise<void> {
+    // These land on the session's own branch, so they travel with it into a PR
+    // (Angel found them in his). Turning them off makes a worktree session diff
+    // against the working tree, the way a local session already does.
+    if (this.settings.getSetting('checkpointCommits') === 'off') return
     const n = (this.turnCounters.get(session.id) ?? 0) + 1
     this.turnCounters.set(session.id, n)
     try {
@@ -2045,6 +2051,29 @@ export class SessionManager {
   private updateSession(id: string, patch: Parameters<Store['updateSession']>[1]): void {
     const updated = this.store.updateSession(id, patch)
     if (updated) this.broadcast.sessionUpdated(updated)
+    this.syncSleepBlock()
+  }
+
+  /**
+   * Hold off system sleep while a turn is actually running.
+   *
+   * The existing block was owned by the mobile bridge and only applied while the
+   * bridge was ON, so with it off the machine slept mid-turn and the setting
+   * looked inert (Angel). Display sleep is untouched — the screen still dims.
+   */
+  private syncSleepBlock(): void {
+    const want =
+      this.settings.getSetting('keepAwakeWhileWorking') !== 'off' &&
+      this.store
+        .listSessions()
+        .some((s) => s.status === 'running' || s.status === 'starting')
+    if (want === (this.sleepBlockId !== null)) return
+    if (want) {
+      this.sleepBlockId = powerSaveBlocker.start('prevent-app-suspension')
+    } else if (this.sleepBlockId !== null) {
+      if (powerSaveBlocker.isStarted(this.sleepBlockId)) powerSaveBlocker.stop(this.sleepBlockId)
+      this.sleepBlockId = null
+    }
   }
 }
 

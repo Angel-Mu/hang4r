@@ -480,6 +480,8 @@ export function Settings(): JSX.Element | null {
   const [notifyOnActionRequired, setNotifyOnActionRequired] = useState(true)
   const [notifyOnError, setNotifyOnError] = useState(true)
   const [autoContinue, setAutoContinue] = useState(true)
+  const [checkpoints, setCheckpoints] = useState(true)
+  const [keepAwakeWorking, setKeepAwakeWorking] = useState(true)
   const [keymap, setKeymap] = useState<KeyBinding[]>(NATURAL_KEYMAP_DEFAULTS)
   const [saved, setSaved] = useState(false)
   const projects = useHang4r((s) => s.projects)
@@ -527,6 +529,10 @@ export function Settings(): JSX.Element | null {
     )
     void window.hang4r.getSetting('notifyOnComplete').then((v) => setNotifyOnComplete(v !== 'off'))
     void window.hang4r.getSetting('autoContinue').then((v) => setAutoContinue(v !== 'off'))
+    void window.hang4r.getSetting('checkpointCommits').then((v) => setCheckpoints(v !== 'off'))
+    void window.hang4r
+      .getSetting('keepAwakeWhileWorking')
+      .then((v) => setKeepAwakeWorking(v !== 'off'))
     void window.hang4r
       .getSetting('notifications.onActionRequired')
       .then((v) => setNotifyOnActionRequired(v !== 'off'))
@@ -563,6 +569,8 @@ export function Settings(): JSX.Element | null {
     await window.hang4r.setSetting('terminalShellMode', terminalShellMode)
     await window.hang4r.setSetting('notifyOnComplete', notifyOnComplete ? 'on' : 'off')
     await window.hang4r.setSetting('autoContinue', autoContinue ? 'on' : 'off')
+    await window.hang4r.setSetting('checkpointCommits', checkpoints ? 'on' : 'off')
+    await window.hang4r.setSetting('keepAwakeWhileWorking', keepAwakeWorking ? 'on' : 'off')
     await window.hang4r.setSetting(
       'notifications.onActionRequired',
       notifyOnActionRequired ? 'on' : 'off'
@@ -720,6 +728,40 @@ export function Settings(): JSX.Element | null {
                       <code>.hang4r/settings.json</code>.
                     </p>
                   </>
+                </Field>
+                <Field label="Sleep">
+                  <div className="notify-option">
+                    <label className="notify-toggle">
+                      <input
+                        type="checkbox"
+                        checked={keepAwakeWorking}
+                        onChange={(e) => setKeepAwakeWorking(e.target.checked)}
+                      />
+                      Keep this Mac awake while an agent is working
+                    </label>
+                    <p className="notify-hint">
+                      Holds off system sleep only while a turn is running. The display still dims
+                      and locks as usual.
+                    </p>
+                  </div>
+                </Field>
+                <Field label="Checkpoints">
+                  <div className="notify-option">
+                    <label className="notify-toggle">
+                      <input
+                        type="checkbox"
+                        checked={checkpoints}
+                        onChange={(e) => setCheckpoints(e.target.checked)}
+                      />
+                      Commit a checkpoint after each turn (worktree sessions)
+                    </label>
+                    <p className="notify-hint">
+                      Checkpoints are real commits on the session&rsquo;s own branch, so they travel
+                      with it into a pull request. Turn this off to keep the branch history yours —
+                      the diff then compares against your working tree, the way an in-place session
+                      already does.
+                    </p>
+                  </div>
                 </Field>
                 <Field label="Recovery">
                   <>

@@ -627,7 +627,17 @@ button:disabled {
 }
 
 .thinking-block {
-  font-size: 12px;
+  font-size: calc(var(--chat-font, 13px) - 1px);
+  margin: 2px 0 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+.thinking-peek {
+  color: var(--text-faint);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .thinking-toggle {
   color: var(--text-faint);

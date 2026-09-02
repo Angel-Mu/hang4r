@@ -149,6 +149,19 @@ export class FakeAdapter implements AgentAdapter {
       outcome: 'allowed'
     })
 
+    if (text.includes('think about it')) {
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 13,
+        block: {
+          type: 'thinking',
+          thinking: 'Reading the request. The file is small, so a direct edit beats a refactor here.'
+        },
+        parentToolUseId: null
+      })
+    }
+
     // streamed assistant text
     this.emit({
       kind: 'block-start',

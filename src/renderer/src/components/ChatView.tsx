@@ -127,6 +127,7 @@ function chatMdComponents(sessionId: string): Components {
 type RenderUnit =
   | { kind: 'item'; item: TranscriptItem; index: number }
   | { kind: 'activity'; items: BlockItem[]; index: number; durationMs?: number }
+  | { kind: 'thinking'; item: BlockItem; index: number }
 
 /**
  * Cursor-style conversation: a centered column; user message cards; agent
@@ -271,6 +272,13 @@ function ChatViewImpl({
             what's on screen. The DOM stays intact, so ⌘F find, scroll height,
             and jump-to-latest are unaffected. */}
         {units.map((u, i) => {
+          if (u.kind === 'thinking') {
+            return (
+              <div className="chat-unit" key={`think-${u.index}`}>
+                <ThinkingBlock text={u.item.text} />
+              </div>
+            )
+          }
           if (u.kind === 'activity') {
             const isTail = i === units.length - 1
             return (
@@ -327,13 +335,19 @@ function ChatViewImpl({
  *  doesn't re-render the whole transcript — the typing-lag fix. */
 export const ChatView = memo(ChatViewImpl)
 
-/** Fold consecutive non-text blocks (tools, thinking) into activity groups. */
+/** Fold consecutive tool calls into activity groups. Reasoning stays OUT of the
+ *  fold: inside it, the thought process sat behind two collapses and Angel never
+ *  saw it. */
 function groupActivity(items: TranscriptItem[]): RenderUnit[] {
   const units: RenderUnit[] = []
   let current: BlockItem[] | null = null
   items.forEach((item, index) => {
-    const isActivity =
-      item.type === 'block' && (item.blockType === 'tool_use' || item.blockType === 'thinking')
+    if (item.type === 'block' && item.blockType === 'thinking') {
+      current = null
+      units.push({ kind: 'thinking', item: item as BlockItem, index })
+      return
+    }
+    const isActivity = item.type === 'block' && item.blockType === 'tool_use'
     if (isActivity) {
       if (!current) {
         current = []
@@ -1119,15 +1133,23 @@ const PERMISSION_LABELS: Record<string, string> = {
   decline: 'Deny'
 }
 
+const THINKING_FOLD_CHARS = 900
+
 function ThinkingBlock({ text }: { text: string }): JSX.Element | null {
-  const [open, setOpen] = useState(false)
+  const long = text.length > THINKING_FOLD_CHARS
+  const [open, setOpen] = useState(!long)
   if (!text) return null
   return (
     <div className="thinking-block">
       <button className="thinking-toggle" onClick={() => setOpen(!open)}>
-        {open ? '▾' : '▸'} thinking
+        {open ? '▾' : '▸'} thought
+        {long && !open ? ` · ${Math.round(text.length / 100) / 10}k chars` : ''}
       </button>
-      {open && <div className="thinking-text">{text}</div>}
+      {open ? (
+        <div className="thinking-text">{text}</div>
+      ) : (
+        <div className="thinking-peek">{text.slice(0, 160).trim()}…</div>
+      )}
     </div>
   )
 }

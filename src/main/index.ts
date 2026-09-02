@@ -385,6 +385,30 @@ ipcMain.handle('quit:answer', (_e, quit: boolean) => {
   app.quit()
 })
 
+/**
+ * A page inside the embedded browser opening a new window — `target="_blank"`,
+ * `window.open`, and most "Download" buttons, which are _blank links. Electron
+ * denies these by default and the guest never navigates, so the click did
+ * nothing at all (Angel: links needed ⌘-click, and downloads "cannot" happen —
+ * one cause, since a denied window is also a denied download).
+ *
+ * Routed back to the pane the click came from as a new tab, so it behaves like a
+ * browser instead of vanishing. A download URL resolves in that tab and hits the
+ * will-download handler as normal.
+ */
+app.on('web-contents-created', (_e, contents) => {
+  if (contents.getType() !== 'webview') return
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) {
+      const sessionId = getBrowserControl()?.sessionForGuest(contents.id)
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send('browser:open-url', { sessionId, url })
+      }
+    }
+    return { action: 'deny' }
+  })
+})
+
 app.on('before-quit', (event) => {
   if (!quitConfirmed && guardActive()) {
     // liveWork() has to lsof the background-task logs, so the answer can't be

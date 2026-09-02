@@ -200,6 +200,23 @@ export class FakeAdapter implements AgentAdapter {
       parentToolUseId: null
     })
 
+    // an assistant message linking a file OUTSIDE this session's worktree — the
+    // shape agents produce constantly, and the one that used to escape to the
+    // browser as a raw file:// page
+    if (text.includes('link an outside file')) {
+      const linkMsg = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId: linkMsg,
+        blockIndex: 12,
+        block: {
+          type: 'text',
+          text: `See [lambda.stack.ts:235](file://${this.cwd}/../outside-me.txt) for the detail.`
+        },
+        parentToolUseId: null
+      })
+    }
+
     // a deferred-by-contract tool: returns now, keeps watching, re-invokes later
     if (text.includes('arm a monitor')) {
       const monId = randomUUID()

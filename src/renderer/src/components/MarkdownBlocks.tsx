@@ -173,11 +173,21 @@ export function openFileHref(sessionId: string, href: string): boolean {
   const lm = /:(\d+)(?::\d+)?$/.exec(raw)
   const abs = lm ? raw.slice(0, lm.index) : raw
   const cwd = useHang4r.getState().sessions.find((s) => s.id === sessionId)?.cwd
-  if (!cwd || !abs.startsWith(cwd + '/')) return false
-  useHang4r
-    .getState()
-    .requestOpenFile(sessionId, abs.slice(cwd.length + 1), lm ? Number(lm[1]) : undefined)
-  return true
+  if (cwd && abs.startsWith(cwd + '/')) {
+    useHang4r
+      .getState()
+      .requestOpenFile(sessionId, abs.slice(cwd.length + 1), lm ? Number(lm[1]) : undefined)
+    return true
+  }
+  // Outside the session's worktree — a sibling worktree, the main checkout, a
+  // /tmp scratch file. It is still a FILE: sending it to the browser opened a
+  // raw file:// page (Angel). previewAttachment already resolves these,
+  // including sibling worktrees, so hand it there instead.
+  if (abs.startsWith('/')) {
+    void useHang4r.getState().openFilePreview(sessionId, { name: abs.split('/').pop() ?? abs, path: abs, external: true })
+    return true
+  }
+  return false
 }
 
 function make(sessionId: string, basePath?: string): MdCompMap {
@@ -191,6 +201,11 @@ function make(sessionId: string, basePath?: string): MdCompMap {
           if (!openFileHref(sessionId, href)) useHang4r.getState().requestOpenUrl(sessionId, href)
         } else if (/^https?:\/\//.test(href)) {
           useHang4r.getState().requestOpenUrl(sessionId, href)
+        } else if (href.startsWith('/')) {
+          // an ABSOLUTE path with no scheme — agents write these constantly.
+          // resolveRel would have treated it as relative to the current file and
+          // produced a path that does not exist.
+          openFileHref(sessionId, href)
         } else if (!/^[a-z]+:/.test(href)) {
           // relative link → open in the editor, resolved against this file
           const lm = /:(\d+)(?::\d+)?$/.exec(href)

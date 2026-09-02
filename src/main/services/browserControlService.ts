@@ -130,6 +130,15 @@ export class BrowserControlService {
   }
 
   /** renderer reports the full tab list for a session on any browser-pane change */
+  /** which session owns a guest webContents — lets a popup from inside a page
+   *  be routed back to the pane it came from */
+  sessionForGuest(wcId: number): string | null {
+    for (const [sessionId, tabs] of this.guests) {
+      for (const entry of tabs.values()) if (entry.wcId === wcId) return sessionId
+    }
+    return null
+  }
+
   registerGuests(report: BrowserGuestReport): void {
     const { sessionId, tabs } = report
     const prev = this.guests.get(sessionId) ?? new Map<string, GuestEntry>()

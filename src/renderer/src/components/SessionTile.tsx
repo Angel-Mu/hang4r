@@ -1309,7 +1309,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
           defaultLayout={readSplit(!!contextTab)}
           onLayoutChanged={(l) => writeSplit(!!contextTab, l)}
         >
-          <Panel minSize="25%" defaultSize="46%" className="chat-panel">
+          <Panel id="chat" minSize="25%" defaultSize="46%" className="chat-panel">
             <ChatView
               items={transcript?.items ?? NO_ITEMS}
               sessionId={sessionId}
@@ -1691,7 +1691,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
           {contextTab && (
             <>
               <Separator className="resize-handle resize-handle-v" />
-              <Panel minSize="20%" defaultSize="42%" className="context-panel">
+              <Panel id="context" minSize="20%" defaultSize="42%" className="context-panel">
                 <div className="context-header">
                   <span>{contextTab}</span>
                   <button className="ghost-btn" title="Close panel" onClick={() => setContextTab(null)}>

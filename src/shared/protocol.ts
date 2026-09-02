@@ -692,6 +692,8 @@ export interface Hang4rApi {
   setSessionUltracode(sessionId: string, on: boolean): Promise<void>
   /** async agents still owned by this session's live CLI process */
   liveAgentIds(sessionId: string): Promise<string[]>
+  /** sessions with work hang4r can prove is running right now */
+  sessionsWithLiveWork(): Promise<string[]>
   getSessionUltracode(sessionId: string): Promise<boolean>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>

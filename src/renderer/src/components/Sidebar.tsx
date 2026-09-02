@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { hasPendingWork, pendingWork } from '../pendingWork'
 import type {
   BackendId,
   ClaudeUsageSnapshot,
@@ -92,23 +91,29 @@ export function Sidebar(): JSX.Element {
   const filter = useHang4r((s) => s.sessionFilter)
   const setFilter = useHang4r((s) => s.setSessionFilter)
   const transcripts = useHang4r((s) => s.transcripts)
-  const liveAgents = useHang4r((s) => s.liveAgents)
-  // Sessions still working after their turn ended. Derived from the transcripts
-  // this run has actually loaded — a session never opened has nothing to read,
-  // so it simply gets no dot rather than a guess.
-  const pendingSessionIds = useMemo(() => {
-    const out = new Set<string>()
-    for (const s of sessions) {
-      if (s.status === 'running' || s.status === 'starting') continue
-      const items = transcripts[s.id]?.items
-      // no entry means main has no live process for this session, which is
-      // exactly what it reports as []. Reading that as "don't judge" instead
-      // left the dot lit for agents that died with a process long gone.
-      const live = new Set(liveAgents[s.id] ?? [])
-      if (items && hasPendingWork(pendingWork(items, false, undefined, live))) out.add(s.id)
+  // Sessions still working after their turn ended. MAIN answers this, because
+  // only the process that started the work knows it is still going: a restored
+  // transcript names agents and commands from runs long over, and nothing in it
+  // can ever retire a Monitor or a Workflow — reading it left the dot lit on
+  // sessions idle for days. Re-read whenever a session changes state, plus a
+  // slow tick for a command that exits quietly.
+  const [pendingSessionIds, setPendingSessionIds] = useState<Set<string>>(new Set())
+  const sessionStates = sessions.map((s) => `${s.id}:${s.status}`).join(',')
+  useEffect(() => {
+    let stop = false
+    const read = (): void => {
+      void window.hang4r
+        .sessionsWithLiveWork()
+        .then((ids) => !stop && setPendingSessionIds(new Set(ids)))
+        .catch(() => undefined)
     }
-    return out
-  }, [sessions, transcripts, liveAgents])
+    read()
+    const iv = setInterval(read, 5000)
+    return () => {
+      stop = true
+      clearInterval(iv)
+    }
+  }, [sessionStates])
 
   const isPinned = (id: string): boolean => pinned.includes(id)
   // Amber "waiting on you" state: the session's transcript has a permission

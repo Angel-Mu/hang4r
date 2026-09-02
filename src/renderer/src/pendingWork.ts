@@ -83,6 +83,20 @@ export function hasPendingWork(p: PendingWork): boolean {
   return p.agents > 0 || p.commands > 0 || p.deferred.length > 0
 }
 
+/**
+ * Work that can be PROVED still running — agents owned by the live process, and
+ * commands with a file to probe.
+ *
+ * Deferred tools (Monitor, Workflow) are deliberately excluded: nothing ever
+ * retires them, so a session that armed one three days ago would keep a
+ * persistent marker lit forever. The turn footer still names them, because there
+ * it describes that turn in place rather than claiming something is running
+ * right now.
+ */
+export function hasVerifiableWork(p: PendingWork): boolean {
+  return p.agents > 0 || p.commands > 0
+}
+
 /** the footer's pieces, each pointing at where that work can be watched */
 export function pendingParts(p: PendingWork): PendingPart[] {
   const parts: PendingPart[] = []

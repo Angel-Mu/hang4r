@@ -127,6 +127,7 @@ const api: Hang4rApi = {
   getSessionUltracode: (sessionId: string) =>
     ipcRenderer.invoke('sessions:get-ultracode', sessionId),
   liveAgentIds: (sessionId: string) => ipcRenderer.invoke('sessions:live-agents', sessionId),
+  sessionsWithLiveWork: () => ipcRenderer.invoke('sessions:live-work'),
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value),
   resolveAgentDefault: (backend: BackendId, field: 'model' | 'permissionMode', projectId?: string) =>

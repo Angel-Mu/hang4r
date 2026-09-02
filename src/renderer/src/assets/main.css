@@ -1436,6 +1436,10 @@ button:disabled {
 }
 
 /* ---------- file browser ---------- */
+/* focusable so the pane owns ⌘N/⌘W; a ring around the whole panel would be
+   noise, and the focused tab already shows where you are */
+.files-view:focus,
+.files-view:focus-visible { outline: none; }
 .files-view {
   flex: 1;
   display: flex;

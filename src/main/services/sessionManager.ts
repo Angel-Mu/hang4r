@@ -960,6 +960,27 @@ export class SessionManager {
    * `resolveBackgroundTaskState` can only assume 'running' and would nag on
    * every quit forever after one remote task.
    */
+  /**
+   * Sessions with work hang4r can PROVE is running: an async agent owned by a
+   * live CLI process, or a background command something still holds open.
+   *
+   * Answered here rather than from the transcript because only this process
+   * knows what it started. A restored transcript names agents and commands from
+   * runs that are long over — reading it left the sidebar dot lit on sessions
+   * idle for days, and nothing in the transcript can ever retire a Monitor or a
+   * Workflow, so those are not "running" for this purpose at all.
+   */
+  async sessionsWithLiveWork(): Promise<string[]> {
+    const out = new Set<string>()
+    for (const [sessionId, agents] of this.liveAsyncAgents) {
+      if (agents.size > 0) out.add(sessionId)
+    }
+    for (const task of await this.runningBackgroundTasks()) {
+      if (task.sessionId) out.add(task.sessionId)
+    }
+    return [...out]
+  }
+
   /** agentIds still owned by this session's LIVE process; anything else the
    *  transcript shows as "running in background" died with an earlier one. */
   liveAgentIds(sessionId: string): string[] {

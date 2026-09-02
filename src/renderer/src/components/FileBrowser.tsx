@@ -205,6 +205,9 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
   const layoutRef = useRef(layout)
   layoutRef.current = layout
   const focusedGroupIdRef = useRef(focusedGroupId)
+  /** the pane itself, so a close can hand focus back to it when no tab is left */
+  const viewRef = useRef<HTMLDivElement>(null)
+
   const focusGroup = useCallback(
     (id: number): void => {
       focusedGroupIdRef.current = id
@@ -419,6 +422,22 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     async (id: number, path: string): Promise<void> => {
       if (!(await maybeFlush(id, path))) return
       doClose(id, path)
+      // The closed tab's DOM is gone, so focus falls to <body> and the NEXT ⌘W
+      // reads as session scope — Angel's "second ⌘W closes the session". Hold the
+      // pane itself right away: it always exists, so the shortcut stays scoped
+      // whether or not another tab remains.
+      viewRef.current?.focus()
+      // …then hand focus to the tab that became active, once React has rendered
+      // it. Two frames: the first can still run before the commit.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const el = viewRef.current?.querySelector(
+            '.editor-slot:not([style*="display: none"]) .monaco-editor textarea, ' +
+              '.editor-slot:not([style*="display: none"]) .code-editor-preview'
+          ) as HTMLElement | null
+          el?.focus()
+        })
+      )
     },
     [maybeFlush, doClose]
   )
@@ -938,7 +957,12 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
   const viewer = <div className="files-viewer">{renderNode(rootNode)}</div>
 
   return (
-    <div className="files-view">
+    // Focusable so the pane owns its shortcuts. Nothing here takes focus on its
+    // own when no file is open — the tree rows are divs and the editor area is
+    // empty — so focus stayed on <body>, which focusPane() reads as "the
+    // conversation": ⌘N opened the new-agent dialog and ⌘W closed the session.
+    // tabIndex -1 keeps it out of the tab order while allowing click + focus().
+    <div className="files-view" tabIndex={-1} ref={viewRef}>
       {treeCollapsed ? (
         <>
           {/* slim rail keeps the toggles reachable while the tree is hidden */}

@@ -23,6 +23,8 @@ interface SubagentRun {
   blocks: BlockItem[]
   toolCount: number
   pendingPermissions: PermissionItem[]
+  /** index of the tool call in the transcript, for scoping a claim to a turn */
+  startIndex: number
 }
 
 const STATUS_LABEL: Record<RunStatus, string> = {
@@ -321,7 +323,7 @@ export function collectRuns(
   liveAgentIds?: ReadonlySet<string>
 ): SubagentRun[] {
   const runs = new Map<string, SubagentRun>()
-  const ensure = (id: string): SubagentRun => {
+  const ensure = (id: string, index = -1): SubagentRun => {
     let r = runs.get(id)
     if (!r) {
       r = {
@@ -331,7 +333,8 @@ export function collectRuns(
         status: 'running',
         blocks: [],
         toolCount: 0,
-        pendingPermissions: []
+        pendingPermissions: [],
+        startIndex: index
       }
       runs.set(id, r)
     }
@@ -340,7 +343,7 @@ export function collectRuns(
 
   // pass 1: runs + their content blocks; map every tool_use id to its run
   const toolToRun = new Map<string, string>()
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     if (item.type !== 'block') continue
     if (
       item.blockType === 'tool_use' &&
@@ -348,7 +351,7 @@ export function collectRuns(
       item.toolUseId &&
       !item.parentToolUseId // a subagent's own Task calls stay inside its thread
     ) {
-      const run = ensure(item.toolUseId)
+      const run = ensure(item.toolUseId, index)
       const input = (item.toolInput ?? {}) as Record<string, unknown>
       run.label = String(input.description ?? input.prompt ?? '')
       run.subagentType = String(input.subagent_type ?? 'subagent')
@@ -483,11 +486,19 @@ export function summarizeRuns(
   items: TranscriptItem[],
   turnLive: boolean,
   liveAgentIds?: ReadonlySet<string>
-): { background: number; stalled: number; deferred: string[]; backgroundIds: string[] } {
+): {
+  background: number
+  stalled: number
+  deferred: string[]
+  backgroundIds: string[]
+  failed: number
+  failedIds: string[]
+} {
   let background = 0
   let stalled = 0
   const backgroundIds: string[] = []
-  for (const run of collectRuns(items, turnLive, liveAgentIds)) {
+  const runs = collectRuns(items, turnLive, liveAgentIds)
+  for (const run of runs) {
     if (run.status === 'background') {
       background++
       backgroundIds.push(run.toolUseId)
@@ -501,6 +512,15 @@ export function summarizeRuns(
     if (it.type === 'turn-info') turnEnds.push(i)
   })
   if (turnEnds.length >= 2) prevTurnEnd = turnEnds[turnEnds.length - 2]
+
+  // A subagent that FAILED while the conversation still expects its report.
+  // Angel hit exactly this: the panel said FAILED, the agent said "waiting on
+  // its report", and nothing in the conversation reconciled the two. Scoped to
+  // the last turn — an old failure is history, not an open question.
+  const failedIds: string[] = []
+  for (const run of runs) {
+    if (run.status === 'error' && run.startIndex > prevTurnEnd) failedIds.push(run.toolUseId)
+  }
   // named, not counted: "Monitor" is what the agent itself said it armed, so
   // that is the word to echo back
   const deferred: string[] = []
@@ -517,7 +537,7 @@ export function summarizeRuns(
       deferred.push(it.toolName)
     }
   }
-  return { background, stalled, deferred, backgroundIds }
+  return { background, stalled, deferred, backgroundIds, failed: failedIds.length, failedIds }
 }
 
 /** strip harness/tag scaffolding from an injected completion note */

@@ -156,7 +156,7 @@ export class FakeAdapter implements AgentAdapter {
         blockIndex: 13,
         block: {
           type: 'thinking',
-          thinking: 'Reading the request. The file is small, so a direct edit beats a refactor here.'
+          thinking: 'Reading the request. A direct edit beats a refactor here.'
         },
         parentToolUseId: null
       })

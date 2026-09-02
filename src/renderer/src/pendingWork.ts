@@ -25,6 +25,10 @@ export interface PendingWork {
   stalled: number
   /** toolUseIds of the background agents, so a click can land on one */
   agentIds: string[]
+  /** subagents that failed in the LAST turn — the conversation may still be
+   *  waiting on a report that will never arrive */
+  failed: number
+  failedIds: string[]
 }
 
 /** One clickable piece of the footer, and the panel it belongs to. `panel` is
@@ -60,7 +64,7 @@ export function pendingWork(
    *  earlier one and must not be reported as still running */
   liveAgentIds?: ReadonlySet<string>
 ): PendingWork {
-  const { background, stalled, deferred, backgroundIds } = summarizeRuns(
+  const { background, stalled, deferred, backgroundIds, failed, failedIds } = summarizeRuns(
     items,
     turnLive,
     liveAgentIds
@@ -75,12 +79,21 @@ export function pendingWork(
       !!t.outputPath &&
       !finishedPaths.has(t.outputPath)
   ).length
-  return { agents: background, commands, deferred, stalled, agentIds: backgroundIds }
+  return {
+    agents: background,
+    commands,
+    deferred,
+    stalled,
+    agentIds: backgroundIds,
+    failed,
+    failedIds
+  }
 }
 
-/** anything the user would be wrong to read as finished */
+/** anything the user would be wrong to read as finished, plus a failure the
+ *  conversation has not accounted for */
 export function hasPendingWork(p: PendingWork): boolean {
-  return p.agents > 0 || p.commands > 0 || p.deferred.length > 0
+  return p.agents > 0 || p.commands > 0 || p.deferred.length > 0 || p.failed > 0
 }
 
 /**
@@ -117,5 +130,12 @@ export function pendingParts(p: PendingWork): PendingPart[] {
   parts.push(
     ...p.deferred.map((d) => ({ text: d, panel: d === 'Workflow' ? ('tasks' as const) : null }))
   )
+  if (p.failed > 0) {
+    parts.push({
+      text: `${p.failed} agent${p.failed === 1 ? '' : 's'} failed`,
+      panel: 'subagents',
+      toolUseId: p.failedIds[0]
+    })
+  }
   return parts
 }

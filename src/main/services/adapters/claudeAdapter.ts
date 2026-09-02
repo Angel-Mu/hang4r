@@ -68,6 +68,8 @@ export class ClaudeAdapter implements AgentAdapter {
    * stream_event content_block indices or delta and final blocks won't merge.
    */
   private finalizedBlocks = new Map<string, number>()
+  /** streamed reasoning, keyed messageId:blockIndex, until its final block claims it */
+  private deltaText = new Map<string, string>()
   private disposed = false
   /**
    * True while a user turn is being processed by the CLI (set when we write a
@@ -508,6 +510,14 @@ export class ClaudeAdapter implements AgentAdapter {
     this.finalizedBlocks.set(messageId, n + 1)
     return n
   }
+  _appendDelta(key: string, text: string): void {
+    this.deltaText.set(key, (this.deltaText.get(key) ?? '') + text)
+  }
+  _takeDelta(key: string): string {
+    const t = this.deltaText.get(key) ?? ''
+    this.deltaText.delete(key)
+    return t
+  }
   _getContextTokens(): number {
     return this.lastContextTokens
   }
@@ -522,6 +532,8 @@ interface TranslationState {
   _getParent(): string | null
   _setParent(p: string | null): void
   _nextFinalIndex(messageId: string): number
+  _appendDelta(key: string, text: string): void
+  _takeDelta(key: string): string
   _getContextTokens(): number
   _setContextTokens(n: number): void
 }
@@ -610,6 +622,13 @@ export function translateClaudeEvent(
       const text =
         (delta.text as string) ?? (delta.thinking as string) ?? (delta.partial_json as string)
       if (typeof text !== 'string') return []
+      // Reasoning arrives ONLY as deltas: the authoritative assistant snapshot
+      // repeats a thinking block as {"type":"thinking","thinking":""}. Deltas are
+      // broadcast-only (they are not persisted), so without keeping the text here
+      // a reopened session had nothing to show.
+      if (typeof delta.thinking === 'string') {
+        state._appendDelta(`${messageId}:${ev.index as number}`, delta.thinking)
+      }
       return [
         {
           kind: 'block-delta',
@@ -631,13 +650,20 @@ export function translateClaudeEvent(
     const parent = (raw.parent_tool_use_id as string | null) ?? null
     const msg = raw.message as Record<string, unknown>
     const content = (msg.content as Record<string, unknown>[]) ?? []
-    return content.map((block) => ({
-      kind: 'block-final' as const,
-      messageId: msg.id as string,
-      blockIndex: state._nextFinalIndex(msg.id as string),
-      block: normalizeBlock(block),
-      parentToolUseId: parent
-    }))
+    return content.map((block) => {
+      const blockIndex = state._nextFinalIndex(msg.id as string)
+      const normalized = normalizeBlock(block)
+      if (normalized.type === 'thinking' && !normalized.thinking) {
+        normalized.thinking = state._takeDelta(`${msg.id as string}:${blockIndex}`)
+      }
+      return {
+        kind: 'block-final' as const,
+        messageId: msg.id as string,
+        blockIndex,
+        block: normalized,
+        parentToolUseId: parent
+      }
+    })
   }
 
   if (type === 'user') {

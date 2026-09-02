@@ -1920,10 +1920,17 @@ export class SessionManager {
     // A run_in_background Bash task OUTLIVES its turn, so the session goes idle
     // while it keeps running — remember its log so the quit/update guard can ask
     // whether it's still alive (BackgroundTasks.tsx parses the same line).
-    if (ev.kind === 'tool-result' && typeof ev.content === 'string') {
-      // "Async agent launched successfully … agentId: a001d14ea2e816024"
+    if (ev.kind === 'tool-result') {
+      // "Async agent launched successfully … agentId: a001d14ea2e816024".
+      // The CLI sends tool-result content as an ARRAY of blocks, not a string —
+      // gating on `typeof content === 'string'` meant NO agentId was ever
+      // captured, so the live set stayed empty and every background run was
+      // reported as having died with the process (Angel watched a subagent that
+      // was still adding tool calls read "ended with the session restart").
+      const raw =
+        typeof ev.content === 'string' ? ev.content : JSON.stringify(ev.content ?? '')
       const agentId = /agent[_ ]?id:?\s*['"]?([A-Za-z0-9._-]{6,})/i.exec(
-        /async agent launched|agent launched successfully/i.test(ev.content) ? ev.content : ''
+        /async agent launched|agent launched successfully/i.test(raw) ? raw : ''
       )?.[1]
       if (agentId) {
         let live = this.liveAsyncAgents.get(sessionId)
@@ -1931,7 +1938,7 @@ export class SessionManager {
         live.add(agentId)
       }
       const log = /Command running in background with ID:[^]*?written to:\s*(\S+)/i
-        .exec(ev.content)?.[1]
+        .exec(raw)?.[1]
         ?.replace(/[.,]$/, '')
       if (log) {
         let logs = this.bgTaskLogs.get(sessionId)

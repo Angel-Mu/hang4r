@@ -55,6 +55,16 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Form controls do not inherit either from body — browsers give them their own
+   defaults — so raising the interface size scaled every label and left the text
+   you actually type behind at ~13px. */
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
 button {
   font-family: inherit;
   font-size: inherit;
@@ -956,7 +966,7 @@ button:disabled {
   color: var(--text);
   padding: 8px 10px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--chat-font, 13px);
   outline: none;
 }
 .field:focus {

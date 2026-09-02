@@ -1003,9 +1003,10 @@ export class SessionManager {
       for (const log of logs) {
         probes.push(
           resolveBackgroundTaskState(log, false).then(({ state }) => {
-            // a finished log is terminal — forget it so a long session doesn't
-            // accumulate an lsof per turn on every quit
-            if (state !== 'running') logs.delete(log)
+            // Deliberately does NOT forget a log that probes idle. This runs on a
+            // timer for the sidebar now, and a command whose writer has not
+            // started yet probes idle once — dropping it there made the task
+            // invisible to the quit guard for the rest of the session.
             return state === 'running'
               ? { kind: 'task' as const, id: log, label: session.title, sessionId }
               : null

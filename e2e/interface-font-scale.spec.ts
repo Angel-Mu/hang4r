@@ -88,3 +88,30 @@ test('the interface uses one type ladder, with no ad-hoc half-pixel sizes', asyn
 
   expect(offenders).toEqual([])
 })
+
+// Angel kept finding new size mismatches in Settings. The panel reads at three
+// sizes on purpose — uppercase section label, supporting hint, body — and a
+// fourth is what made it look arbitrary.
+test('the settings panel reads at no more than three sizes', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await page.waitForSelector('.app')
+  await page.keyboard.press('Meta+Comma')
+  await expect(page.locator('.settings-body')).toBeVisible({ timeout: 10_000 })
+
+  const sizes = await page.evaluate(() => {
+    const seen = new Map<string, number>()
+    const root = document.querySelector('.settings-body')
+    if (!root) return []
+    for (const el of Array.from(root.querySelectorAll('*'))) {
+      const text = (el.textContent ?? '').trim()
+      if (!text || el.children.length > 0) continue // leaf text only
+      const fs = getComputedStyle(el).fontSize
+      seen.set(fs, (seen.get(fs) ?? 0) + 1)
+    }
+    // sizes used by more than a stray element
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([fs]) => fs)
+  })
+
+  expect(sizes.length).toBeLessThanOrEqual(3)
+})

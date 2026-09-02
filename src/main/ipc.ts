@@ -13,6 +13,8 @@ import {
 import { join, resolve as pathResolve, sep as pathSep } from 'path'
 import { homedir } from 'os'
 import { existsSync, readFileSync } from 'fs'
+import { agentPeers } from './services/agentPeers'
+import { findBinary } from './services/binaryDiscovery'
 import { pathToFileURL } from 'url'
 import type {
   BackendId,
@@ -641,6 +643,14 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   )
   ipcMain.handle('sessions:live-work', () => sessions.sessionsWithLiveWork())
   ipcMain.handle('sessions:clear-error', (_e, sessionId: string) => sessions.clearError(sessionId))
+  ipcMain.handle('sessions:agent-name', async (_e, sessionId: string) => {
+    const s = store.getSession(sessionId)
+    if (!s?.backendSessionId) return null
+    const bin = findBinary('claude', settings.getSetting('claudePath'))
+    if (!bin) return null
+    const peers = await agentPeers(bin)
+    return peers.find((p) => p.sessionId === s.backendSessionId)?.name ?? null
+  })
   ipcMain.handle('sessions:pr-status', async (_e, sessionId: string) => {
     const s = store.getSession(sessionId)
     if (!s?.cwd || s.environment !== 'worktree') return null

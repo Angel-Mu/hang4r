@@ -148,6 +148,26 @@ export function Sidebar(): JSX.Element {
       { label: 'Open in Split', onClick: () => void openSession(id, { split: true }) },
       { separator: true, label: '' },
       {
+        // Agents already message each other — the CLI gives every session
+        // SendMessage and ListAgents. What was missing is the NAME a session
+        // answers to, which is the part you need in order to ask for it.
+        label: 'Copy agent name (for SendMessage)',
+        onClick: () => {
+          void window.hang4r.agentName(id).then((name) => {
+            if (name) void navigator.clipboard.writeText(name)
+            useHang4r.setState({
+              lightbox: {
+                kind: 'text',
+                alt: 'Agent name',
+                text: name
+                  ? `${name}\n\nCopied. Another agent can reach this session with SendMessage to that name.`
+                  : 'This session has no agent name yet — it gets one once it has run a turn.'
+              }
+            })
+          })
+        }
+      },
+      {
         label: unseen ? 'Mark as read' : 'Mark as unread',
         onClick: () => useHang4r.getState().setSessionUnseen(id, !unseen)
       },

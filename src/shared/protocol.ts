@@ -705,6 +705,9 @@ export interface Hang4rApi {
   clearSessionError(sessionId: string): Promise<void>
   /** PR state for this session's branch; null when there is no PR or no gh */
   prStatus(sessionId: string): Promise<PrStatus | null>
+  /** the name other agents address this session by with SendMessage; null when
+   *  the CLI does not (yet) know about it */
+  agentName(sessionId: string): Promise<string | null>
   getSessionUltracode(sessionId: string): Promise<boolean>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>

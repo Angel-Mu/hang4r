@@ -130,6 +130,7 @@ const api: Hang4rApi = {
   sessionsWithLiveWork: () => ipcRenderer.invoke('sessions:live-work'),
   clearSessionError: (sessionId: string) => ipcRenderer.invoke('sessions:clear-error', sessionId),
   prStatus: (sessionId: string) => ipcRenderer.invoke('sessions:pr-status', sessionId),
+  agentName: (sessionId: string) => ipcRenderer.invoke('sessions:agent-name', sessionId),
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value),
   resolveAgentDefault: (backend: BackendId, field: 'model' | 'permissionMode', projectId?: string) =>

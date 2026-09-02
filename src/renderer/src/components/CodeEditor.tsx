@@ -340,7 +340,7 @@ export function CodeEditor({
 }: {
   sessionId: string
   path: string
-  onAddToChat: (label: string, text: string) => void
+  onAddToChat: (label: string, text: string, file?: { name: string; path: string }) => void
   /** register a save handle so the parent can flush unsaved changes on close */
   onRegister?: (path: string, handle: EditorHandle | null) => void
   /** an untitled buffer was named+saved, or a real file "saved as" → the parent
@@ -705,8 +705,9 @@ export function CodeEditor({
         const text = model.getValueInRange(sel)
         if (text.trim()) {
           addRef.current(
-            `${path.split('/').pop()} L${sel.startLineNumber}-${sel.endLineNumber}`,
-            `${path}:${sel.startLineNumber}-${sel.endLineNumber}\n${text}`
+            `${path.split('/').pop()} (${sel.startLineNumber}-${sel.endLineNumber})`,
+            `${path}:${sel.startLineNumber}-${sel.endLineNumber}\n${text}`,
+            { name: path.split('/').pop() ?? path, path }
           )
         }
       }
@@ -1077,8 +1078,9 @@ export function CodeEditor({
     if (!editor || !sel || !model || sel.isEmpty()) return
     const text = model.getValueInRange(sel)
     addRef.current(
-      `${path.split('/').pop()} L${sel.startLineNumber}-${sel.endLineNumber}`,
-      `${path}:${sel.startLineNumber}-${sel.endLineNumber}\n${text}`
+      `${path.split('/').pop()} (${sel.startLineNumber}-${sel.endLineNumber})`,
+      `${path}:${sel.startLineNumber}-${sel.endLineNumber}\n${text}`,
+      { name: path.split('/').pop() ?? path, path }
     )
   }
 

@@ -817,7 +817,9 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
                   sessionId={sessionId}
                   path={path}
                   active={path === g.active}
-                  onAddToChat={(label, text) => addAttachment(sessionId, { label, text })}
+                  onAddToChat={(label, text, file) =>
+                    addAttachment(sessionId, { label, text, file })
+                  }
                   onRegister={(p, h) => registerHandle(g.id, p, h)}
                   onDirtyChange={onDirtyChange}
                   onSavedAs={(oldP, newP) => rebindTab(g.id, oldP, newP)}

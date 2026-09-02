@@ -1436,7 +1436,11 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                         key={i}
                         className={
                           'context-chip' +
-                          (a.image ? ' context-chip-image' : ' context-chip-file')
+                          (a.image
+                            ? ' context-chip-image'
+                            : a.file
+                              ? ' context-chip-file'
+                              : ' context-chip-quote')
                         }
                         title={a.image ? a.label : a.text?.slice(0, 400)}
                       >
@@ -1446,11 +1450,12 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                             src={`data:${a.image.mediaType};base64,${a.image.base64}`}
                             alt={a.label}
                           />
-                        ) : (
+                        ) : a.file ? (
                           // the same badge the sent message shows, so an attached
-                          // file reads as one BEFORE sending too — a bare glyph
-                          // and a name looked like text someone had typed
-                          <span className="chip-badge">{fileBadge(a.label)}</span>
+                          // file reads as one BEFORE sending too
+                          <span className="chip-badge">{fileBadge(a.file.name)}</span>
+                        ) : (
+                          <span className="chip-quote-glyph">❝</span>
                         )}
                         {a.label}
                         <button

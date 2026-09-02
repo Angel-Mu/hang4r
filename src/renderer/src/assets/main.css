@@ -2860,6 +2860,17 @@ button:disabled {
   background: var(--panel, #1c1e27);
   color: var(--text);
 }
+/* a quoted selection is a reference, not a document — no extension badge */
+.context-chip-quote {
+  font-style: italic;
+  color: var(--text-muted);
+}
+.chip-quote-glyph {
+  color: var(--text-faint);
+  font-style: normal;
+  margin-right: 1px;
+}
+
 .chip-badge {
   flex: none;
   display: inline-flex;

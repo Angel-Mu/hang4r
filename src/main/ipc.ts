@@ -640,6 +640,13 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     sessions.liveAgentIds(sessionId)
   )
   ipcMain.handle('sessions:live-work', () => sessions.sessionsWithLiveWork())
+  ipcMain.handle('sessions:clear-error', (_e, sessionId: string) => sessions.clearError(sessionId))
+  ipcMain.handle('sessions:pr-status', async (_e, sessionId: string) => {
+    const s = store.getSession(sessionId)
+    if (!s?.cwd || s.environment !== 'worktree') return null
+    const branch = await GitService.currentBranch(s.cwd).catch(() => null)
+    return branch ? GitService.prStatus(s.cwd, branch) : null
+  })
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('settings:get', (_e, key: string) => settings.getSetting(key))
   ipcMain.handle('settings:set', (_e, key: string, value: string) => settings.setSetting(key, value))

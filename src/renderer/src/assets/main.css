@@ -49,7 +49,7 @@ body,
 
 body {
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--chat-font, 13px);
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -934,7 +934,7 @@ button:disabled {
 }
 
 .dialog-title {
-  font-size: 16px;
+  font-size: calc(var(--chat-font, 13px) + 3px);
 }
 .dialog-subtitle {
   color: var(--text-muted);
@@ -3200,7 +3200,7 @@ button:disabled {
   border-bottom: 1px solid var(--border);
   background: transparent;
   color: var(--text);
-  font-size: 15px;
+  font-size: calc(var(--chat-font, 13px) + 2px);
   padding: 14px 16px;
   outline: none;
 }
@@ -3214,13 +3214,13 @@ button:disabled {
   width: 100%;
   padding: 8px 16px;
   text-align: left;
-  font-size: 13px;
+  font-size: var(--chat-font, 13px);
 }
 .palette-item-active {
   background: var(--sel-strong);
 }
 .palette-group {
-  font-size: 10px;
+  font-size: calc(var(--chat-font, 13px) - 3px);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-faint);
@@ -3233,11 +3233,11 @@ button:disabled {
 .palette-subtitle {
   color: var(--text-faint);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--chat-font, 13px) - 2px);
 }
 .palette-shortcut {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(var(--chat-font, 13px) - 2px);
   color: var(--text-muted);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -4082,6 +4082,28 @@ button:disabled {
 }
 .tile-repo-name { color: var(--text-muted); }
 .tile-repo-branch { color: var(--text-faint); }
+.tile-pr {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 0 5px;
+  height: 15px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: calc(var(--chat-font, 13px) - 3px);
+  cursor: pointer;
+}
+.tile-pr:hover { border-color: var(--border-strong); color: var(--text); }
+.tile-pr-open { color: var(--accent); }
+.tile-pr-merged { color: var(--purple, #bd93f9); }
+.tile-pr-closed { color: var(--text-faint); }
+.tile-pr-checks-failing .tile-pr-check { color: var(--red); }
+.tile-pr-checks-passing .tile-pr-check { color: var(--green); }
+.tile-pr-checks-pending .tile-pr-check { color: var(--amber); }
+
 .tile-title { max-width: none; }
 
 /* file-type icons in explorer + tabs */

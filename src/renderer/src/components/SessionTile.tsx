@@ -1,7 +1,7 @@
 import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type JSX, type MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import type { BackendId, ModelChoice, PermissionMode } from '../../../shared/protocol'
+import type { BackendId, ModelChoice, PermissionMode, PrStatus } from '../../../shared/protocol'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { resumeCliCommand } from '../resumeCli'
 import { onForgetSession, onSeedSessionUi, persistSessionUi } from '../sessionUiMemos'
@@ -82,6 +82,38 @@ const NO_ATTACHMENTS: { label: string; text: string }[] = []
 /** stable empty-items ref so a session with no transcript yet doesn't hand
  *  ChatView a fresh [] every keystroke (which would defeat its memo) */
 const NO_ITEMS: TranscriptItem[] = []
+
+const PR_STATE_ICON: Record<PrStatus['state'], string> = {
+  open: '⇅',
+  draft: '◌',
+  merged: '⬥',
+  closed: '⊘'
+}
+const PR_CHECK_ICON: Record<Exclude<PrStatus['checks'], 'none'>, string> = {
+  passing: '✓',
+  failing: '✕',
+  pending: '•'
+}
+
+const SPLIT_KEY = 'hang4r:tile-split'
+type SplitLayout = Parameters<NonNullable<React.ComponentProps<typeof Group>['onLayoutChanged']>>[0]
+
+function readSplit(withContext: boolean): SplitLayout | undefined {
+  try {
+    const raw = localStorage.getItem(`${SPLIT_KEY}:${withContext ? 2 : 1}`)
+    return raw ? (JSON.parse(raw) as SplitLayout) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeSplit(withContext: boolean, layout: SplitLayout): void {
+  try {
+    localStorage.setItem(`${SPLIT_KEY}:${withContext ? 2 : 1}`, JSON.stringify(layout))
+  } catch {
+    /* private window / storage disabled — the split just does not persist */
+  }
+}
 const NO_QUEUE: import('../state/store').QueuedMessage[] = []
 
 /** the agents a session can be handed off to (the current one is filtered out) */
@@ -405,6 +437,25 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   // the REAL branch for the header chip — the tile used to fabricate
   // `hang4r/<slug>` from the title, which stopped matching reality
   const [wtBranch, setWtBranch] = useState<string | null>(null)
+  const [pr, setPr] = useState<PrStatus | null>(null)
+  useEffect(() => {
+    if (session?.environment !== 'worktree') return setPr(null)
+    let stop = false
+    const read = (): void => {
+      void window.hang4r
+        .prStatus(sessionId)
+        .then((p) => !stop && setPr(p))
+        .catch(() => undefined)
+    }
+    read()
+    // main caches for a minute; this only decides how soon a merge or a CI flip
+    // shows up in the header
+    const iv = setInterval(read, 60_000)
+    return () => {
+      stop = true
+      clearInterval(iv)
+    }
+  }, [sessionId, session?.environment, wtBranch])
   useEffect(() => {
     if (session?.environment !== 'worktree') return
     let stale = false
@@ -1162,9 +1213,26 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
             {workspace && (
               <span className="tile-repo" title={session.cwd}>
                 <span className="tile-repo-name">⬡ {workspace.name}</span>
-                <span className="tile-repo-branch">
+                <span
+                  className="tile-repo-branch"
+                  title={
+                    session.environment === 'worktree'
+                      ? `worktree ${session.cwd}`
+                      : `in place on ${session.baseRef || 'local'}`
+                  }
+                >
                   ⑂ {session.environment === 'worktree' ? wtBranch ?? '…' : session.baseRef || 'local'}
                 </span>
+                {pr && (
+                  <button
+                    className={`tile-pr tile-pr-${pr.state} tile-pr-checks-${pr.checks}`}
+                    title={`PR #${pr.number} — ${pr.state}, checks ${pr.checks}`}
+                    onClick={() => useHang4r.getState().requestOpenUrl(sessionId, pr.url)}
+                  >
+                    {PR_STATE_ICON[pr.state]} #{pr.number}
+                    {pr.checks !== 'none' && <span className="tile-pr-check">{PR_CHECK_ICON[pr.checks]}</span>}
+                  </button>
+                )}
               </span>
             )}
           </span>
@@ -1232,7 +1300,15 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
             ↳ Add to chat
           </button>
         )}
-        <Group orientation="horizontal" className="pane-group">
+        <Group
+          orientation="horizontal"
+          className="pane-group"
+          // A tile remounts on every session switch, so the drag was lost each
+          // time. Keyed by whether the context panel is showing: restoring a
+          // two-panel layout into a one-panel group throws off the sizes.
+          defaultLayout={readSplit(!!contextTab)}
+          onLayoutChanged={(l) => writeSplit(!!contextTab, l)}
+        >
           <Panel minSize="25%" defaultSize="46%" className="chat-panel">
             <ChatView
               items={transcript?.items ?? NO_ITEMS}

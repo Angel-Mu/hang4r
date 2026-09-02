@@ -639,7 +639,7 @@ export function Settings(): JSX.Element | null {
                     <option value="source">Source — the raw text</option>
                   </select>
                 </Field>
-                <Field label="Chat font size">
+                <Field label="Interface font size">
                   <div className="font-size-row">
                     <button className="ghost-btn" onClick={() => setChatFontSize(chatFontSize - 1)}>−</button>
                     <span className="font-size-value">{chatFontSize}px</span>

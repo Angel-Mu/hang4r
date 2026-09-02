@@ -476,6 +476,7 @@ interface Hang4rState {
    *  — a sidebar "come look" badge that clears when you open/focus that session.
    *  In-memory + per-viewer (mirrors the main-process dock badge); NOT persisted. */
   finishedUnseen: Set<string>
+  setSessionUnseen(sessionId: string, unseen: boolean): void
   /** when set, that pane renders full-size (Cursor's expand-to-focus) */
   expandedSessionId: string | null
   newSessionProjectId: string | null
@@ -753,6 +754,15 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   openSessionIds: [],
   focusedSessionId: null,
   finishedUnseen: new Set<string>(),
+  setSessionUnseen(sessionId, unseen) {
+    set((s) => {
+      if (s.finishedUnseen.has(sessionId) === unseen) return {}
+      const next = new Set(s.finishedUnseen)
+      if (unseen) next.add(sessionId)
+      else next.delete(sessionId)
+      return { finishedUnseen: next }
+    })
+  },
   expandedSessionId: null,
   newSessionProjectId: null,
   usage: { inputTokens: 0, outputTokens: 0 },

@@ -981,6 +981,14 @@ export class SessionManager {
     return [...out]
   }
 
+  /** A failure otherwise clears only when the next prompt starts a turn, so the
+   *  ✕ sat there until you had something to say. */
+  clearError(sessionId: string): void {
+    const s = this.store.getSession(sessionId)
+    if (!s || s.status !== 'error') return
+    this.updateSession(sessionId, { status: 'idle', lastError: null })
+  }
+
   /** agentIds still owned by this session's LIVE process; anything else the
    *  transcript shows as "running in background" died with an earlier one. */
   liveAgentIds(sessionId: string): string[] {

@@ -64,6 +64,13 @@ export interface Project {
   createdAt: number
 }
 
+export interface PrStatus {
+  number: number
+  url: string
+  state: 'open' | 'draft' | 'merged' | 'closed'
+  checks: 'passing' | 'failing' | 'pending' | 'none'
+}
+
 export interface SessionMeta {
   id: string
   projectId: string
@@ -694,6 +701,10 @@ export interface Hang4rApi {
   liveAgentIds(sessionId: string): Promise<string[]>
   /** sessions with work hang4r can prove is running right now */
   sessionsWithLiveWork(): Promise<string[]>
+  /** drop a failed turn's error state without starting another turn */
+  clearSessionError(sessionId: string): Promise<void>
+  /** PR state for this session's branch; null when there is no PR or no gh */
+  prStatus(sessionId: string): Promise<PrStatus | null>
   getSessionUltracode(sessionId: string): Promise<boolean>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>

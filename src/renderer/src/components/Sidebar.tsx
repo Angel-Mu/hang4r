@@ -142,9 +142,23 @@ export function Sidebar(): JSX.Element {
               }
         ]
       : []
+    const unseen = useHang4r.getState().finishedUnseen.has(id)
     openContextMenu(e.clientX, e.clientY, [
       { label: 'Open', onClick: () => void openSession(id) },
       { label: 'Open in Split', onClick: () => void openSession(id, { split: true }) },
+      { separator: true, label: '' },
+      {
+        label: unseen ? 'Mark as read' : 'Mark as unread',
+        onClick: () => useHang4r.getState().setSessionUnseen(id, !unseen)
+      },
+      ...(sess?.status === 'error'
+        ? [
+            {
+              label: 'Clear failure',
+              onClick: () => void window.hang4r.clearSessionError(id)
+            }
+          ]
+        : []),
       { separator: true, label: '' },
       {
         label: 'Rename…',

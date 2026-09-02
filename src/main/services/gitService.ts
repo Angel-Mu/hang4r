@@ -5,6 +5,7 @@ import { join, dirname, basename } from 'node:path'
 import { promisify } from 'node:util'
 import type { ChangedFile, DiffScope, MediaSide, ScopedFiles, ScopeSummary } from '../../shared/protocol'
 import { LocalExec, shellQuote, type Exec } from './remoteService'
+import type { PrStatus } from '../../shared/protocol'
 
 const exec = promisify(execFile)
 
@@ -13,6 +14,9 @@ export const DEFAULT_WORKTREE_DIR = '.hang4r-worktrees'
 
 /** Cap on a single media preview payload before we fall back to "too large". */
 const MEDIA_PREVIEW_CAP = 20 * 1024 * 1024
+/** cwd+branch → last PR lookup; `gh` is a network round trip and every visible
+ *  session header polls this */
+const prCache = new Map<string, { at: number; value: PrStatus | null }>()
 
 async function git(cwd: string, args: string[], via: Exec = LocalExec): Promise<string> {
   // via.run handles the transport: LocalExec = local subprocess (cwd honored),
@@ -336,6 +340,42 @@ export const GitService = {
    * Working-tree status map for the explorer badges: relPath -> {badge, staged}.
    * Uses porcelain -z; badge is the most significant single letter (VS Code style).
    */
+  /** Null when there is no PR, no gh, or no network — each means "nothing to
+   *  show", never an error to surface. */
+  async prStatus(cwd: string, branch: string, via: Exec = LocalExec): Promise<PrStatus | null> {
+    const key = `${cwd}\u0000${branch}`
+    const hit = prCache.get(key)
+    if (hit && Date.now() - hit.at < 60_000) return hit.value
+    let value: PrStatus | null = null
+    try {
+      const { stdout } = await via.run(
+        'gh',
+        ['pr', 'view', branch, '--json', 'number,state,isDraft,url,statusCheckRollup'],
+        { cwd, timeout: 20_000 }
+      )
+      const j = JSON.parse(stdout) as {
+        number: number
+        state: string
+        isDraft: boolean
+        url: string
+        statusCheckRollup?: { conclusion?: string; status?: string }[] | null
+      }
+      const checks = j.statusCheckRollup ?? []
+      const failed = checks.some((c) => c.conclusion === 'FAILURE' || c.conclusion === 'TIMED_OUT')
+      const pending = checks.some((c) => c.status && c.status !== 'COMPLETED')
+      value = {
+        number: j.number,
+        url: j.url,
+        state: j.state === 'MERGED' ? 'merged' : j.state === 'CLOSED' ? 'closed' : j.isDraft ? 'draft' : 'open',
+        checks: checks.length === 0 ? 'none' : failed ? 'failing' : pending ? 'pending' : 'passing'
+      }
+    } catch {
+      value = null
+    }
+    prCache.set(key, { at: Date.now(), value })
+    return value
+  },
+
   async statusMap(cwd: string, via: Exec = LocalExec): Promise<Record<string, { badge: string; staged: boolean }>> {
     const out = await git(cwd, ['status', '--porcelain', '-z', '-uall'], via).catch(() => '')
     const map: Record<string, { badge: string; staged: boolean }> = {}

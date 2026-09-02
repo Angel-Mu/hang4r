@@ -2,6 +2,7 @@ import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDrag
 import { createPortal } from 'react-dom'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import type { BackendId, ModelChoice, PermissionMode, PrStatus } from '../../../shared/protocol'
+import { persistedLayout, savePersistedLayout } from '../persistLayout'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { resumeCliCommand } from '../resumeCli'
 import { onForgetSession, onSeedSessionUi, persistSessionUi } from '../sessionUiMemos'
@@ -95,25 +96,6 @@ const PR_CHECK_ICON: Record<Exclude<PrStatus['checks'], 'none'>, string> = {
   pending: '•'
 }
 
-const SPLIT_KEY = 'hang4r:tile-split'
-type SplitLayout = Parameters<NonNullable<React.ComponentProps<typeof Group>['onLayoutChanged']>>[0]
-
-function readSplit(withContext: boolean): SplitLayout | undefined {
-  try {
-    const raw = localStorage.getItem(`${SPLIT_KEY}:${withContext ? 2 : 1}`)
-    return raw ? (JSON.parse(raw) as SplitLayout) : undefined
-  } catch {
-    return undefined
-  }
-}
-
-function writeSplit(withContext: boolean, layout: SplitLayout): void {
-  try {
-    localStorage.setItem(`${SPLIT_KEY}:${withContext ? 2 : 1}`, JSON.stringify(layout))
-  } catch {
-    /* private window / storage disabled — the split just does not persist */
-  }
-}
 const NO_QUEUE: import('../state/store').QueuedMessage[] = []
 
 /** the agents a session can be handed off to (the current one is filtered out) */
@@ -1306,8 +1288,10 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
           // A tile remounts on every session switch, so the drag was lost each
           // time. Keyed by whether the context panel is showing: restoring a
           // two-panel layout into a one-panel group throws off the sizes.
-          defaultLayout={readSplit(!!contextTab)}
-          onLayoutChanged={(l) => writeSplit(!!contextTab, l)}
+          defaultLayout={persistedLayout(`tile:${sessionId}`, contextTab ? 2 : 1)}
+          onLayoutChanged={(l) =>
+            savePersistedLayout(`tile:${sessionId}`, contextTab ? 2 : 1, l)
+          }
         >
           <Panel id="chat" minSize="25%" defaultSize="46%" className="chat-panel">
             <ChatView

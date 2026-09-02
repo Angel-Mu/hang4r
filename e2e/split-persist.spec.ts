@@ -19,7 +19,30 @@ async function startSession(page: LaunchedApp['page'], title: string): Promise<v
   await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
 }
 
-test('a dragged chat/panel split survives switching sessions', async () => {
+async function dragDivider(
+  page: LaunchedApp['page'],
+  sel: string,
+  dx: number
+): Promise<void> {
+  const box = (await page.locator(sel).first().boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + dx, box.y + box.height / 2, { steps: 12 })
+  await page.mouse.up()
+}
+
+async function openFiles(page: LaunchedApp['page']): Promise<void> {
+  const tile = page.locator('.tile').first()
+  if (!(await tile.locator('.files-view').isVisible())) {
+    await tile.locator('.tile-tabs button', { hasText: /^Files$/ }).first().click()
+  }
+  await expect(tile.locator('.files-view')).toBeVisible()
+}
+
+const chatWidth = async (page: LaunchedApp['page']): Promise<number> =>
+  (await page.locator('.tile .chat-panel').boundingBox())!.width
+
+test('each session keeps its OWN split, and resizing one leaves the others alone', async () => {
   launched = await launchApp()
   const { page } = launched
   await createProject(page, makeScratchRepo())
@@ -29,35 +52,26 @@ test('a dragged chat/panel split survives switching sessions', async () => {
   await startSession(page, 'session-one')
   await startSession(page, 'session-two')
 
-  // open the Files panel so there IS a split to drag
-  const tile = page.locator('.tile').first()
-  await tile.locator('.tile-tabs button', { hasText: /^Files$/ }).first().click()
-  await expect(tile.locator('.files-view')).toBeVisible()
+  // session-two: drag the conversation narrower
+  await openFiles(page)
+  const twoBefore = await chatWidth(page)
+  await dragDivider(page, '.tile .resize-handle-v', -220)
+  const twoDragged = await chatWidth(page)
+  expect(Math.abs(twoDragged - twoBefore)).toBeGreaterThan(80)
 
-  const chat = tile.locator('.chat-panel')
-  const before = (await chat.boundingBox())!.width
-
-  // drag the divider left, making the conversation narrower
-  const sep = tile.locator('.resize-handle-v').first()
-  const box = (await sep.boundingBox())!
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(box.x - 220, box.y + box.height / 2, { steps: 12 })
-  await page.mouse.up()
-
-  const dragged = (await chat.boundingBox())!.width
-  expect(Math.abs(dragged - before)).toBeGreaterThan(80) // the drag took effect
-
-  // away to the other session and back
+  // session-one must be untouched by that drag
   await page.locator('.session-row', { hasText: 'session-one' }).click()
-  await expect(page.locator('.tile')).toHaveCount(1)
-  await page.locator('.session-row', { hasText: 'session-two' }).click()
-  const back = page.locator('.tile').first()
-  if (!(await back.locator('.files-view').isVisible())) {
-    await back.locator('.tile-tabs button', { hasText: /^Files$/ }).first().click()
-  }
-  await expect(back.locator('.files-view')).toBeVisible()
+  await openFiles(page)
+  const oneWidth = await chatWidth(page)
+  expect(Math.abs(oneWidth - twoDragged)).toBeGreaterThan(80)
 
-  const after = (await back.locator('.chat-panel').boundingBox())!.width
-  expect(Math.abs(after - dragged)).toBeLessThan(24)
+  // and session-two still has its own
+  await page.locator('.session-row', { hasText: 'session-two' }).click()
+  await openFiles(page)
+  expect(Math.abs((await chatWidth(page)) - twoDragged)).toBeLessThan(24)
+
+  // back to one: still its own, not two's
+  await page.locator('.session-row', { hasText: 'session-one' }).click()
+  await openFiles(page)
+  expect(Math.abs((await chatWidth(page)) - oneWidth)).toBeLessThan(24)
 })

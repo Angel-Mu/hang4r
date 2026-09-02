@@ -58,3 +58,33 @@ test('what you type scales with the interface font, not just the labels', async 
   expect(sizes.select).toBe(19)
   if (sizes.text > 0) expect(sizes.text).toBe(19)
 })
+
+// Angel: "font sizes are super inconsistent on here" — the Settings panel alone
+// used 11, 11.5, 12, 12.5, 13 and 18px. Half-steps are the tell that a size was
+// picked per-element rather than from a scale.
+test('the interface uses one type ladder, with no ad-hoc half-pixel sizes', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await page.waitForSelector('.app')
+
+  const offenders = await page.evaluate(() => {
+    const bad: string[] = []
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules: CSSRuleList
+      try {
+        rules = sheet.cssRules
+      } catch {
+        continue
+      }
+      for (const rule of Array.from(rules)) {
+        if (!(rule instanceof CSSStyleRule)) continue
+        const fs = rule.style.getPropertyValue('font-size')
+        // a bare px size that is not on the ladder, ignoring the one display size
+        if (/^\d+\.5px$/.test(fs.trim())) bad.push(`${rule.selectorText} → ${fs}`)
+      }
+    }
+    return bad
+  })
+
+  expect(offenders).toEqual([])
+})

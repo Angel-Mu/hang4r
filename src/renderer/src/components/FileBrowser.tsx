@@ -9,6 +9,7 @@ import {
   persistSessionUi
 } from '../sessionUiMemos'
 import { fileIcon, type FileIcon } from '../fileIcons'
+import { persistedLayout, savePersistedLayout } from '../persistLayout'
 import { Icon } from './Icon'
 import { SearchPanel } from './SearchPanel'
 import { CodeEditor, type EditorHandle } from './CodeEditor'
@@ -991,12 +992,17 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
           {viewer}
         </>
       ) : (
-        <Group orientation="horizontal" className="files-split-group">
-          <Panel minSize="12%" defaultSize="24%" className="files-tree-panel">
+        <Group
+          orientation="horizontal"
+          className="files-split-group"
+          defaultLayout={persistedLayout(`files-tree:${sessionId}`)}
+          onLayoutChanged={(l) => savePersistedLayout(`files-tree:${sessionId}`, '', l)}
+        >
+          <Panel id="tree" minSize="12%" defaultSize="24%" className="files-tree-panel">
             {treeColumn}
           </Panel>
           <Separator className="resize-handle resize-handle-v" />
-          <Panel minSize="30%" className="files-viewer-panel">
+          <Panel id="viewer" minSize="30%" className="files-viewer-panel">
             {viewer}
           </Panel>
         </Group>

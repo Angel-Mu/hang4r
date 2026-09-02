@@ -266,3 +266,30 @@ test('the sidebar dot only claims what can be proved, and never more than the fo
   const footerText = (await footer.count()) ? ((await footer.textContent()) ?? '') : ''
   if (dotPending > 0) expect(footerText).toContain('waiting on')
 })
+
+// Angel: a subagent that was still adding tool calls read "ended with the
+// session restart". Two causes — main never captured the agentId (the CLI sends
+// tool-result content as a list, not a string), and the retirement rule applied
+// during a LIVE turn, where the process running the turn is by definition the
+// one that launched the agent.
+test('an agent is never retired while its turn is still running', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn.project-add').first().click()
+  await page.locator('.dialog-prompt').fill('spawn background agents')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+
+  const tile = page.locator('.tile').first()
+  await tile.locator('.tile-tabs button', { hasText: 'Subagents' }).click()
+
+  // while the turn runs, nothing may claim the agent died with its process
+  await expect
+    .poll(() => tile.locator('.subagent-run', { hasText: 'ended with the session' }).count(), {
+      timeout: 15_000
+    })
+    .toBe(0)
+  await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+})

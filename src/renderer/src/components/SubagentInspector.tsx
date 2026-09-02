@@ -441,7 +441,11 @@ export function collectRuns(
   // Main clears its set on every spawn, so an agentId missing from it is not a
   // guess about a stalled agent: that process is gone. Angel watched five of
   // these sit at "running in background" forever after an auto-recovery.
-  if (liveAgentIds) {
+  // Never while the turn is LIVE: the process running that turn is by definition
+  // the one that launched these agents, so a missing id there means hang4r has
+  // not seen the launch yet, not that the agent is gone. Angel watched a run
+  // adding tool calls in front of him read "ended with the session restart".
+  if (liveAgentIds && !turnLive) {
     for (const run of runs.values()) {
       if (run.status !== 'background') continue
       if (run.agentId && !liveAgentIds.has(run.agentId)) run.status = 'ended'

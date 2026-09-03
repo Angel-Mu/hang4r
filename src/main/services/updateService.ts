@@ -3,6 +3,7 @@ import { readdirSync, rmSync, statSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import updater from 'electron-updater'
+import { liveWork } from '../interruptGuard'
 import type { UpdateStatus } from '../../shared/protocol'
 
 const { autoUpdater } = updater
@@ -85,6 +86,10 @@ function pruneStaleDownloads(): void {
   prune(dir)
 }
 
+async function liveWorkPresent(): Promise<boolean> {
+  return (await liveWork().catch(() => null)) !== null
+}
+
 export const UpdateService = {
   /** attach listeners once; safe in dev (no feed) — checks just report status */
   init(): void {
@@ -104,6 +109,18 @@ export const UpdateService = {
     // his running app — a background download + install-on-quit honors that.)
     autoUpdater.autoDownload = true
     autoUpdater.autoInstallOnAppQuit = true
+    // The confirm dialog only guards quits that REACH it. A crash, a force quit,
+    // a logout — any of those ends the process without asking, and a staged
+    // update would then apply and take a running turn with it. Angel lost one
+    // that way. Keep the flag off whenever work is live, so the worst case is an
+    // update that waits rather than an interrupted turn.
+    setInterval(() => {
+      void liveWorkPresent()
+        .then((live) => {
+          autoUpdater.autoInstallOnAppQuit = !live
+        })
+        .catch(() => undefined)
+    }, 5_000)
     autoUpdater.on('checking-for-update', () => broadcast({ state: 'checking' }))
     autoUpdater.on('update-available', (info) =>
       broadcast({ state: 'available', version: info.version })
@@ -123,7 +140,9 @@ export const UpdateService = {
   },
 
   status(): UpdateStatus {
-    return last
+    return last.state === 'downloaded'
+      ? { ...last, armedForQuit: autoUpdater.autoInstallOnAppQuit }
+      : last
   },
 
   /** Fire a silent check shortly after boot, then every 6h, so the app

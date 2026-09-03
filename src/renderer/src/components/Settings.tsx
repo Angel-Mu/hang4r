@@ -792,7 +792,8 @@ export function Settings(): JSX.Element | null {
                     <p className="settings-note">
                       hang4r checks for updates on launch and downloads them in the background — no
                       reinstall. When one is ready, a “Restart to update” pill appears up in the
-                      title bar; it also installs automatically the next time you quit. Nothing ever
+                      title bar; it also installs the next time you quit, unless an agent is working
+                      — then it waits. Nothing ever
                       closes your app on its own.
                     </p>
                   </>

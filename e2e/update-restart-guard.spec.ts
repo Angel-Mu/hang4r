@@ -81,3 +81,29 @@ test('with no agent running, the restart is not gated', async () => {
   void page.evaluate(() => window.hang4r.installUpdate()).catch(() => {})
   await expect(page.locator('.quit-dialog')).toHaveCount(0, { timeout: 3_000 })
 })
+
+/**
+ * Angel: "the agent was working but I installed the new version and didnt prompt
+ * me, it got interrupted".
+ *
+ * The confirm dialog only guards quits that REACH it. electron-updater also
+ * stages an update to apply on the NEXT quit of any kind — a crash, a force
+ * quit, a logout — none of which ask anything. That flag is now held off while
+ * work is live, so the worst case is an update that waits.
+ */
+test('a staged update is not armed to apply while an agent is working', async () => {
+  launched = await launchApp({ env: { HANG4R_TEST_QUIT_GUARD: '1' } })
+  const { page } = launched
+  await runningSession(page)
+
+  // downloaded + armed means it would apply on ANY quit, guarded or not
+  await expect
+    .poll(
+      async () => {
+        const st = await page.evaluate(() => window.hang4r.getUpdateStatus())
+        return st.state === 'downloaded' ? st.armedForQuit : 'not-downloaded'
+      },
+      { timeout: 20_000, intervals: [500] }
+    )
+    .not.toBe(true)
+})

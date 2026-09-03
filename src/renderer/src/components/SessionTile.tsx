@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import type { BackendId, ModelChoice, PermissionMode, PrStatus } from '../../../shared/protocol'
 import { persistedLayout, savePersistedLayout } from '../persistLayout'
+import { TaskProgress } from './TaskProgress'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { resumeCliCommand } from '../resumeCli'
 import { onForgetSession, onSeedSessionUi, persistSessionUi } from '../sessionUiMemos'
@@ -1312,6 +1313,7 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
               />
             )}
             <footer className="composer-wrap">
+              <TaskProgress sessionId={sessionId} items={transcript?.items ?? NO_ITEMS} />
               {notice && <div className="composer-notice">{notice}</div>}
               {changedCount > 0 && (
                 <div className="composer-git">

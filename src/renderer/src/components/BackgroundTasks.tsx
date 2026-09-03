@@ -111,7 +111,7 @@ export function collectTasks(items: TranscriptItem[]): BgTask[] {
   }))
 }
 
-interface AgentTodo {
+export interface AgentTodo {
   id: string
   subject: string
   status: string
@@ -124,7 +124,7 @@ interface AgentTodo {
  * Angel's report: the conversation showed these tools running while this
  * panel claimed "no background tasks" — the list rendered nowhere.
  */
-function collectAgentTodos(items: TranscriptItem[]): AgentTodo[] {
+export function collectAgentTodos(items: TranscriptItem[]): AgentTodo[] {
   const todos = new Map<string, AgentTodo>()
   for (const item of items) {
     if (item.type !== 'block' || item.blockType !== 'tool_use') continue

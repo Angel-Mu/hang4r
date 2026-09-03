@@ -1947,6 +1947,10 @@ button:disabled {
   cursor: pointer;
   white-space: nowrap;
 }
+/* drop marker while reordering tabs */
+.browser-tab-drop {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 .browser-tab-active {
   color: var(--text);
   background: var(--surface-2);

@@ -98,6 +98,8 @@ export function BrowserPane({
   const wcIds = useRef(new Map<string, number>())
   const isSsh = useHang4r((s) => s.sessions.find((x) => x.id === sessionId)?.environment === 'ssh')
   const [invalid, setInvalid] = useState(false)
+  const [dragOver, setDragOver] = useState<string | null>(null)
+  const dragId = useRef<string | null>(null)
   const [devtoolsOpen, setDevtoolsOpen] = useState(false)
   const [devtoolsHeight, setDevtoolsHeight] = useState(300)
   const slotRef = useRef<HTMLDivElement | null>(null)
@@ -120,6 +122,20 @@ export function BrowserPane({
 
   const commit = (nextTabs: BrowserTab[], nextActive: string): void =>
     useHang4r.getState().setBrowserTabs(sessionId, nextTabs, nextActive)
+
+  /** move the dragged tab in FRONT of the one it was dropped on */
+  const reorderTabs = (fromId: string | null, toId: string): void => {
+    if (!fromId || fromId === toId) return
+    const cur = useHang4r.getState().browserTabs[sessionId]
+    if (!cur) return
+    const from = cur.tabs.findIndex((t) => t.id === fromId)
+    const to = cur.tabs.findIndex((t) => t.id === toId)
+    if (from < 0 || to < 0) return
+    const next = [...cur.tabs]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    commit(next, cur.activeId)
+  }
 
   const patchTab = (id: string, patch: Partial<BrowserTab>): void => {
     const cur = useHang4r.getState().browserTabs[sessionId]
@@ -650,8 +666,36 @@ export function BrowserPane({
         {tabs.map((t) => (
           <span
             key={t.id}
-            className={'browser-tab' + (t.id === active?.id ? ' browser-tab-active' : '')}
+            className={
+              'browser-tab' +
+              (t.id === active?.id ? ' browser-tab-active' : '') +
+              (dragOver === t.id ? ' browser-tab-drop' : '')
+            }
             title={t.url || 'New Tab'}
+            draggable
+            onDragStart={(e) => {
+              dragId.current = t.id
+              e.dataTransfer.effectAllowed = 'move'
+              // Chromium refuses to start a drag with no payload
+              e.dataTransfer.setData('text/plain', t.id)
+            }}
+            onDragOver={(e) => {
+              if (!dragId.current || dragId.current === t.id) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              setDragOver(t.id)
+            }}
+            onDragLeave={() => setDragOver((d) => (d === t.id ? null : d))}
+            onDrop={(e) => {
+              e.preventDefault()
+              reorderTabs(dragId.current, t.id)
+              dragId.current = null
+              setDragOver(null)
+            }}
+            onDragEnd={() => {
+              dragId.current = null
+              setDragOver(null)
+            }}
             onClick={() => {
               commit(tabs, t.id)
               setInvalid(false)

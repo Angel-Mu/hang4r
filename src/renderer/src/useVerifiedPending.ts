@@ -25,10 +25,20 @@ export function useVerifiedPending(
   liveAgentIds?: ReadonlySet<string>
 ): PendingPart[] | null {
   const [finished, setFinished] = useState<ReadonlySet<string>>(new Set())
+  // Whether the lsof probe has answered for the CURRENT set of paths. Rendering
+  // the transcript's raw count first and correcting a moment later is what Angel
+  // saw as "waiting on 13 background commands" flashing and vanishing: thirteen
+  // commands the transcript remembers, none of them still running. Claim nothing
+  // until something has been proved.
+  const [probed, setProbed] = useState(false)
   const paths = useMemo(() => (turnLive ? [] : pendingTaskPaths(items)), [items, turnLive])
   const pathsKey = paths.join('|')
   const finishedRef = useRef(finished)
   finishedRef.current = finished
+
+  useEffect(() => {
+    setProbed(false)
+  }, [pathsKey])
 
   useEffect(() => {
     if (!pathsKey) return
@@ -42,7 +52,9 @@ export function useVerifiedPending(
           .catch(() => null)
         if (state && state.state !== 'running') done.add(path)
       }
-      if (!stop && done.size !== finishedRef.current.size) setFinished(done)
+      if (stop) return
+      if (done.size !== finishedRef.current.size) setFinished(done)
+      setProbed(true)
     }
     void probe()
     const iv = setInterval(() => void probe(), PROBE_INTERVAL_MS)
@@ -55,6 +67,11 @@ export function useVerifiedPending(
   return useMemo(() => {
     if (turnLive) return null
     const p = pendingWork(items, turnLive, finished, liveAgentIds)
+    // a command claim is only honest once its file has been probed
+    if (!probed && p.commands > 0) {
+      const withoutCommands = { ...p, commands: 0 }
+      return hasPendingWork(withoutCommands) ? pendingParts(withoutCommands) : null
+    }
     return hasPendingWork(p) ? pendingParts(p) : null
-  }, [items, turnLive, finished, liveAgentIds])
+  }, [items, turnLive, finished, liveAgentIds, probed])
 }

@@ -293,3 +293,31 @@ test('an agent is never retired while its turn is still running', async () => {
     .toBe(0)
   await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
 })
+
+// Angel: "notice the blue text saying that there are 13 tasks running, it
+// disappears right away". The transcript remembers every run_in_background
+// command a session ever started; the lsof probe then retires the finished ones.
+// Rendering the raw count first and correcting a moment later made a claim that
+// was never true — none of those thirteen were running.
+test('a finished command is never claimed, not even for a frame', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  const repo = makeScratchRepo()
+  await createProject(page, repo)
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn.project-add').first().click()
+  await page.locator('.dialog-prompt').fill('do a turn')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+  await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  // the fake agent's background command has already exited, so nothing holds its
+  // log open — watch the footer for the whole settle window
+  const seen = new Set<string>()
+  for (let i = 0; i < 25; i++) {
+    const t = await page.locator('.tile .turn-info-waiting').last().textContent().catch(() => null)
+    if (t) seen.add(t)
+    await page.waitForTimeout(120)
+  }
+  expect([...seen].filter((t) => /background command/.test(t))).toEqual([])
+})

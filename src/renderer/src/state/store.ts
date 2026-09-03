@@ -113,6 +113,8 @@ export type TranscriptItem =
       type: 'block'
       key: string
       blockType: 'text' | 'thinking' | 'tool_use'
+      /** token estimate for a reasoning block whose words the CLI withheld */
+      thinkingTokens?: number
       text: string
       toolName?: string
       toolUseId?: string
@@ -342,6 +344,7 @@ export function applyEvent(t: Transcript, ev: AgentEvent): void {
       } else if (ev.block.type === 'thinking') {
         item.blockType = 'thinking'
         item.text = ev.block.thinking
+        item.thinkingTokens = ev.block.tokens
       } else if (ev.block.type === 'tool_use') {
         item.blockType = 'tool_use'
         item.toolName = ev.block.name

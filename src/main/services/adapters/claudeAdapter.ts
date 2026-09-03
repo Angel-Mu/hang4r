@@ -70,6 +70,8 @@ export class ClaudeAdapter implements AgentAdapter {
   private finalizedBlocks = new Map<string, number>()
   /** streamed reasoning, keyed messageId:blockIndex, until its final block claims it */
   private deltaText = new Map<string, string>()
+  /** running token estimate per thinking block, the only signal a redacted one carries */
+  private thinkingTokens = new Map<string, number>()
   private disposed = false
   /**
    * True while a user turn is being processed by the CLI (set when we write a
@@ -518,6 +520,14 @@ export class ClaudeAdapter implements AgentAdapter {
     this.deltaText.delete(key)
     return t
   }
+  _noteThinkingTokens(key: string, n: number): void {
+    this.thinkingTokens.set(key, Math.max(this.thinkingTokens.get(key) ?? 0, n))
+  }
+  _takeThinkingTokens(key: string): number {
+    const n = this.thinkingTokens.get(key) ?? 0
+    this.thinkingTokens.delete(key)
+    return n
+  }
   _getContextTokens(): number {
     return this.lastContextTokens
   }
@@ -534,6 +544,8 @@ interface TranslationState {
   _nextFinalIndex(messageId: string): number
   _appendDelta(key: string, text: string): void
   _takeDelta(key: string): string
+  _noteThinkingTokens(key: string, n: number): void
+  _takeThinkingTokens(key: string): number
   _getContextTokens(): number
   _setContextTokens(n: number): void
 }
@@ -622,12 +634,16 @@ export function translateClaudeEvent(
       const text =
         (delta.text as string) ?? (delta.thinking as string) ?? (delta.partial_json as string)
       if (typeof text !== 'string') return []
-      // Reasoning arrives ONLY as deltas: the authoritative assistant snapshot
-      // repeats a thinking block as {"type":"thinking","thinking":""}. Deltas are
-      // broadcast-only (they are not persisted), so without keeping the text here
-      // a reopened session had nothing to show.
-      if (typeof delta.thinking === 'string') {
+      // Reasoning is redacted on both sides: the assistant snapshot repeats a
+      // thinking block as {"thinking":""} and thinking_delta carries
+      // {"thinking":"","estimated_tokens":N} — a progress count, not the words.
+      // Keep whatever text does arrive (a minority of turns send it intact) and
+      // the highest estimate, so a redacted block can still say it happened.
+      if (typeof delta.thinking === 'string' && delta.thinking) {
         state._appendDelta(`${messageId}:${ev.index as number}`, delta.thinking)
+      }
+      if (typeof delta.estimated_tokens === 'number') {
+        state._noteThinkingTokens(`${messageId}:${ev.index as number}`, delta.estimated_tokens)
       }
       return [
         {
@@ -653,8 +669,11 @@ export function translateClaudeEvent(
     return content.map((block) => {
       const blockIndex = state._nextFinalIndex(msg.id as string)
       const normalized = normalizeBlock(block)
-      if (normalized.type === 'thinking' && !normalized.thinking) {
-        normalized.thinking = state._takeDelta(`${msg.id as string}:${blockIndex}`)
+      if (normalized.type === 'thinking') {
+        const key = `${msg.id as string}:${blockIndex}`
+        if (!normalized.thinking) normalized.thinking = state._takeDelta(key)
+        const tokens = state._takeThinkingTokens(key)
+        if (tokens > 0) normalized.tokens = tokens
       }
       return {
         kind: 'block-final' as const,

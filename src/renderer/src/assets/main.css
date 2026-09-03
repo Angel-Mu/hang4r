@@ -653,6 +653,10 @@ button:disabled {
   padding-left: 10px;
   border-left: 2px solid var(--border);
 }
+.thinking-redacted {
+  cursor: default;
+  color: var(--text-faint);
+}
 .thinking-peek {
   display: block;
   max-width: 100%;

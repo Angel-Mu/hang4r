@@ -311,7 +311,13 @@ export interface McpServerInfo {
 
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'thinking'; thinking: string }
+  | {
+      type: 'thinking'
+      thinking: string
+      /** the CLI redacts the words on most turns and streams only a running
+       *  token estimate; kept so a reasoning block can still be reported */
+      tokens?: number
+    }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
 
 /**

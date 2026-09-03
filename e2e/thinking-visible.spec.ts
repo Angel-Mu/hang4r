@@ -28,9 +28,10 @@ test('reasoning shows in the conversation without opening anything', async () =>
   const tile = page.locator('.tile').first()
   await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
 
-  // visible with no clicks, and NOT nested inside the collapsed activity group
+  // present in the conversation with no clicks, and NOT nested inside the
+  // collapsed activity group — the body itself stays folded until asked for
   const thinking = tile.locator('.thinking-block')
   await expect(thinking.first()).toBeVisible()
-  await expect(thinking.first().locator('.thinking-text')).toBeVisible()
+  await expect(thinking.first().locator('.thinking-peek')).toBeVisible()
   expect(await tile.locator('.activity-body .thinking-block').count()).toBe(0)
 })

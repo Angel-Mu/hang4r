@@ -286,7 +286,7 @@ function ChatViewImpl({
           if (u.kind === 'thinking') {
             return (
               <div className="chat-unit" key={`think-${u.index}`}>
-                <ThinkingBlock text={u.item.text} />
+                <ThinkingBlock text={u.item.text} tokens={u.item.thinkingTokens} />
               </div>
             )
           }
@@ -1157,9 +1157,21 @@ const PERMISSION_LABELS: Record<string, string> = {
   decline: 'Deny'
 }
 
-function ThinkingBlock({ text }: { text: string }): JSX.Element | null {
+function ThinkingBlock({ text, tokens }: { text: string; tokens?: number }): JSX.Element | null {
   const [open, setOpen] = useState(false)
-  if (!text) return null
+  // The CLI withholds the words on most turns and sends only a running token
+  // estimate. Reporting that the agent thought, and roughly how much, beats
+  // drawing nothing and letting a long silence look like a stall.
+  if (!text) {
+    if (!tokens) return null
+    return (
+      <div className="thinking-block">
+        <span className="thinking-toggle thinking-redacted">
+          thought · ~{tokens >= 1000 ? `${Math.round(tokens / 100) / 10}k` : tokens} tokens
+        </span>
+      </div>
+    )
+  }
   return (
     <div className={'thinking-block' + (open ? ' thinking-block-open' : '')}>
       <button className="thinking-toggle" onClick={() => setOpen(!open)}>

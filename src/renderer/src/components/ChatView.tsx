@@ -6,7 +6,7 @@ import { replaceShortcodes } from '../../../shared/emoji'
 import type { PendingPart } from '../pendingWork'
 import { useVerifiedPending } from '../useVerifiedPending'
 import { useHang4r, type TranscriptItem } from '../state/store'
-import { subagentLabelForPermission } from './SubagentInspector'
+import { collectRuns, subagentLabelForPermission } from './SubagentInspector'
 import { MdCode, MdPre, mdComponents, openFileHref } from './MarkdownBlocks'
 
 type BlockItem = Extract<TranscriptItem, { type: 'block' }>
@@ -231,11 +231,22 @@ function ChatViewImpl({
     return null
   }, [items])
   const liveAgents = useHang4r((s) => s.liveAgents[sessionId])
+  const openSubagents = useHang4r((s) => s.openSubagents)
   const liveAgentSet = useMemo(
     () => (liveAgents ? new Set(liveAgents) : undefined),
     [liveAgents]
   )
   const verified = useVerifiedPending(sessionId, items, turnLive, liveAgentSet)
+  // subagents actually in flight right now, for the live "Working…" row
+  const liveRuns = useMemo(
+    () =>
+      running
+        ? collectRuns(items, true, liveAgentSet).filter(
+            (r) => r.status === 'running' || r.status === 'background' || r.status === 'waiting'
+          ).length
+        : 0,
+    [items, running, liveAgentSet]
+  )
   const pending = lastTurnInfo ? verified : null
 
   // per user message: how many identical user messages come AFTER it — the
@@ -306,7 +317,20 @@ function ChatViewImpl({
             </div>
           )
         })}
-        {running && <div className="chat-working">Working…</div>}
+        {running && (
+          <div className="chat-working">
+            Working…
+            {liveRuns > 0 && (
+              <button
+                className="chat-working-runs"
+                title="Open the Subagents panel"
+                onClick={() => openSubagents(sessionId)}
+              >
+                {liveRuns} agent{liveRuns === 1 ? '' : 's'} working
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {showJump && (
         <button
@@ -1133,22 +1157,20 @@ const PERMISSION_LABELS: Record<string, string> = {
   decline: 'Deny'
 }
 
-const THINKING_FOLD_CHARS = 900
-
 function ThinkingBlock({ text }: { text: string }): JSX.Element | null {
-  const long = text.length > THINKING_FOLD_CHARS
-  const [open, setOpen] = useState(!long)
+  const [open, setOpen] = useState(false)
   if (!text) return null
   return (
-    <div className="thinking-block">
+    <div className={'thinking-block' + (open ? ' thinking-block-open' : '')}>
       <button className="thinking-toggle" onClick={() => setOpen(!open)}>
         {open ? '▾' : '▸'} thought
-        {long && !open ? ` · ${Math.round(text.length / 100) / 10}k chars` : ''}
       </button>
       {open ? (
         <div className="thinking-text">{text}</div>
       ) : (
-        <div className="thinking-peek">{text.slice(0, 160).trim()}…</div>
+        <button className="thinking-peek" onClick={() => setOpen(true)}>
+          {text.slice(0, 160).trim()}…
+        </button>
       )}
     </div>
   )

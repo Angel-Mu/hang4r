@@ -642,18 +642,33 @@ button:disabled {
 }
 
 .thinking-block {
-  font-size: calc(var(--chat-font, 13px) - 1px);
+  font-size: var(--fs-xs);
   margin: 2px 0 6px;
+}
+/* the rule marks the quoted reasoning only, and only while it is open — a rail
+   beside a one-line summary read as a second gutter next to the activity
+   group's own */
+.thinking-block-open .thinking-text {
+  margin-top: 3px;
   padding-left: 10px;
   border-left: 2px solid var(--border);
 }
 .thinking-peek {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
   color: var(--text-faint);
   font-style: italic;
+  font-size: inherit;
+  cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.thinking-peek:hover { color: var(--text-muted); }
 .thinking-toggle {
   color: var(--text-faint);
   font-style: italic;
@@ -2356,6 +2371,18 @@ button:disabled {
   transform: translateY(-1px);
 }
 
+/* what is behind "Working…" — the panel names it, the conversation should too */
+.chat-working-runs {
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  color: var(--accent);
+  font-size: var(--fs-3xs);
+  cursor: pointer;
+}
+.chat-working-runs:hover { border-color: var(--accent); }
 .chat-working {
   color: var(--text-faint);
   font-size: var(--fs-sm);

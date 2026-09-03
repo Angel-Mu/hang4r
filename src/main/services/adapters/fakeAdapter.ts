@@ -297,6 +297,25 @@ export class FakeAdapter implements AgentAdapter {
     // exercise the answerable QUESTION loop when asked (covers the AskUserQuestion
     // card — Claude surfaces these as question-request events). Holds the turn
     // until respondQuestion, then continues, mirroring the permission hold.
+    // a subagent in flight while the turn is STILL open: the state the live
+    // "N agents working" badge exists for. No turn-complete, so the turn stays
+    // live the way it does while a real subagent runs.
+    if (text.includes('agents still working')) {
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 14,
+        block: {
+          type: 'tool_use',
+          id: randomUUID(),
+          name: 'Agent',
+          input: { description: 'long haul research', subagent_type: 'general-purpose' }
+        },
+        parentToolUseId: null
+      })
+      return // no turn-complete — the turn is still running
+    }
+
     if (text.includes('ask a question')) {
       this.emit({
         kind: 'question-request',

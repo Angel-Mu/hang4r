@@ -1,15 +1,16 @@
 :root {
-  /* interface type ladder — every rung tracks the font setting, so a size
-     change moves the whole UI together instead of only the parts that
-     happened to use the variable */
-  --fs-3xs: calc(var(--chat-font, 13px) - 4px);
-  --fs-2xs: calc(var(--chat-font, 13px) - 3px);
-  --fs-xs: calc(var(--chat-font, 13px) - 2px);
-  --fs-sm: calc(var(--chat-font, 13px) - 1px);
+  /* Interface type ladder. Proportional, NOT fixed offsets: with px steps the
+     hierarchy flattens as the size grows — 11/12/13 reads clearly, 16/17/18 does
+     not — so a bigger setting made every panel look uniform and heavy. The
+     multipliers reproduce 9/10/11/12/13/14/16/18 at the default 13px. */
+  --fs-3xs: calc(var(--chat-font, 13px) * 0.7);
+  --fs-2xs: calc(var(--chat-font, 13px) * 0.77);
+  --fs-xs: calc(var(--chat-font, 13px) * 0.85);
+  --fs-sm: calc(var(--chat-font, 13px) * 0.92);
   --fs-md: var(--chat-font, 13px);
-  --fs-lg: calc(var(--chat-font, 13px) + 1px);
-  --fs-xl: calc(var(--chat-font, 13px) + 3px);
-  --fs-2xl: calc(var(--chat-font, 13px) + 5px);
+  --fs-lg: calc(var(--chat-font, 13px) * 1.08);
+  --fs-xl: calc(var(--chat-font, 13px) * 1.23);
+  --fs-2xl: calc(var(--chat-font, 13px) * 1.38);
 }
 
 /* hang4r design system — dark, calm, own identity (Cursor-v3-inspired IA) */
@@ -5975,7 +5976,7 @@ button:disabled {
 .notify-hint {
   margin: 0 0 0 21px;
   color: var(--text-faint);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   line-height: 1.4;
 }
 .loaded-count { color: var(--text-faint); font-weight: 400; font-size: var(--fs-xs); }

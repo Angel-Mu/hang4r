@@ -89,6 +89,49 @@ test('the interface uses one type ladder, with no ad-hoc half-pixel sizes', asyn
   expect(offenders).toEqual([])
 })
 
+// Angel: at a larger setting "everything looks ugly there… should be a little
+// smaller as before, but would be able to change accordingly". The ladder used
+// fixed px offsets, so the hierarchy flattened as the size grew: 11/12/13 reads
+// clearly, 16/17/18 does not. It is proportional now, and this checks the RATIO
+// holds at both ends rather than checking a count of sizes.
+test('the type hierarchy holds at small and large interface sizes', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await page.waitForSelector('.app')
+
+  const measure = async (base: number): Promise<{ label: number; hint: number }> => {
+    await page.evaluate((px) => {
+      const st = (
+        window as unknown as { __hang4r_store: { getState(): { setChatFontSize(n: number): void } } }
+      ).__hang4r_store.getState()
+      st.setChatFontSize(px)
+    }, base)
+    await page.keyboard.press('Meta+Comma')
+    await expect(page.locator('.settings-body')).toBeVisible({ timeout: 10_000 })
+    const out = await page.evaluate(() => {
+      const px = (sel: string): number => {
+        const el = document.querySelector(sel)
+        return el ? parseFloat(getComputedStyle(el).fontSize) : -1
+      }
+      return { label: px('.notify-toggle'), hint: px('.notify-hint') }
+    })
+    await page.keyboard.press('Escape')
+    return out
+  }
+
+  const small = await measure(12)
+  const large = await measure(20)
+
+  expect(small.label).toBeGreaterThan(0)
+  expect(large.label).toBeGreaterThan(small.label)
+  // supporting copy stays visibly smaller at BOTH ends — the fixed-offset ladder
+  // held this at 12px and lost it by 20px
+  for (const m of [small, large]) {
+    expect(m.hint / m.label).toBeLessThan(0.9)
+    expect(m.hint / m.label).toBeGreaterThan(0.75)
+  }
+})
+
 // Angel kept finding new size mismatches in Settings. The panel reads at three
 // sizes on purpose — uppercase section label, supporting hint, body — and a
 // fourth is what made it look arbitrary.

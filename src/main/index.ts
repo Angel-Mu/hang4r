@@ -4,6 +4,7 @@ import { homedir } from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc, getPtyService, getBrowserControl, getBridge } from './ipc'
+import { popupAction } from './popupAction'
 import { askInterrupt, guardActive, initInterruptGuard, liveWork, resolveInterrupt } from './interruptGuard'
 import { resolveWorktreeChoice, type WorktreeChoice } from './worktreeAsk'
 import { Store } from './services/store'
@@ -398,8 +399,10 @@ ipcMain.handle('quit:answer', (_e, quit: boolean) => {
  */
 app.on('web-contents-created', (_e, contents) => {
   if (contents.getType() !== 'webview') return
-  contents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) {
+  contents.setWindowOpenHandler(({ url, disposition }) => {
+    const action = popupAction(url, disposition)
+    if (action === 'window') return { action: 'allow' } // keeps window.opener alive
+    if (action === 'tab') {
       const sessionId = getBrowserControl()?.sessionForGuest(contents.id)
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send('browser:open-url', { sessionId, url })

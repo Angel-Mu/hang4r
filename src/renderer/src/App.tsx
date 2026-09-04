@@ -343,9 +343,20 @@ export default function App(): JSX.Element {
       // (Was: a `nowhere → editor` fallback grabbed body-focus, so clicking in the
       // conversation then ⌘F wrongly opened the editor's find bar — Angel.)
       if (!inEditorCtx) return
-      const visible = Array.from(
+      // With a split, several editors are visible at once and "the first one"
+      // is not the one you are looking at — Angel could only ever search the
+      // left pane. Prefer the editor that holds focus (its own find box counts),
+      // then the one Monaco marks focused, and only then fall back to the first.
+      const editors = Array.from(
         document.querySelectorAll<HTMLElement>('.tile-focused .context-panel .code-editor')
-      ).find((el) => el.offsetParent !== null)
+      ).filter((el) => el.offsetParent !== null)
+      const focusedEl = document.activeElement
+      const visible =
+        (focusedEl instanceof Node
+          ? editors.find((el) => el.contains(focusedEl))
+          : undefined) ??
+        editors.find((el) => el.querySelector('.monaco-editor.focused')) ??
+        editors[0]
       if (!visible) return
       e.preventDefault()
       e.stopImmediatePropagation() // beat Monaco's per-editor ⌘F + our bubble handler

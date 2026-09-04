@@ -800,8 +800,15 @@ export function BrowserPane({
               <webview
                 key={t.id}
                 ref={((el: WebviewEl | null) => {
-                  if (el) webviewRefs.current.set(t.id, el)
-                  else webviewRefs.current.delete(t.id)
+                  // Set before attach: without it a guest cannot request a window
+                  // at all — Chromium drops window.open and target=_blank
+                  // silently and no window-open event reaches main, which is why
+                  // the handler that turns popups into tabs never ran. The popup
+                  // is still denied there; the URL becomes a tab instead.
+                  if (el) {
+                    ;(el as unknown as HTMLElement).setAttribute('allowpopups', 'true')
+                    webviewRefs.current.set(t.id, el)
+                  } else webviewRefs.current.delete(t.id)
                 }) as never}
                 className="browser-webview"
                 style={t.id === active?.id ? undefined : { display: 'none' }}

@@ -474,12 +474,12 @@ test.describe('agent session flow', () => {
     await tile.getByRole('button', { name: 'Diff' }).click()
     await tile.locator('.diff-files-header [title="Refresh"]').click()
 
-    // Scope dropdown is present, defaults to Branch Commits on a worktree (the
-    // PR content), and lists per-scope counts. The working-tree-vs-base scope is
-    // labeled "All Changes" (NOT "Uncommitted", which would contradict git
-    // status).
+    // Scope dropdown is present and lists per-scope counts. A worktree opens on
+    // the working-tree-vs-base scope, labelled "All Changes" (NOT "Uncommitted",
+    // which would contradict git status) — that is where the agent's work lives
+    // now that per-turn checkpoints are snapshots rather than branch commits.
     const scopeBtn = tile.locator('.diff-scope-btn')
-    await expect(scopeBtn).toContainText('Branch Commits')
+    await expect(scopeBtn).toContainText('All Changes')
     await scopeBtn.click()
     const scopeMenu = tile.locator('.diff-scope-menu')
     await expect(scopeMenu.getByRole('button', { name: /Staged/ })).toBeVisible()

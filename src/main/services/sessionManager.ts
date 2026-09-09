@@ -15,6 +15,7 @@ import type {
   SessionEvent,
   SessionMeta
 } from '../../shared/protocol'
+import { snapshotPrefix } from '../../shared/protocol'
 import { powerSaveBlocker } from 'electron'
 import { findBinary } from './binaryDiscovery'
 import { buildHandoffSeed, backendLabel } from './handoff'
@@ -2064,14 +2065,17 @@ export class SessionManager {
   }
 
   private async commitCheckpoint(session: SessionMeta): Promise<void> {
-    // These land on the session's own branch, so they travel with it into a PR
-    // (Angel found them in his). Turning them off makes a worktree session diff
-    // against the working tree, the way a local session already does.
     if (this.settings.getSetting('checkpointCommits') === 'off') return
     const n = (this.turnCounters.get(session.id) ?? 0) + 1
     this.turnCounters.set(session.id, n)
     try {
-      await GitService.commitAll(session.cwd, `hang4r checkpoint: turn ${n} — ${session.title}`)
+      const prefix = snapshotPrefix(session.id)
+      await GitService.snapshot(
+        session.cwd,
+        `${prefix}/turn-${n}`,
+        `hang4r checkpoint: turn ${n} — ${session.title}`
+      )
+      await GitService.pruneSnapshots(session.cwd, prefix)
     } catch (err) {
       // checkpoint failures shouldn't break the session; surface as an event
       this.store.appendEvent(session.id, {

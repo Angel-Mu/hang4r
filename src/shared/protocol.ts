@@ -145,6 +145,20 @@ export interface ChangedFile {
  * - `staged`     — index vs HEAD
  * - `branch`     — baseRef...HEAD (committed changes on the session branch)
  */
+/** Where a session's per-turn snapshots live. Under refs/hang4r/ so they are
+ *  outside the default push refspec and never reach a remote. */
+/** One per-turn snapshot of a worktree's files. */
+export interface TurnSnapshot {
+  ref: string
+  turn: number
+  subject: string
+  at: number
+}
+
+export function snapshotPrefix(sessionId: string): string {
+  return `refs/hang4r/${sessionId.replace(/[^A-Za-z0-9_-]/g, '')}`
+}
+
 export type DiffScope = 'lastTurn' | 'uncommitted' | 'unstaged' | 'staged' | 'branch'
 
 /** The changed files for a scope plus the scope's aggregate add/del totals. */
@@ -714,6 +728,10 @@ export interface Hang4rApi {
   /** the name other agents address this session by with SendMessage; null when
    *  the CLI does not (yet) know about it */
   agentName(sessionId: string): Promise<string | null>
+  /** per-turn file snapshots for a worktree session, newest first */
+  sessionSnapshots(sessionId: string): Promise<TurnSnapshot[]>
+  /** put the worktree's files back to a snapshot; false while a turn is running */
+  restoreSnapshot(sessionId: string, ref: string): Promise<boolean>
   getSessionUltracode(sessionId: string): Promise<boolean>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>

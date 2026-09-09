@@ -1,9 +1,11 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { join, dirname, basename } from 'node:path'
 import { promisify } from 'node:util'
 import type { ChangedFile, DiffScope, MediaSide, ScopedFiles, ScopeSummary } from '../../shared/protocol'
+import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
 import { LocalExec, shellQuote, type Exec } from './remoteService'
 import type { PrStatus } from '../../shared/protocol'
 
@@ -18,10 +20,15 @@ const MEDIA_PREVIEW_CAP = 20 * 1024 * 1024
  *  session header polls this */
 const prCache = new Map<string, { at: number; value: PrStatus | null }>()
 
-async function git(cwd: string, args: string[], via: Exec = LocalExec): Promise<string> {
+async function git(
+  cwd: string,
+  args: string[],
+  via: Exec = LocalExec,
+  env?: Record<string, string>
+): Promise<string> {
   // via.run handles the transport: LocalExec = local subprocess (cwd honored),
   // sshExec = the same argv run in a login shell cd'd into cwd on the remote.
-  const { stdout } = await via.run('git', args, { cwd })
+  const { stdout } = await via.run('git', args, { cwd, env })
   return stdout
 }
 
@@ -152,6 +159,98 @@ export const GitService = {
   },
 
   /**
+   * Snapshot the worktree to a private ref, leaving the branch and the index
+   * alone. Returns the sha, or null when nothing changed since `parentRef`.
+   *
+   * Checkpoints used to be real commits on the session's branch, so they
+   * travelled into pull requests — 15 of them against 13 real commits on one of
+   * Angel's branches. Nothing ever read them back either; they existed for the
+   * Diff panel's "last turn" scope alone.
+   *
+   * Written through a throwaway index: `git add -A` against the real one would
+   * destroy a partial staging the user set up deliberately. refs/hang4r/* is
+   * outside the default push refspec, so these never leave the machine.
+   */
+  async snapshot(
+    worktreePath: string,
+    ref: string,
+    message: string,
+    via: Exec = LocalExec
+  ): Promise<string | null> {
+    const idx = join(tmpdir(), `hang4r-idx-${randomUUID()}`)
+    try {
+      const env = { GIT_INDEX_FILE: idx }
+      await git(worktreePath, ['read-tree', 'HEAD'], via, env)
+      await git(worktreePath, ['add', '-A'], via, env)
+      const tree = (await git(worktreePath, ['write-tree'], via, env)).trim()
+      const head = (await git(worktreePath, ['rev-parse', 'HEAD'], via)).trim()
+      // an unchanged tree is not worth a ref — the turn edited nothing
+      const headTree = (await git(worktreePath, ['rev-parse', 'HEAD^{tree}'], via)).trim()
+      const prev = await git(worktreePath, ['rev-parse', ref], via).catch(() => '')
+      const prevTree = prev.trim()
+        ? (await git(worktreePath, ['rev-parse', `${ref}^{tree}`], via).catch(() => '')).trim()
+        : ''
+      if (tree === headTree || tree === prevTree) return null
+      const sha = (
+        await git(
+          worktreePath,
+          ['-c', 'user.name=hang4r', '-c', 'user.email=hang4r@local', 'commit-tree', tree, '-p', head, '-m', message],
+          via
+        )
+      ).trim()
+      await git(worktreePath, ['update-ref', ref, sha], via)
+      return sha
+    } finally {
+      rmSync(idx, { force: true })
+    }
+  },
+
+  /** Per-turn snapshots for a session, newest first. */
+  async listSnapshots(
+    worktreePath: string,
+    prefix: string
+  ): Promise<{ ref: string; turn: number; subject: string; at: number }[]> {
+    const out = await git(worktreePath, [
+      'for-each-ref',
+      '--format=%(refname)%09%(contents:subject)%09%(committerdate:unix)',
+      prefix
+    ]).catch(() => '')
+    return out
+      .split('\n')
+      .map((l) => l.split('\t'))
+      .filter((p) => p.length === 3)
+      .map(([ref, subject, at]) => ({
+        ref,
+        turn: Number(/turn-(\d+)$/.exec(ref)?.[1] ?? 0),
+        subject,
+        at: Number(at) * 1000
+      }))
+      .sort((a, b) => b.turn - a.turn)
+  },
+
+  /** Put the worktree's files back to a snapshot, without moving HEAD. */
+  async restoreSnapshot(worktreePath: string, ref: string, via: Exec = LocalExec): Promise<boolean> {
+    try {
+      await git(worktreePath, ['checkout', ref, '--', '.'], via)
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  /** Keep the newest `keep` snapshots for a session; drop the rest. */
+  async pruneSnapshots(worktreePath: string, prefix: string, keep = 20): Promise<void> {
+    const out = await git(worktreePath, ['for-each-ref', '--format=%(refname)', prefix]).catch(
+      () => ''
+    )
+    const refs = out.split('\n').map((r) => r.trim()).filter(Boolean)
+    const turn = (r: string): number => Number(/turn-(\d+)$/.exec(r)?.[1] ?? 0)
+    for (const ref of refs.sort((a, b) => turn(b) - turn(a)).slice(keep)) {
+      await git(worktreePath, ['update-ref', '-d', ref]).catch(() => undefined)
+    }
+  },
+
+  /**
    * Commit everything in the worktree as a per-turn checkpoint.
    * Returns the commit sha, or null if there was nothing to commit.
    */
@@ -197,7 +296,7 @@ export const GitService = {
     baseRef: string,
     via: Exec = LocalExec
   ): Promise<ScopedFiles> {
-    const diffArgs = scopeDiffArgs(scope, baseRef)
+    const diffArgs = scopeDiffArgs(scope, baseRef, await lastTurnBaseRef(cwd, via))
     const numstat = await git(cwd, ['diff', '--numstat', ...diffArgs], via).catch(() => '')
     const nameStatus = await git(cwd, ['diff', '--name-status', ...diffArgs], via).catch(() => '')
     const files = parseDiffFiles(numstat, nameStatus)
@@ -221,7 +320,7 @@ export const GitService = {
     ignoreWs = false,
     via: Exec = LocalExec
   ): Promise<string> {
-    const args = ['diff', ...scopeDiffArgs(scope, baseRef)]
+    const args = ['diff', ...scopeDiffArgs(scope, baseRef, await lastTurnBaseRef(cwd, via))]
     if (ignoreWs) args.push('-w')
     args.push('--', path)
     let out = await git(cwd, args, via)
@@ -249,7 +348,7 @@ export const GitService = {
         return false
       }
     }
-    const lastTurnOk = await hasRef('HEAD~1')
+    const lastTurnOk = await hasRef((await lastTurnBaseRef(cwd, via)) ?? 'HEAD~1')
     const branchOk = !!baseRef && baseRef !== 'HEAD' && (await hasRef(baseRef))
     const scopes: DiffScope[] = ['lastTurn', 'uncommitted', 'unstaged', 'staged', 'branch']
     const out: ScopeSummary[] = []
@@ -703,11 +802,37 @@ function mediaMime(path: string): string | null {
   return map[ext] ?? null
 }
 
+/**
+ * What "last turn" is measured FROM.
+ *
+ * A snapshot records the worktree as the turn LEFT it, so diffing against the
+ * newest one shows nothing at all — the previous one is the state the last turn
+ * started from. With only one snapshot there is no earlier state, so the branch
+ * commit it was taken on top of stands in.
+ *
+ * One worktree is one session, so refs/hang4r/ here belongs to this session.
+ */
+async function lastTurnBaseRef(cwd: string, via: Exec = LocalExec): Promise<string | undefined> {
+  const out = await git(cwd, ['for-each-ref', '--format=%(refname)', 'refs/hang4r/'], via).catch(
+    () => ''
+  )
+  const turn = (r: string): number => Number(/turn-(\d+)$/.exec(r)?.[1] ?? 0)
+  const refs = out
+    .split('\n')
+    .map((r) => r.trim())
+    .filter(Boolean)
+    .sort((a, b) => turn(b) - turn(a))
+  if (refs.length === 0) return undefined
+  return refs[1] ?? `${refs[0]}^`
+}
+
 /** The `git diff` ref args for a review scope (numstat/name-status/patch share). */
-function scopeDiffArgs(scope: DiffScope, baseRef: string): string[] {
+function scopeDiffArgs(scope: DiffScope, baseRef: string, lastTurnRef?: string): string[] {
   switch (scope) {
     case 'lastTurn':
-      return ['HEAD~1']
+      // the newest per-turn SNAPSHOT; HEAD~1 only meant "last turn" back when a
+      // checkpoint was a commit on the branch
+      return [lastTurnRef ?? 'HEAD~1']
     case 'uncommitted':
       // baseRef vs working tree: HEAD for local sessions, the base branch for
       // worktrees (where per-turn checkpoints mean HEAD alone would be empty).

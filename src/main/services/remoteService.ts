@@ -60,7 +60,11 @@ export interface ExecResult {
 
 /** where a service's commands run — local subprocess or over ssh */
 export interface Exec {
-  run(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<ExecResult>
+  run(
+    cmd: string,
+    args: string[],
+    opts?: { cwd?: string; timeout?: number; env?: Record<string, string> }
+  ): Promise<ExecResult>
 }
 
 /**
@@ -107,7 +111,7 @@ export const LocalExec: Exec = {
       timeout: opts?.timeout ?? 60_000,
       maxBuffer: 32 * 1024 * 1024,
       // run with the user's real PATH so git hooks (husky → npm) and gh resolve
-      env: { ...process.env, PATH }
+      env: { ...process.env, PATH, ...(opts?.env ?? {}) }
     })
     return { stdout, stderr }
   }
@@ -116,7 +120,10 @@ export const LocalExec: Exec = {
 export function sshExec(host: string): Exec {
   return {
     async run(cmd, args, opts) {
-      const remote = [cmd, ...args].map(shellQuote).join(' ')
+      const envPrefix = Object.entries(opts?.env ?? {})
+        .map(([k, v]) => `${k}=${shellQuote(v)} `)
+        .join('')
+      const remote = envPrefix + [cmd, ...args].map(shellQuote).join(' ')
       const argv = sshRunArgv(host, opts?.cwd ?? '.', remote)
       const { stdout, stderr } = await exec('ssh', argv, {
         timeout: opts?.timeout ?? 60_000,

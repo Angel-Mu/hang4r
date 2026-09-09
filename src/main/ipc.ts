@@ -13,6 +13,7 @@ import {
 import { join, resolve as pathResolve, sep as pathSep } from 'path'
 import { homedir } from 'os'
 import { existsSync, readFileSync } from 'fs'
+import { snapshotPrefix } from '../shared/protocol'
 import { agentPeers } from './services/agentPeers'
 import { findBinary } from './services/binaryDiscovery'
 import { pathToFileURL } from 'url'
@@ -643,6 +644,19 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   )
   ipcMain.handle('sessions:live-work', () => sessions.sessionsWithLiveWork())
   ipcMain.handle('sessions:clear-error', (_e, sessionId: string) => sessions.clearError(sessionId))
+  ipcMain.handle('sessions:snapshots', async (_e, sessionId: string) => {
+    const s = store.getSession(sessionId)
+    if (!s?.cwd || s.environment !== 'worktree') return []
+    return GitService.listSnapshots(s.cwd, snapshotPrefix(sessionId))
+  })
+  ipcMain.handle('sessions:restore-snapshot', async (_e, sessionId: string, ref: string) => {
+    const s = store.getSession(sessionId)
+    if (!s?.cwd) return false
+    // never while a turn is running: the agent is editing these same files
+    if (s.status === 'running' || s.status === 'starting') return false
+    if (!ref.startsWith(snapshotPrefix(sessionId) + '/')) return false
+    return GitService.restoreSnapshot(s.cwd, ref)
+  })
   ipcMain.handle('sessions:agent-name', async (_e, sessionId: string) => {
     const s = store.getSession(sessionId)
     if (!s?.backendSessionId) return null

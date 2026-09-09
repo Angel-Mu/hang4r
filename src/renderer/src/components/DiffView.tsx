@@ -45,11 +45,10 @@ const SCOPE_LABEL: Record<DiffScope, string> = {
 }
 
 /**
- * On a worktree the "uncommitted" scope actually diffs the working tree against
- * the BASE branch, so it includes the agent's per-turn checkpoint commits — a
- * clean tree can still list dozens of files. Calling that "Uncommitted"
- * contradicts `git status` (Angel's confusion), so label it "All Changes" there.
- * Local sessions have no checkpoints, so "Uncommitted" is literally true.
+ * On a worktree the "uncommitted" scope diffs the working tree against the BASE
+ * branch, so it also covers anything already committed on the session branch —
+ * calling that "Uncommitted" contradicts `git status` (Angel's confusion), so it
+ * is labelled "All Changes" there.
  */
 function scopeLabel(scope: DiffScope, isWorktree: boolean): string {
   if (scope === 'uncommitted' && isWorktree) return 'All Changes'
@@ -108,10 +107,11 @@ export function DiffView({ sessionId }: { sessionId: string }): JSX.Element {
   // pushed. "All Changes" (vs base, incl. merges) and the dirt scopes stay one
   // click away. Local sessions have no branch base, so they default to the
   // working-tree diff.
+  // Worktrees used to open on 'branch' because per-turn checkpoints put the
+  // agent's work in commits there. Snapshots leave it uncommitted, like a local
+  // session, so that default now opens an empty panel.
   const [scope, setScope] = useState<DiffScope>(
-    () =>
-      diffUiMemo.get(sessionId)?.scope ??
-      (session?.environment === 'worktree' ? 'branch' : 'uncommitted')
+    () => diffUiMemo.get(sessionId)?.scope ?? 'uncommitted'
   )
   const [scopes, setScopes] = useState<ScopeSummary[]>([])
   const [adds, setAdds] = useState(0)

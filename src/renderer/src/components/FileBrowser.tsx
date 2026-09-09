@@ -396,6 +396,26 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     [removeGroup, updateGroups]
   )
 
+  /**
+   * Move a tab from one split pane to another, optionally landing before a
+   * specific tab. Dropping a tab on another pane used to do nothing at all: the
+   * handler only ever reordered within the pane it started in.
+   *
+   * The source pane is closed WITHOUT the unsaved-changes prompt — the document
+   * is not going away, it is moving, and maybeFlush would ask to save a file the
+   * user is still editing.
+   */
+  const moveTabToGroup = useCallback(
+    (fromId: number, toId: number, path: string, beforePath?: string): void => {
+      if (fromId === toId) return
+      openInto(toId, path)
+      if (beforePath && beforePath !== path) reorderTab(toId, path, beforePath)
+      doClose(fromId, path)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openInto, doClose]
+  )
+
   // Cursor-style save prompt on unsaved changes — never silently save/lose.
   // Returns false if the user cancelled (abort the close). When the same file
   // stays open in ANOTHER leaf, closing this view never prompts and never
@@ -517,10 +537,11 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
     onDragOver: (ev: ReactDragEvent): void => {
       // accept internal file-tree drags AND OS files dropped from Finder
       const t = ev.dataTransfer.types
-      if (!t.includes('application/x-hang4r-file') && !t.includes('Files')) return
+      const isTab = t.includes('application/x-hang4r-tab')
+      if (!isTab && !t.includes('application/x-hang4r-file') && !t.includes('Files')) return
       ev.preventDefault()
       ev.stopPropagation()
-      ev.dataTransfer.dropEffect = 'copy'
+      ev.dataTransfer.dropEffect = isTab ? 'move' : 'copy'
       setDropTarget({ id, zone: zoneForLeaf(id, ev.clientX, ev.clientY) })
     },
     onDragLeave: (ev: ReactDragEvent): void => {
@@ -548,6 +569,16 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
           // editable tab (the editor reads/writes it directly), never a modal
           store.requestOpenFile(sessionId, cwd && abs.startsWith(cwd + '/') ? abs.slice(cwd.length + 1) : abs)
         }
+        return
+      }
+      const tab = ev.dataTransfer.getData('application/x-hang4r-tab')
+      if (tab) {
+        ev.preventDefault()
+        ev.stopPropagation()
+        const [gid, dragPath] = tab.split('\n')
+        // a tab dropped on an EDGE splits, exactly as a file from the tree does
+        if (zone !== 'center') dropOnLeaf(id, dragPath, zone)
+        moveTabToGroup(Number(gid), zone === 'center' ? id : focusedGroupIdRef.current, dragPath)
         return
       }
       const path = ev.dataTransfer.getData('application/x-hang4r-file')
@@ -757,7 +788,8 @@ export function FileBrowser({ sessionId }: { sessionId: string }): JSX.Element {
                 ev.preventDefault()
                 ev.stopPropagation()
                 const [gid, dragPath] = raw.split('\n')
-                if (Number(gid) === g.id) reorderTab(g.id, dragPath, path) // reorder within this group
+                if (Number(gid) === g.id) reorderTab(g.id, dragPath, path)
+                else moveTabToGroup(Number(gid), g.id, dragPath, path)
               }}
             >
               <FileGlyph fi={fileIcon(path)} />

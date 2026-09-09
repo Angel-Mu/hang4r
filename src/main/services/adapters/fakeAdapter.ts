@@ -300,6 +300,21 @@ export class FakeAdapter implements AgentAdapter {
     // a subagent in flight while the turn is STILL open: the state the live
     // "N agents working" badge exists for. No turn-complete, so the turn stays
     // live the way it does while a real subagent runs.
+    // a board written as markdown, which is all the CLI leaves an agent now that
+    // TaskCreate is retired
+    if (text.includes('write a checklist')) {
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 15,
+        block: {
+          type: 'text',
+          text: 'Progress:\n\n- [x] 1. Runtime models\n- [x] 2. Agent-held items\n- [ ] 3. Approval API\n- [ ] 4. Admin page\n'
+        },
+        parentToolUseId: null
+      })
+    }
+
     if (text.includes('agents still working')) {
       this.emit({
         kind: 'block-final',
@@ -417,6 +432,9 @@ export class FakeAdapter implements AgentAdapter {
       parentToolUseId: null
     })
 
+    // The real CLI retired TaskCreate around 2026-08-14, so a checklist session
+    // must exercise the markdown path with no tool-made todos in the way.
+    if (!text.includes('write a checklist')) {
     // the agent's structured task list (TaskCreate/TaskUpdate — TodoWrite's
     // successor) so the Tasks panel's list section has deterministic content
     const todoCreateId = randomUUID()
@@ -460,6 +478,7 @@ export class FakeAdapter implements AgentAdapter {
         isError: false,
         parentToolUseId: null
       })
+    }
     }
 
     // a Workflow run (mirrors /deep-research fanning out background agents)

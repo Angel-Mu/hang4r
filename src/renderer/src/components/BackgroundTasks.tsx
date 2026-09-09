@@ -124,6 +124,32 @@ export interface AgentTodo {
  * Angel's report: the conversation showed these tools running while this
  * panel claimed "no background tasks" — the list rendered nowhere.
  */
+/**
+ * The agent's checklist written as markdown, when there is no tool to read.
+ *
+ * TaskCreate/TaskUpdate were retired from the CLI around 2026-08-14 — Angel's
+ * store has not seen one since, and a current session's tool list does not
+ * contain them. The agent still writes the board as `- [ ]` / `- [x]` lines, so
+ * that is what this reads.
+ *
+ * Only the LAST message carrying a checklist counts: the board is a running
+ * restatement, not an append-only log.
+ */
+function todosFromMarkdown(items: TranscriptItem[]): AgentTodo[] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]
+    if (it.type !== 'block' || it.blockType !== 'text' || it.parentToolUseId) continue
+    const rows = [...(it.text ?? '').matchAll(/^[ \t]*[-*]\s+\[([ xX])\]\s+(.+)$/gm)]
+    if (rows.length < 2) continue // one stray checkbox is not a board
+    return rows.map((m, n) => ({
+      id: `md-${n}`,
+      subject: m[2].trim(),
+      status: m[1].toLowerCase() === 'x' ? 'completed' : 'pending'
+    }))
+  }
+  return []
+}
+
 export function collectAgentTodos(items: TranscriptItem[]): AgentTodo[] {
   const todos = new Map<string, AgentTodo>()
   for (const item of items) {
@@ -152,7 +178,8 @@ export function collectAgentTodos(items: TranscriptItem[]): AgentTodo[] {
       })
     }
   }
-  return [...todos.values()].filter((t) => t.status !== 'deleted')
+  const fromTools = [...todos.values()].filter((t) => t.status !== 'deleted')
+  return fromTools.length ? fromTools : todosFromMarkdown(items)
 }
 
 const TODO_GLYPH: Record<string, string> = {

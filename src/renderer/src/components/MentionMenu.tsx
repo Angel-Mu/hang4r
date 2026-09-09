@@ -38,6 +38,13 @@ export function MentionMenu({
       {results.map((path, i) => (
         <button
           key={path}
+          // The list scrolls, so arrowing past the visible rows walked the
+          // selection out of sight — Angel could not see what he was choosing.
+          ref={
+            i === active
+              ? (el) => el?.scrollIntoView({ block: 'nearest' })
+              : undefined
+          }
           className={'mention-item' + (i === active ? ' mention-item-active' : '')}
           onMouseEnter={() => onHover(i)}
           onMouseDown={(e) => {

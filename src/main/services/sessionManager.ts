@@ -824,24 +824,50 @@ export class SessionManager {
     // push to the backend too (Codex thread/name/set)
     this.adapters.get(sessionId)?.setTitle?.(clean)
 
-    if (
-      !before ||
-      before.environment !== 'worktree' ||
-      before.status === 'running' ||
-      before.status === 'starting' ||
-      !existsSync(before.cwd)
-    )
+    if (!before || before.environment !== 'worktree' || !existsSync(before.cwd)) return null
+    // The cwd cannot move out from under a live CLI, so a rename mid-turn used
+    // to skip the worktree and say nothing — Angel renamed a session and found
+    // the worktree still on its old name. Remember it and do it when the turn
+    // ends instead.
+    if (before.status === 'running' || before.status === 'starting') {
+      this.pendingWorktreeRename.set(sessionId, clean)
       return null
+    }
+    return this.moveWorktreeFor(sessionId, before, clean)
+  }
+
+  /** sessionId → title whose worktree rename is waiting for the turn to finish */
+  private pendingWorktreeRename = new Map<string, string>()
+
+  private async moveWorktreeFor(
+    sessionId: string,
+    before: SessionMeta,
+    clean: string
+  ): Promise<string | null> {
     const project = this.store.getProject(before.projectId)
     if (!project) return null
+    let failure: string | null = null
     const moved = await GitService.moveWorktree(
       project.path,
       before.cwd,
       worktreeNameFor(clean),
       this.worktreeDir(project.id),
       this.branchPrefix(project.id)
-    ).catch(() => null)
-    if (!moved || moved === before.cwd) return null
+    ).catch((err) => {
+      failure = err instanceof Error ? err.message : String(err)
+      return null
+    })
+    if (!moved || moved === before.cwd) {
+      // A rename that leaves the worktree behind is worth saying out loud —
+      // silence here read as "hang4r renamed nothing" (Angel).
+      if (failure) {
+        this.store.appendEvent(sessionId, {
+          kind: 'stderr',
+          text: `renamed the session, but the worktree stayed at ${basename(before.cwd)}: ${failure}`
+        })
+      }
+      return null
+    }
 
     this.store.setSessionWorkdir(sessionId, moved, before.baseRef)
     // the CLI was spawned with the OLD cwd; only a re-spawn picks up the new one
@@ -1961,6 +1987,12 @@ export class SessionManager {
       // model is still captured in sessionInit for the Env tab.
       this.updateSession(sessionId, { backendSessionId: ev.backendSessionId })
     } else if (ev.kind === 'turn-complete') {
+      const wanted = this.pendingWorktreeRename.get(sessionId)
+      if (wanted) {
+        this.pendingWorktreeRename.delete(sessionId)
+        const cur = this.store.getSession(sessionId)
+        if (cur) void this.moveWorktreeFor(sessionId, cur, wanted)
+      }
       const session = this.store.getSession(sessionId)
       // a user-initiated interrupt is NOT an error: the cursor adapter (and any
       // synthesized kill path) reports isError with errorMessage 'interrupted' —

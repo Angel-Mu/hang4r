@@ -1721,6 +1721,21 @@ button:disabled {
 .subagent-caret {
   color: var(--text-faint);
 }
+.subagent-model {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: var(--fs-3xs);
+  font-family: var(--mono);
+}
+/* inherited rather than chosen — same fact, less claim */
+.subagent-model-inherited {
+  background: none;
+  color: var(--text-faint);
+}
 .subagent-type {
   font-family: var(--mono);
   font-size: var(--fs-xs);

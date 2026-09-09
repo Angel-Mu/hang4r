@@ -89,7 +89,7 @@ test('an in-place session renames its title only — there is no worktree to mov
   expect(after[0].cwd).toBe(s.cwd) // still the project root
 })
 
-test('a working agent keeps its worktree — the rename takes the title only', async () => {
+test('a working agent keeps its worktree for now — the move waits for the turn', async () => {
   launched = await launchApp()
   const { page } = launched
   const repo = makeScratchRepo()

@@ -23,6 +23,9 @@ const claudeVariants = CLAUDE_MODELS.filter((m) => m.value !== '').map((m) => ({
 }))
 
 // Per-backend identity glyph (glyphs live in Icon.tsx, tinted by CSS)
+/** unsent new-agent prompts, per project, so closing the dialog is not destructive */
+const draftPrompts = new Map<string, string>()
+
 const BACKEND_ICON: Record<BackendId, IconName> = { claude: 'claude', codex: 'codex', cursor: 'cursor' }
 
 const PERMISSION_MODES: { value: PermissionMode; label: string }[] = [
@@ -96,13 +99,14 @@ export function NewSessionDialog(): JSX.Element | null {
 
   useEffect(() => {
     setProjectId(storeProjectId)
-    // the dialog stays mounted while closed (returns null), so each OPEN must
-    // start clean — stale best-of-N variants or a leftover prompt from a
-    // cancelled open otherwise carry into the next launch. Backend stays
-    // sticky on purpose (it's a preference, not content); model/environment/
-    // permission are re-resolved from settings on every open below.
+    // the dialog stays mounted while closed (returns null), so each OPEN resets
+    // the launch OPTIONS — stale best-of-N variants otherwise carry into the
+    // next launch. Backend stays sticky on purpose (it's a preference, not
+    // content); model/environment/permission are re-resolved from settings
+    // below. What you TYPED is restored instead of cleared: closing this dialog
+    // used to throw a written prompt away.
     if (storeProjectId) {
-      setPrompt('')
+      setPrompt(draftPrompts.get(storeProjectId) ?? '')
       setAttachments([])
       setName('')
       setError(null)
@@ -132,7 +136,13 @@ export function NewSessionDialog(): JSX.Element | null {
   const [codexModels, setCodexModels] = useState<ModelChoice[]>(FALLBACK_CODEX_MODELS)
   const [cursorModels, setCursorModels] = useState<ModelChoice[]>(FALLBACK_CURSOR_MODELS)
   const claudeModels = useClaudeModels()
+  // Kept across close/reopen: Esc and a stray backdrop click used to throw away
+  // a written prompt with no warning (Angel lost several). Cleared only once a
+  // session actually starts.
   const [prompt, setPrompt] = useState('')
+  useEffect(() => {
+    if (storeProjectId) draftPrompts.set(storeProjectId, prompt)
+  }, [storeProjectId, prompt])
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [name, setName] = useState('')
   const [bestOfN, setBestOfN] = useState(false)
@@ -272,6 +282,7 @@ export function NewSessionDialog(): JSX.Element | null {
       setPrompt('')
       setAttachments([])
       setName('')
+      if (storeProjectId) draftPrompts.delete(storeProjectId) // sent; nothing to keep
     } catch (err) {
       // strip Electron's IPC wrapper so the user sees the actual reason
       const msg = (err instanceof Error ? err.message : String(err)).replace(
@@ -285,7 +296,16 @@ export function NewSessionDialog(): JSX.Element | null {
   }
 
   return (
-    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+    <div
+      className="dialog-backdrop"
+      onMouseDown={(e) => {
+        // with something written, only Esc or Cancel closes — a click just
+        // outside the box is too cheap a way to lose a prompt
+        if (e.target !== e.currentTarget) return
+        if (prompt.trim() || name.trim()) return
+        close()
+      }}
+    >
       <div className="dialog">
         <h2 className="dialog-title">New agent session</h2>
 
@@ -422,17 +442,15 @@ export function NewSessionDialog(): JSX.Element | null {
           </>
         )}
 
-        {environment === 'worktree' && (
-          <>
-            <label className="field-label">Worktree name (optional)</label>
-            <input
-              className="field"
-              placeholder="Optional name — defaults to the prompt"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </>
-        )}
+        <label className="field-label">
+          {environment === 'worktree' ? 'Worktree name (optional)' : 'Session name (optional)'}
+        </label>
+        <input
+          className="field"
+          placeholder="Optional name — defaults to the prompt"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
 
         <label className="field-label">Model</label>
         <div className="field-model-row">

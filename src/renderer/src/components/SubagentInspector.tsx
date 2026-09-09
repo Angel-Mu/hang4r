@@ -25,6 +25,8 @@ interface SubagentRun {
   pendingPermissions: PermissionItem[]
   /** index of the tool call in the transcript, for scoping a claim to a turn */
   startIndex: number
+  /** model the launch asked for; absent when the subagent inherits the session's */
+  model?: string
 }
 
 const STATUS_LABEL: Record<RunStatus, string> = {
@@ -50,6 +52,10 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
     (s) => s.sessions.find((x) => x.id === sessionId)?.status === 'running'
   )
   const liveAgents = useHang4r((s) => s.liveAgents[sessionId])
+  // a launch that named no model runs on whatever the session is set to
+  const sessionModel = useHang4r(
+    (s) => s.sessions.find((x) => x.id === sessionId)?.model ?? ''
+  )
   const runs = useMemo(
     () => collectRuns(transcript?.items ?? [], running, liveAgents && new Set(liveAgents)),
     [transcript, running, liveAgents]
@@ -84,7 +90,13 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
         )}
       </div>
       {runs.map((run) => (
-        <SubagentThread key={run.toolUseId} run={run} sessionId={sessionId} focus={focus} />
+        <SubagentThread
+          key={run.toolUseId}
+          run={run}
+          sessionId={sessionId}
+          sessionModel={sessionModel}
+          focus={focus}
+        />
       ))}
     </div>
   )
@@ -120,10 +132,13 @@ function persistCollapsed(sessionId: string): void {
 function SubagentThread({
   run,
   sessionId,
+  sessionModel,
   focus
 }: {
   run: SubagentRun
   sessionId: string
+  /** what a run inherits when its launch named no model */
+  sessionModel: string
   focus: { sessionId: string; toolUseId?: string; nonce: number } | null
 }): JSX.Element {
   const collapseKey = `${sessionId}:${run.toolUseId}`
@@ -169,6 +184,18 @@ function SubagentThread({
         <span className="subagent-caret">{open ? '▾' : '▸'}</span>
         <span className={'subagent-dot subagent-dot-' + run.status} />
         <span className="subagent-type">{run.subagentType}</span>
+        {(run.model ?? sessionModel) && (
+          <span
+            className={'subagent-model' + (run.model ? '' : ' subagent-model-inherited')}
+            title={
+              run.model
+                ? `Launched on ${run.model}`
+                : `Inherits the session's model (${sessionModel})`
+            }
+          >
+            {run.model ?? sessionModel}
+          </span>
+        )}
         <span className="subagent-label" title={run.label}>
           {run.label}
         </span>
@@ -355,6 +382,7 @@ export function collectRuns(
       const input = (item.toolInput ?? {}) as Record<string, unknown>
       run.label = String(input.description ?? input.prompt ?? '')
       run.subagentType = String(input.subagent_type ?? 'subagent')
+      if (typeof input.model === 'string' && input.model) run.model = input.model
       if (item.toolResult !== undefined) {
         const parsed = parseTaskResult(item.toolResult)
         if (item.toolResultError) {

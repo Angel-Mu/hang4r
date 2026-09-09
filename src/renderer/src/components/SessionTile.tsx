@@ -394,6 +394,18 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
   )
   const [attachOpen, setAttachOpen] = useState(false)
   const [dropActive, setDropActive] = useState(false)
+  // An abandoned drag — Esc, or released anywhere else — fires no dragleave on
+  // the composer, so the drop outline stayed on until the next drag (Angel left
+  // one stuck). These always fire, wherever the gesture ends.
+  useEffect(() => {
+    const clear = (): void => setDropActive(false)
+    window.addEventListener('dragend', clear)
+    window.addEventListener('drop', clear)
+    return () => {
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('drop', clear)
+    }
+  }, [])
   const [commitMenuOpen, setCommitMenuOpen] = useState(false)
   const [commitMenuPos, setCommitMenuPos] = useState<{ right: number; bottom: number } | null>(null)
   const commitSplitRef = useRef<HTMLDivElement>(null)
@@ -1428,7 +1440,10 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                   if (!dropActive) setDropActive(true)
                 }}
                 onDragLeave={(e) => {
-                  if (e.currentTarget === e.target) setDropActive(false)
+                  // leaving for a CHILD is not leaving; only a target outside counts
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                    setDropActive(false)
+                  }
                 }}
               >
                 {attachments.length > 0 && (

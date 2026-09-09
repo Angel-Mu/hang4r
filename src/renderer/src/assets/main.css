@@ -2943,6 +2943,10 @@ button:disabled {
   color: var(--text);
 }
 /* a quoted selection is a reference, not a document — no extension badge */
+.context-chip-dir .chip-badge-dir {
+  background: var(--surface-2);
+  color: var(--accent);
+}
 .context-chip-quote {
   font-style: italic;
   color: var(--text-muted);

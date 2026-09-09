@@ -127,6 +127,10 @@ export interface Attachment {
   image?: { base64: string; mediaType: string }
   /** set for non-image files → renders as a card, not inlined bytes */
   file?: PromptFile
+  /** a FOLDER: carries the path only. Reading a directory's contents in is how
+   *  one of Angel's sessions reached 463 attachments — the agent reads what it
+   *  needs from the path. */
+  dir?: { name: string; path: string }
 }
 
 export interface ChangedFile {

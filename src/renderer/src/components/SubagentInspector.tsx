@@ -36,7 +36,7 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   done: 'done',
   error: 'failed',
   stalled: 'no result',
-  ended: 'ended with the session restart'
+  ended: 'interrupted · no result'
 }
 
 /**
@@ -343,6 +343,15 @@ function parseTaskResult(result: unknown): {
  * Async ('background') launches are different again: those really do outlive
  * the turn.
  */
+/** transcript indices where each completed turn ended */
+function turnBoundaries(items: TranscriptItem[]): number[] {
+  const out: number[] = []
+  items.forEach((it, i) => {
+    if (it.type === 'turn-info') out.push(i)
+  })
+  return out
+}
+
 export function collectRuns(
   items: TranscriptItem[],
   turnLive = true,
@@ -469,13 +478,19 @@ export function collectRuns(
   // Main clears its set on every spawn, so an agentId missing from it is not a
   // guess about a stalled agent: that process is gone. Angel watched five of
   // these sit at "running in background" forever after an auto-recovery.
-  // Never while the turn is LIVE: the process running that turn is by definition
-  // the one that launched these agents, so a missing id there means hang4r has
-  // not seen the launch yet, not that the agent is gone. Angel watched a run
-  // adding tool calls in front of him read "ended with the session restart".
-  if (liveAgentIds && !turnLive) {
+  // Retire a background run whose owning CLI process is gone — but only when the
+  // run predates the CURRENT turn. A run launched by the turn in flight belongs
+  // to the live process by definition, so a missing id there means hang4r has
+  // not seen the launch yet.
+  //
+  // Scoping by turn rather than by "is a turn live" also stops the flip-flop
+  // Angel saw: with the old guard, every earlier run read as running again the
+  // moment a new turn started, then died again when it ended.
+  if (liveAgentIds) {
+    const lastTurnStart = turnBoundaries(items).slice(-1)[0] ?? -1
     for (const run of runs.values()) {
       if (run.status !== 'background') continue
+      if (run.startIndex > lastTurnStart) continue // this turn's own launch
       if (run.agentId && !liveAgentIds.has(run.agentId)) run.status = 'ended'
     }
   }

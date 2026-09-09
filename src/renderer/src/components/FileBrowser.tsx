@@ -1074,6 +1074,11 @@ function TreeLevel({
             <button
               className="file-row"
               data-path={e.path}
+              draggable
+              onDragStart={(ev) => {
+                ev.dataTransfer.setData('application/x-hang4r-dir', e.path)
+                ev.dataTransfer.effectAllowed = 'copy'
+              }}
               style={{ paddingLeft: depth * 12 + 8 }}
               onClick={() => onToggle(e.path)}
               onDragOver={(ev) => {

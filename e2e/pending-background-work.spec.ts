@@ -287,7 +287,7 @@ test('an agent is never retired while its turn is still running', async () => {
 
   // while the turn runs, nothing may claim the agent died with its process
   await expect
-    .poll(() => tile.locator('.subagent-run', { hasText: 'ended with the session' }).count(), {
+    .poll(() => tile.locator('.subagent-run', { hasText: 'interrupted' }).count(), {
       timeout: 15_000
     })
     .toBe(0)

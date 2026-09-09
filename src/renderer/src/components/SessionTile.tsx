@@ -777,6 +777,21 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     })
   }
   const onComposerDrop = (e: ReactDragEvent): void => {
+    // A FOLDER attaches as a path, not as its contents. Reading a directory in
+    // would be the same mistake that filled one of Angel's sessions with 463
+    // attachments — the agent can read what it needs from the path.
+    const dirPath = e.dataTransfer?.getData('application/x-hang4r-dir')
+    if (dirPath) {
+      e.preventDefault()
+      setDropActive(false)
+      const name = dirPath.split('/').pop() ?? dirPath
+      addAttachment(sessionId, {
+        label: `${name}/`,
+        text: `${dirPath}/`,
+        dir: { name, path: dirPath }
+      })
+      return
+    }
     // a file dragged from the Explorer → attach it as context
     const repoPath = e.dataTransfer?.getData('application/x-hang4r-file')
     if (repoPath) {
@@ -1455,9 +1470,11 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                           'context-chip' +
                           (a.image
                             ? ' context-chip-image'
-                            : a.file
-                              ? ' context-chip-file'
-                              : ' context-chip-quote')
+                            : a.dir
+                              ? ' context-chip-dir'
+                              : a.file
+                                ? ' context-chip-file'
+                                : ' context-chip-quote')
                         }
                         title={a.image ? a.label : a.text?.slice(0, 400)}
                       >
@@ -1467,6 +1484,8 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
                             src={`data:${a.image.mediaType};base64,${a.image.base64}`}
                             alt={a.label}
                           />
+                        ) : a.dir ? (
+                          <span className="chip-badge chip-badge-dir">DIR</span>
                         ) : a.file ? (
                           // the same badge the sent message shows, so an attached
                           // file reads as one BEFORE sending too

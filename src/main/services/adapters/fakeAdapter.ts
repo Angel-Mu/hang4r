@@ -294,12 +294,6 @@ export class FakeAdapter implements AgentAdapter {
       })
     }
 
-    // exercise the answerable QUESTION loop when asked (covers the AskUserQuestion
-    // card — Claude surfaces these as question-request events). Holds the turn
-    // until respondQuestion, then continues, mirroring the permission hold.
-    // a subagent in flight while the turn is STILL open: the state the live
-    // "N agents working" badge exists for. No turn-complete, so the turn stays
-    // live the way it does while a real subagent runs.
     // a board written as markdown, which is all the CLI leaves an agent now that
     // TaskCreate is retired
     if (text.includes('write a checklist')) {
@@ -315,6 +309,28 @@ export class FakeAdapter implements AgentAdapter {
       })
     }
 
+    // a question posed in PROSE, which is all an agent has: AskUserQuestion is
+    // not offered to sessions outside an interactive terminal
+    if (text.includes('offer me options')) {
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 16,
+        block: {
+          type: 'text',
+          text: 'Which scope should the sweep use?\n\nA) Every address with a coverage point\nB) Only addresses on the dashboard\nC) B, plus operator narrowing\n\nA, B, or C?'
+        },
+        parentToolUseId: null
+      })
+      // ends the turn HERE so the question is the last thing said — which is the
+      // only shape the options are read from
+      setTimeout(() => this.emit({ kind: 'turn-complete', isError: false }), 20)
+      return
+    }
+
+    // a subagent in flight while the turn is STILL open: the state the live
+    // "N agents working" badge exists for. No turn-complete, so the turn stays
+    // live the way it does while a real subagent runs.
     if (text.includes('agents still working')) {
       this.emit({
         kind: 'block-final',

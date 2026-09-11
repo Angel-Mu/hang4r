@@ -1,9 +1,10 @@
-import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type JSX, type MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type JSX, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import type { BackendId, ModelChoice, PermissionMode, PrStatus } from '../../../shared/protocol'
 import { persistedLayout, savePersistedLayout } from '../persistLayout'
 import { TaskProgress } from './TaskProgress'
+import { quickReplies } from '../quickReplies'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { resumeCliCommand } from '../resumeCli'
 import { onForgetSession, onSeedSessionUi, persistSessionUi } from '../sessionUiMemos'
@@ -991,6 +992,26 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
     }
   }
 
+  // Options the agent offered in prose. The tool that would render a real picker
+  // is not available to these sessions, so the prose is the only source.
+  const choices = useMemo(() => {
+    if (running) return []
+    const items = transcript?.items ?? NO_ITEMS
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]
+      if (it.type === 'turn-info') continue
+      if (it.type !== 'block' || it.blockType !== 'text' || it.parentToolUseId) break
+      const found = quickReplies(it.text ?? '')
+      if (found.length) return found
+      break // only the LAST thing said counts as the question
+    }
+    return []
+  }, [transcript, running])
+
+  const sendChoice = (value: string): void => {
+    void sendPrompt(sessionId, value)
+  }
+
   const submit = (): void => {
     const text = draft.trim()
     if (!text && attachments.length === 0) return
@@ -1341,6 +1362,20 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
             )}
             <footer className="composer-wrap">
               <TaskProgress sessionId={sessionId} items={transcript?.items ?? NO_ITEMS} />
+              {!running && choices.length > 0 && (
+                <div className="quick-replies">
+                  {choices.map((c) => (
+                    <button
+                      key={c.value}
+                      className="quick-reply"
+                      title={`Answer "${c.value}"`}
+                      onClick={() => sendChoice(c.value)}
+                    >
+                      {c.text}
+                    </button>
+                  ))}
+                </div>
+              )}
               {notice && <div className="composer-notice">{notice}</div>}
               {changedCount > 0 && (
                 <div className="composer-git">

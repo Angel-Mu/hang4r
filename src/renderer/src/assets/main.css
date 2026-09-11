@@ -2600,6 +2600,27 @@ button:disabled {
   white-space: nowrap;
   color: var(--text-faint);
 }
+/* options the agent offered in prose, clickable instead of retyped */
+.quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 10px 6px;
+}
+.quick-reply {
+  max-width: 100%;
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quick-reply:hover { border-color: var(--accent); color: var(--accent); }
 .composer-notice {
   max-width: 820px;
   margin: 0 auto 6px;

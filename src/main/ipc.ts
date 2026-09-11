@@ -14,6 +14,7 @@ import { join, resolve as pathResolve, sep as pathSep } from 'path'
 import { homedir } from 'os'
 import { existsSync, readFileSync } from 'fs'
 import { snapshotPrefix } from '../shared/protocol'
+import { ATTACHABLE_IMAGES, ATTACHABLE_DOCS_AND_CODE } from '../shared/attachable'
 import { agentPeers } from './services/agentPeers'
 import { findBinary } from './services/binaryDiscovery'
 import { pathToFileURL } from 'url'
@@ -557,20 +558,8 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     // match the FIRST (default) filter, so that filter must be broad — markdown,
     // text, docs, and common code — or the user can only pick images. "All Files"
     // stays available in the format dropdown for anything not listed here.
-    const images = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico']
-    const docsAndCode = [
-      // markdown / text / docs
-      'md', 'markdown', 'mdx', 'txt', 'text', 'rtf', 'pdf', 'csv', 'tsv', 'log',
-      // structured / config
-      'json', 'jsonc', 'json5', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm',
-      'css', 'scss', 'less', 'ini', 'env', 'conf', 'cfg', 'properties',
-      // code
-      'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'vue', 'svelte', 'py', 'rb', 'go',
-      'rs', 'java', 'kt', 'kts', 'swift', 'm', 'mm', 'c', 'h', 'cpp', 'cc',
-      'cxx', 'hpp', 'cs', 'php', 'sh', 'bash', 'zsh', 'fish', 'sql', 'graphql',
-      'gql', 'proto', 'dockerfile', 'makefile', 'gradle', 'lua', 'r', 'dart',
-      'ex', 'exs', 'erl', 'clj', 'scala', 'pl', 'diff', 'patch'
-    ]
+    const images = ATTACHABLE_IMAGES
+    const docsAndCode = ATTACHABLE_DOCS_AND_CODE
     const result = await dialog.showOpenDialog({
       properties: ['openFile', 'multiSelections'],
       filters: [

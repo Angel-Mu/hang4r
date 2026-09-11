@@ -96,6 +96,16 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024
  * Read-only file browsing scoped to a session's working directory. All paths
  * are relative to the root; we refuse to escape it (no `..` traversal).
  */
+/**
+ * Binary by inspection rather than by extension, so a format nobody listed is
+ * handled the same way (Angel: "I presume there will be others?"). A NUL in the
+ * first few KB means this is not text: no text encoding hang4r reads produces
+ * one, while zip, PDF and office formats all do.
+ */
+export function looksBinary(buf: Buffer): boolean {
+  return buf.subarray(0, 8192).includes(0)
+}
+
 export const FileService = {
   /** absolute on-disk path for a workspace-relative path (throws if it escapes root) */
   absPath(root: string, relPath: string): string {
@@ -271,7 +281,8 @@ export const FileService = {
 
   /**
    * Read an EXTERNAL file (absolute path, outside the workspace) for the native
-   * attach dialog — images become base64 attachments, everything else text.
+   * attach dialog — images become base64 attachments, text files their contents,
+   * and anything binary its path alone.
    */
   async readExternalAttachment(absPath: string, remote?: Remote): Promise<Attachment> {
     if (remote) throw new Error('Not available on SSH sessions yet.')
@@ -281,8 +292,19 @@ export const FileService = {
     if (mime && mime.startsWith('image/')) {
       return { label: name, image: { base64: buf.toString('base64'), mediaType: mime } }
     }
-    // non-image: still hand the agent the text, but tag it as a FILE so the chat
-    // renders a card (click → preview) instead of dumping the raw bytes inline.
+    // A .docx is a zip, a .xlsx is a zip, a .pdf is not text either — decoding
+    // any of them as UTF-8 hands the agent 8KB of mojibake that costs context and
+    // says nothing. Send the PATH instead and let it open the file with a tool
+    // that understands the format.
+    if (looksBinary(buf)) {
+      return {
+        label: name,
+        text: `${absPath}\n(binary ${mime ?? 'file'} — read it from the path above)`,
+        file: { name, path: absPath, mediaType: mime ?? undefined, external: true }
+      }
+    }
+    // text: hand over the content, tagged as a FILE so the chat renders a card
+    // (click → preview) instead of dumping the raw bytes inline.
     return {
       label: name,
       text: `${absPath}\n${buf.toString('utf8').slice(0, 8000)}`,

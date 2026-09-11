@@ -742,13 +742,17 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
         image: { base64, mediaType: fitted ? fitted.mediaType : file.type }
       })
     } else {
-      const text = await file.text()
       // absolute OS path (Electron webUtils) so the chat card can re-open the real
       // file for preview; '' when unavailable (card shows, just isn't clickable)
       const path = window.hang4r.filePathForFile(file) || undefined
+      const head = new Uint8Array(await file.slice(0, 8192).arrayBuffer())
+      // a .docx/.xlsx is a zip and a .pdf is not text: decoding either as UTF-8
+      // gives the agent mojibake. Hand over the path and let it use a real reader.
+      const binary = head.includes(0)
+      const text = binary ? `(binary ${file.type || 'file'} — read it from the path above)` : (await file.text()).slice(0, 8000)
       addAttachment(sessionId, {
         label: file.name,
-        text: `${file.name}\n${text.slice(0, 8000)}`,
+        text: `${path ?? file.name}\n${text}`,
         file: { name: file.name, path, mediaType: file.type || undefined, external: true }
       })
     }

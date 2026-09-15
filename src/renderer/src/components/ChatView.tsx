@@ -418,12 +418,19 @@ function ActivityGroup({
       ? 'Working'
       : 'Worked'
 
+  // The API withholds the agent's reasoning on most turns, so its ACTIONS are
+  // the only account of what it is doing. "Worked · 1 steps" hid the one thing
+  // left to read behind a fold; the newest tool now shows on the header itself.
+  const lastTool = [...items].reverse().find((i) => i.blockType === 'tool_use')
+  const peek = lastTool ? `${lastTool.toolName ?? ''} ${summarizeInput(lastTool.toolInput)}`.trim() : ''
+
   return (
     <div className="activity-group">
       <button className="activity-header" onClick={() => setOpen(!open)}>
         <span className="activity-caret">{open ? '▾' : '▸'}</span>
         <span>{label}</span>
         {toolCount > 0 && <span className="activity-count">{toolCount} steps</span>}
+        {!open && peek && <span className="activity-peek">{peek}</span>}
       </button>
       {open && (
         <div className="activity-body">

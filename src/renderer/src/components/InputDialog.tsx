@@ -11,6 +11,23 @@ export function InputDialog(): JSX.Element | null {
     if (dialog?.kind === 'prompt') setValue(dialog.initial)
   }, [dialog])
 
+  // Esc cancels whichever dialog is open. Only 'prompt' handled it before, and
+  // only while its input held focus — so the save and confirm dialogs, which
+  // have no input at all, could not be dismissed by keyboard (Angel). Capture
+  // phase and stopPropagation so Esc closes the DIALOG without also closing a
+  // panel underneath it, the same way the quit confirm does.
+  useEffect(() => {
+    if (!dialog) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      resolve(dialog.kind === 'save' ? ('cancel' as never) : null)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [dialog, resolve])
+
   if (!dialog) return null
 
   if (dialog.kind === 'save') {

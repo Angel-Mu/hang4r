@@ -13,39 +13,99 @@ export interface QuickReply {
   text: string
 }
 
+/** A question and the choices offered for it. */
+export interface QuickQuestion {
+  /** the question line itself, shown above the choices */
+  question: string
+  options: QuickReply[]
+}
+
 // the bold may wrap the label alone (**A**)) or label and punctuation (**A)**)
-const OPTION_LINE = /^[ \t]*(?:[-*]\s*)?(?:\*\*)?([A-Z]|\d{1,2})(?:\*\*)?[).:](?:\*\*)?\s+(.{3,200}?)\s*$/
+// the bold may wrap the label alone (**A**)) or label and punctuation (**A)**)
+const OPTION_LINE = /^[ \t]*(?:[-*]\s*)?(?:\*\*)?([A-Z])(?:\*\*)?[).:](?:\*\*)?\s+(.{3,200}?)\s*$/
 
 /**
- * A question is a line ending in "?" with labelled options BELOW it.
+ * Answer choices for the LAST question in a message.
  *
- * Requiring the message to END with the question was too strict: agents ask,
- * list the choices, then add a recommendation, so the last line is prose and
- * Angel got no buttons on a real question. Order is what separates the two
- * cases — options that come BEFORE any question are the agent reasoning through
- * alternatives, and answering those would reply to something never asked.
+ * Two things make this hard, and Angel hit both. Agents ask, list the choices,
+ * then add a recommendation — so the question is not the last line. And a long
+ * message is full of numbered lists that are CONTENT, not answers: his "Two
+ * rules: 1… 2…" and a list of screens both became buttons under a looser rule.
+ *
+ * So: the last question line, not the first. Lettered labels only, because a
+ * numbered list in prose is almost always content. And the choices must begin
+ * within a couple of lines of the question — an answer sits under what it
+ * answers, while content is separated by headings and paragraphs.
  */
-export function quickReplies(text: string): QuickReply[] {
-  if (!text) return []
+export function quickReplies(text: string): QuickQuestion {
+  const none: QuickQuestion = { question: '', options: [] }
+  if (!text) return none
   const lines = text.split('\n')
-  const askedAt = lines.findIndex((l) => /\?\s*$/.test(l.trim()) && l.trim().length > 1)
-  if (askedAt < 0) return []
 
-  const seen = new Map<string, string>()
-  for (const line of lines.slice(askedAt + 1)) {
-    const m = OPTION_LINE.exec(line)
-    if (!m) continue
-    const label = m[1]
-    // strip markdown emphasis and a trailing sentence so the face stays short
-    const face = m[2].replace(/\*\*/g, '').replace(/\s*—.*$/, '').trim()
-    if (!seen.has(label)) seen.set(label, face)
+  let askedAt = -1
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i].trim()
+    if (/\?$/.test(l) && l.length > 1) {
+      askedAt = i
+      break
+    }
   }
-  if (seen.size < 2) return []
+  if (askedAt < 0) return none
 
-  const labels = [...seen.keys()]
-  const allLetters = labels.every((l) => /^[A-Z]$/.test(l))
-  const allDigits = labels.every((l) => /^\d+$/.test(l))
-  if (!allLetters && !allDigits) return []
+  // The choices sit next to the question, on whichever side the agent put them:
+  // "which is it?" then A/B/C, or A/B/C then "A, B, or C?" as a closing line.
+  // Only the ADJACENT block counts — content further away answers nothing.
+  const collect = (from: number, step: -1 | 1): Map<string, string> => {
+    const found = new Map<string, string>()
+    let gap = 0
+    for (let i = from; i >= 0 && i < lines.length; i += step) {
+      const line = lines[i]
+      if (!line.trim()) {
+        if (found.size > 0) break
+        if (++gap > 1) break
+        continue
+      }
+      const m = OPTION_LINE.exec(line)
+      if (!m) {
+        if (found.size > 0) break // prose past the block (a recommendation) is fine
+        if (++gap > 1) break
+        continue
+      }
+      if (!found.has(m[1])) {
+        // strip emphasis and a trailing clause so the face stays readable
+        found.set(m[1], m[2].replace(/\*\*/g, '').replace(/\s*—.*$/, '').trim())
+      }
+    }
+    return found
+  }
 
-  return labels.map((label) => ({ value: label, text: `${label} · ${seen.get(label)}` }))
+  let titleAt = askedAt
+  let seen = collect(askedAt + 1, 1)
+  if (seen.size < 2) {
+    const above = new Map([...collect(askedAt - 1, -1).entries()].reverse())
+    // Choices ABOVE the question only count when the question points at them —
+    // "A, B, or C?" does, "does that look right?" does not. Without this, a list
+    // the agent had already decided between became buttons.
+    const q = lines[askedAt]
+    const named = [...above.keys()].filter((l) => new RegExp(`\\b${l}\\b`).test(q)).length
+    if (named >= 2 || /\b(which|pick|choose)\b/i.test(q)) {
+      seen = above
+      // "A, B, or C?" restates the choices; the real question is above them, and
+      // that is the line worth showing as the title
+      for (let i = askedAt - 1; i >= 0; i--) {
+        const l = lines[i].trim()
+        if (/\?$/.test(l) && l.length > 1 && !OPTION_LINE.test(lines[i])) {
+          titleAt = i
+          break
+        }
+      }
+    }
+  }
+  if (seen.size < 2) return none
+  if (![...seen.keys()].every((l) => /^[A-Z]$/.test(l))) return none
+
+  return {
+    question: lines[titleAt].trim(),
+    options: [...seen.entries()].map(([label, face]) => ({ value: label, text: face }))
+  }
 }

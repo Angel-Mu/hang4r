@@ -19,29 +19,24 @@ test('lettered options under a closing question become choices', () => {
       'A, B, or C?'
     ].join('\n')
   )
-  expect(out.map((o) => o.value)).toEqual(['A', 'B', 'C'])
-  expect(out[0].text).toContain('Every address with a coverage point')
-})
-
-test('numbered options work the same', () => {
-  const out = quickReplies('Which one?\n\n1. Rebase onto main\n2. Merge main in\n')
-  expect(out.map((o) => o.value)).toEqual(['1', '2'])
+  expect(out.options.map((o) => o.value)).toEqual(['A', 'B', 'C'])
+  expect(out.options[0].text).toContain('Every address with a coverage point')
 })
 
 test('a list the agent is merely reasoning through is not a question', () => {
   const out = quickReplies(
     'Here is what changed.\n\nA) I moved the file.\nB) I fixed the test.\n\nBoth are committed.'
   )
-  expect(out).toEqual([])
+  expect(out.options).toEqual([])
 })
 
 test('one option is not a choice', () => {
-  expect(quickReplies('Shall I proceed?\n\nA) Yes, go ahead.')).toEqual([])
+  expect(quickReplies('Shall I proceed?\n\nA) Yes, go ahead.').options).toEqual([])
 })
 
 test('markdown emphasis and trailing rationale are stripped from the face', () => {
   const out = quickReplies('Which?\n\n- **A)** Hold F69 — it lands after E56 merges.\n- **B)** Ship now.')
-  expect(out[0].text).toBe('A · Hold F69')
+  expect(out.options[0]).toEqual({ value: 'A', text: 'Hold F69' })
 })
 
 /** The buttons must actually answer: clicking one sends that reply. */
@@ -61,7 +56,10 @@ test('a prose question renders clickable options that send the answer', async ()
 
     const replies = tile.locator('.quick-reply')
     await expect(replies).toHaveCount(3, { timeout: 10_000 })
-    await expect(replies.first()).toContainText('A ·')
+    await expect(replies.first().locator('.quick-reply-key')).toHaveText('A')
+    await expect(replies.first()).toContainText('Every address with a coverage point')
+    // the question is shown above the choices, not left to memory
+    await expect(tile.locator('.quick-replies-title')).toContainText('Which scope')
 
     await replies.nth(1).click()
     // the pick is sent as the next user message
@@ -109,8 +107,8 @@ test('options are found when a recommendation follows them', () => {
       'My recommendation is B unless someone is actually reconciling by hand.'
     ].join('\n')
   )
-  expect(out.map((o) => o.value)).toEqual(['A', 'B', 'C'])
-  expect(out[1].text).toContain('Drop the gate')
+  expect(out.options.map((o) => o.value)).toEqual(['A', 'B', 'C'])
+  expect(out.options[1].text).toContain('Drop the gate')
 })
 
 test('options listed BEFORE any question are still ignored', () => {
@@ -124,5 +122,62 @@ test('options listed BEFORE any question are still ignored', () => {
       'I went with the rebase. Does that look right to you?'
     ].join('\n')
   )
-  expect(out).toEqual([])
+  expect(out.options).toEqual([])
+})
+
+/**
+ * The two false positives Angel hit. A long message is full of numbered lists
+ * that are CONTENT — rules, screens, steps — and a looser rule turned them into
+ * answers to a yes/no question asked further down.
+ */
+test('a numbered list of rules is not an answer to a later yes/no question', () => {
+  const out = quickReplies(
+    [
+      'Two rules',
+      '',
+      '1. Balance starts at 0 for everyone on go-live. History before that is not counted.',
+      '2. A visit with none left is allowed and drives the balance negative.',
+      '',
+      'Does section 1 look right?'
+    ].join('\n')
+  )
+  expect(out.options).toEqual([])
+})
+
+test('a numbered list of screens is not an answer', () => {
+  const out = quickReplies(
+    [
+      'Does section 2 look right?',
+      '',
+      'Section 3 of 5: UI shell and screens.',
+      '',
+      'Screens, in the order staff use them',
+      '',
+      '1. **Dashboard**. Section 4.',
+      '2. **Patients**. List with search and filter.',
+      '5. **Costs**. Date, branch, category, amount.',
+      '',
+      'Does section 3 look right?'
+    ].join('\n')
+  )
+  expect(out.options).toEqual([])
+})
+
+test('a yes/no question on its own offers nothing', () => {
+  expect(quickReplies('I rewrote the loader and the tests pass.\n\nDoes that look right?').options).toEqual([])
+})
+
+/** The LAST question is the live one — an earlier one has been answered. */
+test('choices attach to the last question, not the first', () => {
+  const out = quickReplies(
+    [
+      'Does section 2 look right?',
+      '',
+      'Now, which storage should the cache use?',
+      '',
+      'A. In memory, lost on restart.',
+      'B. On disk under the worktree.'
+    ].join('\n')
+  )
+  expect(out.options.map((o) => o.value)).toEqual(['A', 'B'])
 })

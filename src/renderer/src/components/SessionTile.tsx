@@ -998,18 +998,20 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
 
   // Options the agent offered in prose. The tool that would render a real picker
   // is not available to these sessions, so the prose is the only source.
+  // dismissed per QUESTION, so skipping one does not silence the next
+  const [choicesDismissed, setChoicesDismissed] = useState<string | null>(null)
   const choices = useMemo(() => {
-    if (running) return []
+    if (running) return null
     const items = transcript?.items ?? NO_ITEMS
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i]
       if (it.type === 'turn-info') continue
       if (it.type !== 'block' || it.blockType !== 'text' || it.parentToolUseId) break
       const found = quickReplies(it.text ?? '')
-      if (found.length) return found
+      if (found.options.length) return found
       break // only the LAST thing said counts as the question
     }
-    return []
+    return null
   }, [transcript, running])
 
   const sendChoice = (value: string): void => {
@@ -1366,16 +1368,26 @@ export function SessionTile({ sessionId }: { sessionId: string }): JSX.Element |
             )}
             <footer className="composer-wrap">
               <TaskProgress sessionId={sessionId} items={transcript?.items ?? NO_ITEMS} />
-              {!running && choices.length > 0 && (
+              {!running && choices && choices.question !== choicesDismissed && (
                 <div className="quick-replies">
-                  {choices.map((c) => (
+                  <div className="quick-replies-head">
+                    <span className="quick-replies-title">{choices.question}</span>
+                    <button
+                      className="quick-replies-skip"
+                      title="Answer in your own words instead (Esc)"
+                      onClick={() => setChoicesDismissed(choices.question)}
+                    >
+                      Skip
+                    </button>
+                  </div>
+                  {choices.options.map((c) => (
                     <button
                       key={c.value}
                       className="quick-reply"
-                      title={`Answer "${c.value}"`}
                       onClick={() => sendChoice(c.value)}
                     >
-                      {c.text}
+                      <span className="quick-reply-key">{c.value}</span>
+                      <span className="quick-reply-text">{c.text}</span>
                     </button>
                   ))}
                 </div>

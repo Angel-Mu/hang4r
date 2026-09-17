@@ -89,3 +89,40 @@ test('a prose question renders clickable options that send the answer', async ()
     await launched.app.close().catch(() => {})
   }
 })
+
+/**
+ * The shape Angel actually met: the question sits mid-message, the options
+ * follow, and a recommendation comes after them. Requiring the message to END
+ * with "?" meant a real question produced no buttons.
+ */
+test('options are found when a recommendation follows them', () => {
+  const out = quickReplies(
+    [
+      'Question 2, about the batching flow. Today the job blocks on a gate.',
+      '',
+      'Which matches how the sites really operate?',
+      '',
+      '- **A.** Keep the gate as a hard requirement, one per site per day.',
+      '- **B.** Drop the gate; capture events as they happen.',
+      '- **C.** Some sites do A, others do B.',
+      '',
+      'My recommendation is B unless someone is actually reconciling by hand.'
+    ].join('\n')
+  )
+  expect(out.map((o) => o.value)).toEqual(['A', 'B', 'C'])
+  expect(out[1].text).toContain('Drop the gate')
+})
+
+test('options listed BEFORE any question are still ignored', () => {
+  const out = quickReplies(
+    [
+      'Here is what I considered.',
+      '',
+      'A) Rebase onto main.',
+      'B) Merge main in.',
+      '',
+      'I went with the rebase. Does that look right to you?'
+    ].join('\n')
+  )
+  expect(out).toEqual([])
+})

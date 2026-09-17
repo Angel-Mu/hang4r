@@ -17,18 +17,22 @@ export interface QuickReply {
 const OPTION_LINE = /^[ \t]*(?:[-*]\s*)?(?:\*\*)?([A-Z]|\d{1,2})(?:\*\*)?[).:](?:\*\*)?\s+(.{3,200}?)\s*$/
 
 /**
- * Only a message that ENDS by asking counts. An agent listing options while it
- * reasons is not waiting on you, and turning that into buttons would invite an
- * answer to a question it never asked.
+ * A question is a line ending in "?" with labelled options BELOW it.
+ *
+ * Requiring the message to END with the question was too strict: agents ask,
+ * list the choices, then add a recommendation, so the last line is prose and
+ * Angel got no buttons on a real question. Order is what separates the two
+ * cases — options that come BEFORE any question are the agent reasoning through
+ * alternatives, and answering those would reply to something never asked.
  */
 export function quickReplies(text: string): QuickReply[] {
   if (!text) return []
   const lines = text.split('\n')
-  const tail = lines.slice(-6).join(' ')
-  if (!/\?\s*$/.test(text.trimEnd()) && !/\b(which|pick|choose|A,\s*B)\b/i.test(tail)) return []
+  const askedAt = lines.findIndex((l) => /\?\s*$/.test(l.trim()) && l.trim().length > 1)
+  if (askedAt < 0) return []
 
   const seen = new Map<string, string>()
-  for (const line of lines) {
+  for (const line of lines.slice(askedAt + 1)) {
     const m = OPTION_LINE.exec(line)
     if (!m) continue
     const label = m[1]

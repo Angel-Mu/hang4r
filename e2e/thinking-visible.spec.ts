@@ -39,13 +39,10 @@ test('reasoning shows in the conversation without opening anything', async () =>
 })
 
 /**
- * Angel: "is not expandable anymore, only can see the thought - ~X token".
- *
- * Both forms exist and only one is a control: a thought whose words arrived
- * expands, a redacted one reports its length. They shared a class, so the
- * redacted form read as a toggle that did nothing.
+ * A thought with no words used to render as a token count, which is why this
+ * asserts an absence.
  */
-test('a redacted thought is plainly not a toggle', async () => {
+test('a thought with no text draws nothing at all', async () => {
   launched = await launchApp()
   const { page } = launched
   await createProject(page, makeScratchRepo())
@@ -58,17 +55,12 @@ test('a redacted thought is plainly not a toggle', async () => {
   const tile = page.locator('.tile').first()
   await expect(tile.locator('.thinking-block').first()).toBeVisible({ timeout: 20_000 })
 
-  // the fake agent sends its reasoning intact, so this one IS a toggle
-  const expandable = tile.locator('.thinking-block', { has: page.locator('.thinking-peek') }).first()
-  await expect(expandable.locator('.thinking-toggle')).toBeVisible()
-  await expect(expandable.locator('.thinking-redacted')).toHaveCount(0)
-
-  // and a redacted one carries no toggle at all
-  const redacted = tile.locator('.thinking-block', { has: page.locator('.thinking-redacted') })
-  if ((await redacted.count()) > 0) {
-    await expect(redacted.first().locator('.thinking-toggle')).toHaveCount(0)
-    await expect(redacted.first()).toContainText('no text')
+  // the fake agent sends its reasoning intact, so every block drawn is a toggle
+  const blocks = tile.locator('.thinking-block')
+  for (let i = 0; i < (await blocks.count()); i++) {
+    await expect(blocks.nth(i).locator('.thinking-toggle')).toBeVisible()
   }
+  await expect(tile.locator('.thinking-redacted')).toHaveCount(0)
 })
 
 /**

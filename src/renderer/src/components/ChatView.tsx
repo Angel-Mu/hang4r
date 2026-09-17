@@ -286,7 +286,7 @@ function ChatViewImpl({
           if (u.kind === 'thinking') {
             return (
               <div className="chat-unit" key={`think-${u.index}`}>
-                <ThinkingBlock text={u.item.text} tokens={u.item.thinkingTokens} />
+                <ThinkingBlock text={u.item.text} />
               </div>
             )
           }
@@ -1164,27 +1164,11 @@ const PERMISSION_LABELS: Record<string, string> = {
   decline: 'Deny'
 }
 
-function ThinkingBlock({ text, tokens }: { text: string; tokens?: number }): JSX.Element | null {
+function ThinkingBlock({ text }: { text: string }): JSX.Element | null {
   const [open, setOpen] = useState(false)
-  // Still reachable: an older CLI that rejected --thinking-display, or a turn
-  // recorded before hang4r sent it. Drawing nothing lets the gap read as a stall.
-  if (!text) {
-    if (!tokens) return null
-    // No caret and no toggle styling: sharing a class with the expandable form
-    // made this read as a toggle that does nothing (Angel: "is not expandable
-    // anymore").
-    return (
-      <div className="thinking-block">
-        <span
-          className="thinking-redacted"
-          title="This turn sent no reasoning text — only its length. Turns from here on include it."
-        >
-          thought · ~{tokens >= 1000 ? `${Math.round(tokens / 100) / 10}k` : tokens} tokens · no
-          text
-        </span>
-      </div>
-    )
-  }
+  // A turn predating --thinking-display carries a token count and no words. The
+  // count alone told the reader nothing they could act on.
+  if (!text) return null
   return (
     <div className={'thinking-block' + (open ? ' thinking-block-open' : '')}>
       <button className="thinking-toggle" onClick={() => setOpen(!open)}>

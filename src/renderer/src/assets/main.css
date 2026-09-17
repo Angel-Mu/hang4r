@@ -653,13 +653,6 @@ button:disabled {
   padding-left: 10px;
   border-left: 2px solid var(--border);
 }
-/* not a control — it only reports that reasoning happened */
-.thinking-redacted {
-  cursor: default;
-  color: var(--text-faint);
-  font-style: italic;
-  font-size: var(--fs-2xs);
-}
 .thinking-peek {
   display: block;
   max-width: 100%;

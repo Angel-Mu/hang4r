@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
 
 /**
@@ -65,6 +67,16 @@ test('a redacted thought is plainly not a toggle', async () => {
   const redacted = tile.locator('.thinking-block', { has: page.locator('.thinking-redacted') })
   if ((await redacted.count()) > 0) {
     await expect(redacted.first().locator('.thinking-toggle')).toHaveCount(0)
-    await expect(redacted.first()).toContainText('hidden by the CLI')
+    await expect(redacted.first()).toContainText('no text')
   }
+})
+
+/**
+ * The API's thinking display default is "omitted" on the 5-series models, so
+ * without this flag every thinking block streams empty.
+ */
+test('the claude adapter asks the CLI for readable reasoning', () => {
+  const bundle = readFileSync(join(process.cwd(), 'out/main/index.js'), 'utf8')
+  expect(bundle).toContain('--thinking-display')
+  expect(bundle).toContain('summarized')
 })

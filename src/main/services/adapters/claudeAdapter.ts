@@ -106,7 +106,11 @@ export class ClaudeAdapter implements AgentAdapter {
       '--output-format',
       'stream-json',
       '--verbose',
-      '--include-partial-messages'
+      '--include-partial-messages',
+      // the API's thinking display default flipped to "omitted" with the
+      // 5-series models — blocks still arrive, with empty text.
+      '--thinking-display',
+      'summarized'
     ]
     if (opts.model) args.push('--model', opts.model)
     // ultracode has no flag of its own; --settings takes a JSON string and the
@@ -210,8 +214,9 @@ export class ClaudeAdapter implements AgentAdapter {
     })
 
     proc.on('exit', (code) => {
-      if (!this.disposed) this.emit({ kind: 'exit', code })
       this.proc = null
+      if (this.retryWithoutThinkingDisplay()) return
+      if (!this.disposed) this.emit({ kind: 'exit', code })
     })
 
     proc.on('error', (err: NodeJS.ErrnoException) => {
@@ -225,6 +230,20 @@ export class ClaudeAdapter implements AgentAdapter {
       this.emit({ kind: 'turn-complete', isError: true, errorMessage: String(err) })
       this.emit({ kind: 'exit', code: -1 })
     })
+  }
+
+  /**
+   * A CLI too old for --thinking-display rejects the whole argv, so the session
+   * would never start. Readable thinking is the only thing the retry loses.
+   */
+  private retryWithoutThinkingDisplay(): boolean {
+    if (this.disposed || !this.spawnArgs) return false
+    const i = this.spawnArgs.indexOf('--thinking-display')
+    if (i < 0 || !/unknown option.*--thinking-display/.test(this.stderrTail)) return false
+    this.spawnArgs = [...this.spawnArgs.slice(0, i), ...this.spawnArgs.slice(i + 2)]
+    this.stderrTail = ''
+    this.spawnProc()
+    return true
   }
 
   /** flush any prompts queued while the process was (re)spawning */

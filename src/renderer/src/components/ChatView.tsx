@@ -1166,22 +1166,21 @@ const PERMISSION_LABELS: Record<string, string> = {
 
 function ThinkingBlock({ text, tokens }: { text: string; tokens?: number }): JSX.Element | null {
   const [open, setOpen] = useState(false)
-  // The CLI withholds the words on most turns and sends only a running token
-  // estimate. Reporting that the agent thought, and roughly how much, beats
-  // drawing nothing and letting a long silence look like a stall.
+  // Still reachable: an older CLI that rejected --thinking-display, or a turn
+  // recorded before hang4r sent it. Drawing nothing lets the gap read as a stall.
   if (!text) {
     if (!tokens) return null
     // No caret and no toggle styling: sharing a class with the expandable form
     // made this read as a toggle that does nothing (Angel: "is not expandable
-    // anymore"). There is nothing to expand — the CLI withholds the words.
+    // anymore").
     return (
       <div className="thinking-block">
         <span
           className="thinking-redacted"
-          title="The CLI does not send the text of this reasoning — only its length."
+          title="This turn sent no reasoning text — only its length. Turns from here on include it."
         >
-          thought · ~{tokens >= 1000 ? `${Math.round(tokens / 100) / 10}k` : tokens} tokens ·
-          hidden by the CLI
+          thought · ~{tokens >= 1000 ? `${Math.round(tokens / 100) / 10}k` : tokens} tokens · no
+          text
         </span>
       </div>
     )

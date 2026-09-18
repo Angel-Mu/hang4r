@@ -294,6 +294,38 @@ export class FakeAdapter implements AgentAdapter {
       })
     }
 
+    // The CLI sends no completion notification, so the thread's own closing
+    // text block is the finish signal this fixture exists to produce.
+    if (text.includes('background agent that finishes')) {
+      const doneId = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 12,
+        block: {
+          type: 'tool_use',
+          id: doneId,
+          name: 'Agent',
+          input: { description: 'short errand', subagent_type: 'general-purpose' }
+        },
+        parentToolUseId: null
+      })
+      this.emit({
+        kind: 'tool-result',
+        toolUseId: doneId,
+        content: `Async agent launched successfully. agentId: bg_${doneId.slice(0, 12)}`,
+        isError: false,
+        parentToolUseId: null
+      })
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 13,
+        block: { type: 'text', text: 'Errand done: found the config and reported back.' },
+        parentToolUseId: doneId
+      })
+    }
+
     // a board written as markdown, which is all the CLI leaves an agent now that
     // TaskCreate is retired
     if (text.includes('write a checklist')) {

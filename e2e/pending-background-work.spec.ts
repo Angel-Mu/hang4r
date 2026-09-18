@@ -321,3 +321,25 @@ test('a finished command is never claimed, not even for a frame', async () => {
   }
   expect([...seen].filter((t) => /background command/.test(t))).toEqual([])
 })
+
+// Main only ever ADDED to its live-agent set, so one async launch kept
+// sessions:live-work claiming that session for the rest of the app run, beside
+// a Subagents panel correctly showing nothing running.
+test('an async agent that reports back stops counting as live work', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn.project-add').first().click()
+  await page.locator('.dialog-prompt').fill('background agent that finishes')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+  await expect(page.locator('.tile .status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  const sid = (await page.evaluate(() => window.hang4r.listSessions()))[0].id
+  await expect
+    .poll(async () => page.evaluate(() => window.hang4r.sessionsWithLiveWork()), {
+      timeout: 15_000
+    })
+    .not.toContain(sid)
+})

@@ -81,6 +81,15 @@ export class SessionManager {
    * answerable instead of a guess: anything not in here is gone.
    */
   private liveAsyncAgents = new Map<string, Set<string>>()
+  /**
+   * agentId keyed by the Agent tool_use that launched it, and the tool_use ids
+   * that agent's thread is still awaiting results for. The CLI sends no
+   * completion notification for an async agent, so the thread ending in a final
+   * text block with nothing outstanding is the only finish signal there is —
+   * the same one SubagentInspector uses to retire a background run.
+   */
+  private asyncAgentByTool = new Map<string, Map<string, string>>()
+  private asyncAgentOpenTools = new Map<string, Set<string>>()
   private sleepBlockId: number | null = null
   /** monotonically increasing turn counter per session, for commit messages */
   private turnCounters = new Map<string, number>()
@@ -1018,6 +1027,31 @@ export class SessionManager {
     this.updateSession(sessionId, { status: 'idle', lastError: null })
   }
 
+  /**
+   * Retire an async agent once its thread goes quiet. The launch was otherwise
+   * the only thing ever recorded, so one background agent kept the sidebar
+   * claiming live work for the rest of the app run.
+   */
+  private noteAsyncAgentProgress(sessionId: string, ev: AgentEvent): void {
+    const open = this.asyncAgentOpenTools.get(sessionId) ?? new Set<string>()
+    if (ev.kind === 'tool-result') open.delete(ev.toolUseId)
+    if (ev.kind === 'block-final' && ev.parentToolUseId && ev.block.type === 'tool_use') {
+      open.add(ev.block.id)
+    }
+    this.asyncAgentOpenTools.set(sessionId, open)
+    if (
+      ev.kind !== 'block-final' ||
+      !ev.parentToolUseId ||
+      ev.block.type !== 'text' ||
+      !ev.block.text.trim() ||
+      open.size > 0
+    ) {
+      return
+    }
+    const agentId = this.asyncAgentByTool.get(sessionId)?.get(ev.parentToolUseId)
+    if (agentId) this.liveAsyncAgents.get(sessionId)?.delete(agentId)
+  }
+
   /** agentIds still owned by this session's LIVE process; anything else the
    *  transcript shows as "running in background" died with an earlier one. */
   liveAgentIds(sessionId: string): string[] {
@@ -1810,6 +1844,8 @@ export class SessionManager {
     this.spawnedTuning.set(session.id, this.tuningOf(session.id))
     // a fresh process owns no async agents yet — every one from the last is gone
     this.liveAsyncAgents.set(session.id, new Set())
+    this.asyncAgentByTool.set(session.id, new Map())
+    this.asyncAgentOpenTools.set(session.id, new Set())
     if (FAKE_AGENT) {
       const fake = new FakeAdapter()
       fake.onEvent((ev) => this.handleAgentEvent(session.id, ev))
@@ -1947,6 +1983,7 @@ export class SessionManager {
     // A run_in_background Bash task OUTLIVES its turn, so the session goes idle
     // while it keeps running — remember its log so the quit/update guard can ask
     // whether it's still alive (BackgroundTasks.tsx parses the same line).
+    this.noteAsyncAgentProgress(sessionId, ev)
     if (ev.kind === 'tool-result') {
       // "Async agent launched successfully … agentId: a001d14ea2e816024".
       // The CLI sends tool-result content as an ARRAY of blocks, not a string —
@@ -1963,6 +2000,9 @@ export class SessionManager {
         let live = this.liveAsyncAgents.get(sessionId)
         if (!live) this.liveAsyncAgents.set(sessionId, (live = new Set()))
         live.add(agentId)
+        let byTool = this.asyncAgentByTool.get(sessionId)
+        if (!byTool) this.asyncAgentByTool.set(sessionId, (byTool = new Map()))
+        byTool.set(ev.toolUseId, agentId)
       }
       const log = /Command running in background with ID:[^]*?written to:\s*(\S+)/i
         .exec(raw)?.[1]

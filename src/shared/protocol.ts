@@ -756,6 +756,12 @@ export interface Hang4rApi {
   /** overwrite a settings.json file; rejects if the text isn't valid JSON */
   writeSettingsFile(scope: SettingsScope, text: string, projectId?: string): Promise<void>
   getSessionEvents(sessionId: string): Promise<SessionEvent[]>
+  /** the last `maxTurns` turns, cut on a turn boundary; `truncated` says whether
+   *  earlier turns exist and getSessionEvents would return more */
+  getRecentSessionEvents(
+    sessionId: string,
+    maxTurns: number
+  ): Promise<{ events: SessionEvent[]; truncated: boolean }>
   getChangedFiles(sessionId: string): Promise<ChangedFile[]>
   /** Changed files + add/del totals for one review scope (scope dropdown). */
   scopedFiles(sessionId: string, scope: DiffScope): Promise<ScopedFiles>

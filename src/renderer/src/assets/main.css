@@ -2336,6 +2336,20 @@ button:disabled {
 /* Browser-native virtualization: off-screen messages skip layout/paint, so a
    huge transcript no longer pegs the renderer. `auto` intrinsic size remembers
    each unit's real height once measured, keeping scroll position stable. */
+.chat-load-earlier {
+  align-self: center;
+  margin: 8px 0 12px;
+  padding: 4px 12px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-faint);
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+}
+.chat-load-earlier:hover:not(:disabled) {
+  color: var(--text);
+}
 .chat-unit {
   content-visibility: auto;
   contain-intrinsic-size: auto 48px;

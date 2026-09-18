@@ -317,6 +317,49 @@ export class Store {
     ).map((r) => ({ sessionId, seq: r.id, ts: r.ts, event: JSON.parse(r.event_json) }))
   }
 
+  /**
+   * The tail of a session's transcript: the last `maxTurns` completed turns and
+   * everything after them, plus the init event, which carries the session's
+   * skills and is always the first event. The cut lands on a turn boundary
+   * because truncating mid-turn orphans a tool-result from its tool_use.
+   *
+   * `truncated` reports whether anything was left behind, so the caller can
+   * offer to load it.
+   */
+  getRecentEvents(
+    sessionId: string,
+    maxTurns: number
+  ): { events: SessionEvent[]; truncated: boolean } {
+    const boundary = this.db
+      .prepare(
+        `SELECT id FROM session_events
+         WHERE session_id = ? AND json_extract(event_json, '$.kind') = 'turn-complete'
+         ORDER BY id DESC LIMIT 1 OFFSET ?`
+      )
+      .get(sessionId, maxTurns) as { id: number } | undefined
+    if (!boundary) return { events: this.getEvents(sessionId), truncated: false }
+
+    const toEvent = (r: { id: number; ts: number; event_json: string }): SessionEvent => ({
+      sessionId,
+      seq: r.id,
+      ts: r.ts,
+      event: JSON.parse(r.event_json)
+    })
+    const rows = this.db
+      .prepare('SELECT id, ts, event_json FROM session_events WHERE session_id = ? AND id > ? ORDER BY id')
+      .all(sessionId, boundary.id) as { id: number; ts: number; event_json: string }[]
+    const init = this.db
+      .prepare(
+        `SELECT id, ts, event_json FROM session_events
+         WHERE session_id = ? AND json_extract(event_json, '$.kind') = 'init'
+         ORDER BY id LIMIT 1`
+      )
+      .get(sessionId) as { id: number; ts: number; event_json: string } | undefined
+    const events = rows.map(toEvent)
+    if (init && init.id <= boundary.id) events.unshift(toEvent(init))
+    return { events, truncated: true }
+  }
+
   /* ---------- settings ---------- */
 
   getSetting(key: string): string | null {

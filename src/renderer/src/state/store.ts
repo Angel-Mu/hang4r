@@ -179,6 +179,8 @@ export interface Transcript {
   hooks: HookRun[]
   /** highest event seq applied — replay + live streams dedupe on this */
   lastSeq: number
+  /** earlier turns exist on disk and were not loaded */
+  truncated?: boolean
 }
 
 function emptyTranscript(): Transcript {
@@ -209,6 +211,13 @@ export function isAwaitingQuestion(t: Transcript | undefined): boolean {
   )
 }
 
+/**
+ * Every per-event cost in ChatView is linear in the transcript, so a session
+ * with tens of thousands of events made each streamed token pay for all of
+ * them. The `openTurns` setting overrides this.
+ */
+const OPEN_TURNS = 30
+
 interface LoadedTranscript {
   transcript: Transcript
   inputTokens: number
@@ -226,7 +235,7 @@ interface LoadedTranscript {
  * ensureTranscript (only calls this when nothing is loaded yet) so a session
  * dropped straight into a split pane gets the same replay a normal open does.
  */
-async function loadTranscriptData(sessionId: string): Promise<LoadedTranscript> {
+async function loadTranscriptData(sessionId: string, allTurns = false): Promise<LoadedTranscript> {
   // pull in turns taken in an external interactive CLI (/remote-control) —
   // imported events are part of getSessionEvents below; live ones broadcast
   try {
@@ -234,8 +243,14 @@ async function loadTranscriptData(sessionId: string): Promise<LoadedTranscript> 
   } catch {
     /* non-fatal */
   }
-  const events = await window.hang4r.getSessionEvents(sessionId)
+  const configured = Number(await window.hang4r.getSetting('openTurns').catch(() => null))
+  const turns = Number.isFinite(configured) && configured > 0 ? configured : OPEN_TURNS
+  const loaded = allTurns
+    ? { events: await window.hang4r.getSessionEvents(sessionId), truncated: false }
+    : await window.hang4r.getRecentSessionEvents(sessionId, turns)
+  const events = loaded.events
   const t = emptyTranscript()
+  t.truncated = loaded.truncated
   // rebuild per-session usage from replayed turn-completes so the context
   // gauge is populated for restored/imported sessions (not only live ones)
   let inTok = 0
@@ -317,7 +332,11 @@ export function applyEvent(t: Transcript, ev: AgentEvent): void {
       const idx = t.blockIndex.get(key)
       if (idx === undefined) break
       const item = t.items[idx]
-      if (item.type === 'block' && !item.final) item.text += ev.text
+      // replace rather than mutate: the memoized message components compare
+      // items by identity, and an in-place append would never reach the screen
+      if (item.type === 'block' && !item.final) {
+        t.items[idx] = { ...item, text: item.text + ev.text }
+      }
       break
     }
     case 'block-final': {
@@ -337,21 +356,22 @@ export function applyEvent(t: Transcript, ev: AgentEvent): void {
       }
       const item = t.items[idx]
       if (item.type !== 'block') break
-      item.final = true
+      const next = { ...item, final: true }
       if (ev.block.type === 'text') {
-        item.blockType = 'text'
-        item.text = ev.block.text
+        next.blockType = 'text'
+        next.text = ev.block.text
       } else if (ev.block.type === 'thinking') {
-        item.blockType = 'thinking'
-        item.text = ev.block.thinking
-        item.thinkingTokens = ev.block.tokens
+        next.blockType = 'thinking'
+        next.text = ev.block.thinking
+        next.thinkingTokens = ev.block.tokens
       } else if (ev.block.type === 'tool_use') {
-        item.blockType = 'tool_use'
-        item.toolName = ev.block.name
-        item.toolUseId = ev.block.id
-        item.toolInput = ev.block.input
+        next.blockType = 'tool_use'
+        next.toolName = ev.block.name
+        next.toolUseId = ev.block.id
+        next.toolInput = ev.block.input
         t.toolIndex.set(ev.block.id, idx)
       }
+      t.items[idx] = next
       break
     }
     case 'tool-result': {
@@ -359,8 +379,7 @@ export function applyEvent(t: Transcript, ev: AgentEvent): void {
       if (idx === undefined) break
       const item = t.items[idx]
       if (item.type === 'block') {
-        item.toolResult = ev.content
-        item.toolResultError = ev.isError
+        t.items[idx] = { ...item, toolResult: ev.content, toolResultError: ev.isError }
       }
       break
     }
@@ -399,11 +418,11 @@ export function applyEvent(t: Transcript, ev: AgentEvent): void {
       })
       break
     case 'permission-resolved':
-      for (const item of t.items) {
+      t.items.forEach((item, i) => {
         if (item.type === 'permission' && item.requestId === ev.requestId) {
-          item.decision = ev.decision
+          t.items[i] = { ...item, decision: ev.decision }
         }
-      }
+      })
       break
     case 'question-request':
       t.items.push({
@@ -414,11 +433,11 @@ export function applyEvent(t: Transcript, ev: AgentEvent): void {
       })
       break
     case 'question-resolved':
-      for (const item of t.items) {
+      t.items.forEach((item, i) => {
         if (item.type === 'question' && item.requestId === ev.requestId) {
-          item.answers = ev.answers
+          t.items[i] = { ...item, answers: ev.answers }
         }
-      }
+      })
       break
     case 'hook': {
       if (ev.phase === 'started') {
@@ -462,10 +481,14 @@ export function applyEvent(t: Transcript, ev: AgentEvent): void {
  * turn-complete and exit reducers so the two can never drift.
  */
 function cancelStalePending(t: Transcript): void {
-  for (const item of t.items) {
-    if (item.type === 'permission' && item.decision === undefined) item.decision = 'cancelled'
-    if (item.type === 'question' && item.answers === undefined) item.cancelled = true
-  }
+  t.items.forEach((item, i) => {
+    if (item.type === 'permission' && item.decision === undefined) {
+      t.items[i] = { ...item, decision: 'cancelled' }
+    }
+    if (item.type === 'question' && item.answers === undefined) {
+      t.items[i] = { ...item, cancelled: true }
+    }
+  })
 }
 
 interface Hang4rState {
@@ -656,6 +679,8 @@ interface Hang4rState {
   openSession(sessionId: string, opts?: { split?: boolean }): Promise<void>
   /** Load a session's transcript if not already loaded; no-op if it is. */
   ensureTranscript(sessionId: string): Promise<void>
+  /** replace a capped transcript with its full history */
+  loadEarlierTurns(sessionId: string): Promise<void>
   closeTile(sessionId: string): void
   focusSession(sessionId: string): void
   sendPrompt(sessionId: string, text: string): Promise<void>
@@ -1306,6 +1331,11 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
    * (e.g. drag-dropped onto a split from the sidebar), so the pane isn't left
    * blank until the user opens that session normally elsewhere.
    */
+  async loadEarlierTurns(sessionId) {
+    const loaded = await loadTranscriptData(sessionId, true)
+    set((s) => ({ transcripts: { ...s.transcripts, [sessionId]: loaded.transcript } }))
+  },
+
   async ensureTranscript(sessionId) {
     if (get().transcripts[sessionId]) return
     const loaded = await loadTranscriptData(sessionId)

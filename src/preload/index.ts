@@ -145,6 +145,8 @@ const api: Hang4rApi = {
   writeSettingsFile: (scope: SettingsScope, text: string, projectId?: string) =>
     ipcRenderer.invoke('settings-file:write', scope, text, projectId),
   getSessionEvents: (sessionId: string) => ipcRenderer.invoke('sessions:events', sessionId),
+  getRecentSessionEvents: (sessionId: string, maxTurns: number) =>
+    ipcRenderer.invoke('sessions:recent-events', sessionId, maxTurns),
   getChangedFiles: (sessionId: string) => ipcRenderer.invoke('sessions:changed-files', sessionId),
   scopedFiles: (sessionId: string, scope: DiffScope) =>
     ipcRenderer.invoke('git:scoped-files', sessionId, scope),

@@ -218,6 +218,9 @@ function ChatViewImpl({
     [items]
   )
   const units = useMemo(() => groupActivity(visibleItems), [visibleItems])
+  const truncated = useHang4r((s) => s.transcripts[sessionId]?.truncated ?? false)
+  const loadEarlierTurns = useHang4r((s) => s.loadEarlierTurns)
+  const [loadingEarlier, setLoadingEarlier] = useState(false)
 
   // Only the LAST turn can still be waiting on anything: an earlier turn's
   // Monitor either fired — which is what produced the turn after it — or is
@@ -277,6 +280,18 @@ function ChatViewImpl({
       }}
     >
       <div className="chat-col">
+        {truncated && (
+          <button
+            className="chat-load-earlier"
+            disabled={loadingEarlier}
+            onClick={() => {
+              setLoadingEarlier(true)
+              void loadEarlierTurns(sessionId).finally(() => setLoadingEarlier(false))
+            }}
+          >
+            {loadingEarlier ? 'Loading earlier turns…' : 'Load earlier turns'}
+          </button>
+        )}
         {/* Each unit is wrapped so `content-visibility: auto` (see .chat-unit)
             lets the browser skip layout/paint of off-screen messages — a
             20k-event transcript that pegged the renderer now renders only
@@ -355,6 +370,32 @@ function ChatViewImpl({
   )
 }
 
+/**
+ * Every event replaces the items array, so `units` and each unit's `items` are
+ * new objects on every render while the underlying TranscriptItems keep their
+ * identity. Without these, one streamed token re-parsed the markdown of every
+ * message in the session: ~0.2ms each, ~215ms at a thousand messages.
+ *
+ * `content-visibility` on .chat-unit skips layout and paint for off-screen
+ * messages but not React render or the remark parse, so it hid this rather than
+ * fixing it.
+ */
+const ThinkingBlock = memo(ThinkingBlockImpl)
+const TranscriptItemView = memo(TranscriptItemViewImpl)
+
+/** groupActivity rebuilds `items` each pass, so identity-compare its contents. */
+const ActivityGroup = memo(ActivityGroupImpl, (a, b) => {
+  if (
+    a.sessionId !== b.sessionId ||
+    a.durationMs !== b.durationMs ||
+    a.defaultOpen !== b.defaultOpen ||
+    a.items.length !== b.items.length
+  ) {
+    return false
+  }
+  return a.items.every((item, i) => item === b.items[i])
+})
+
 /** Memoized so a composer keystroke (store `draft` change → SessionTile re-render)
  *  doesn't re-render the whole transcript — the typing-lag fix. */
 export const ChatView = memo(ChatViewImpl)
@@ -395,7 +436,7 @@ function unitKey(item: TranscriptItem, i: number): string {
   return item.type === 'block' ? item.key : `${item.type}-${i}`
 }
 
-function ActivityGroup({
+function ActivityGroupImpl({
   items,
   durationMs,
   defaultOpen,
@@ -556,7 +597,7 @@ function PendingParts({
   )
 }
 
-function TranscriptItemView({
+function TranscriptItemViewImpl({
   item,
   sessionId,
   userOccurrence,
@@ -1164,7 +1205,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   decline: 'Deny'
 }
 
-function ThinkingBlock({ text }: { text: string }): JSX.Element | null {
+function ThinkingBlockImpl({ text }: { text: string }): JSX.Element | null {
   const [open, setOpen] = useState(false)
   // A turn predating --thinking-display carries a token count and no words. The
   // count alone told the reader nothing they could act on.

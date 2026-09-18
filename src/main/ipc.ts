@@ -684,6 +684,9 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       settings.writeRaw(scope, text, projectId)
   )
   ipcMain.handle('sessions:events', (_e, sessionId: string) => store.getEvents(sessionId))
+  ipcMain.handle('sessions:recent-events', (_e, sessionId: string, maxTurns: number) =>
+    store.getRecentEvents(sessionId, maxTurns)
+  )
   ipcMain.handle('sessions:changed-files', (_e, sessionId: string) =>
     sessions.changedFiles(sessionId)
   )

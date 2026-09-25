@@ -482,7 +482,12 @@ test('phone: a queue left behind is sent once, in turn, when the phone comes bac
  *  sessions, and a phone paired to it sitting on the home list. */
 async function pairedHome(
   specs: { title: string; firstPrompt?: string; projectIndex?: number }[],
-  opts: { env?: Record<string, string>; projects?: number } = {}
+  opts: {
+    env?: Record<string, string>
+    projects?: number
+    /** runs on the desktop after the sessions exist, before the phone pairs */
+    beforePair?: (desktop: Page, projectIds: string[], ids: string[]) => Promise<void>
+  } = {}
 ): Promise<{
   desktop: Page
   phone: Page
@@ -536,13 +541,14 @@ async function pairedHome(
       )
       .toBe('idle')
   }
+  await opts.beforePair?.(desktop, projectIds, ids)
   const b = await chromium.launch()
   const phone = await b.newPage({ viewport: { width: 390, height: 844 } })
   await phone.goto(`http://localhost:${PREVIEW_PORT}/`)
   await phone.fill('.pair-input', pairing.url)
   await phone.click('button:has-text("Pair with this computer")')
   await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
-  await expect(phone.locator('.session-row')).toHaveCount(specs.length, { timeout: 15_000 })
+  await expect(phone.locator('.session-row').first()).toBeVisible({ timeout: 15_000 })
   return {
     desktop,
     phone,
@@ -629,6 +635,100 @@ test('phone: an older desktop still gets bells from finished turns, not from met
     await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
     await expect(renamed).toBeVisible()
     await expect(renamed.locator('.session-bell')).toHaveCount(0)
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: workspaces and sessions come in the desktop sidebar order, offline too', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { desktop, phone, projectIds, teardown } = await pairedHome(
+    [
+      { title: 'p0 older', projectIndex: 0 },
+      { title: 'p0 newer', projectIndex: 0 },
+      { title: 'p1 only', projectIndex: 1 },
+      { title: 'p2 only', projectIndex: 2 }
+    ],
+    {
+      projects: 4,
+      beforePair: async (desktop, pids, ids) => {
+        // activity alone would say p2, p1, p0 — the desktop says otherwise
+        await desktop.evaluate(
+          ({ pids, ids }) =>
+            Promise.all([
+              window.hang4r.setSetting('pinnedProjects', JSON.stringify([pids[1]])),
+              window.hang4r.setSetting('projectOrder', JSON.stringify([pids[3], pids[0], pids[2]])),
+              window.hang4r.setSetting('pinnedSessions', JSON.stringify([ids[0]])),
+              window.hang4r.setSetting('collapsedProjects', JSON.stringify([pids[2]]))
+            ]),
+          { pids, ids }
+        )
+        await desktop.reload()
+        await desktop.waitForSelector('.app')
+      }
+    }
+  )
+  try {
+    const desktopOrder = await desktop.locator('.project-row .project-name').allTextContents()
+    const phoneOrder = phone.locator('.project-header .project-name')
+    await expect(phoneOrder).toHaveCount(4, { timeout: 15_000 })
+    expect(await phoneOrder.allTextContents()).toEqual(desktopOrder)
+    const names = await desktop.evaluate(async (pids) => {
+      const all = await window.hang4r.listProjects()
+      return pids.map((id) => all.find((p) => p.id === id)!.name)
+    }, projectIds)
+    // pinned p1, then the drag order (empty p3 included), then p2 as sorted
+    expect(desktopOrder).toEqual([names[1], names[3], names[0], names[2]])
+    // the desktop's session pin wins over recency; its collapse applies
+    const p0 = phone.locator('.project-group').nth(2)
+    await expect(p0.locator('.session-title')).toHaveText(['p0 older', 'p0 newer'])
+    await expect(
+      desktop.locator('.sidebar .project-group').nth(2).locator('.session-title')
+    ).toHaveText(['p0 older', 'p0 newer'])
+    await expect(p0.locator('.session-row').first().locator('.session-pin')).toBeVisible()
+    await expect(phone.locator('.project-group').nth(3).locator('.session-row')).toHaveCount(0)
+    await expect(phone.locator('.project-group').nth(0).locator('.project-pin')).toBeVisible()
+    await phone.screenshot({ path: `${SHOTS}/7-desktop-order.png` })
+
+    // desktop goes away: a cold start still shows its order
+    await desktop.evaluate(() => window.hang4r.bridgeSetEnabled(false))
+    await phone.reload()
+    await expect(phone.locator('.conn-online')).toHaveCount(0)
+    await expect(phoneOrder).toHaveCount(4, { timeout: 15_000 })
+    expect(await phoneOrder.allTextContents()).toEqual(desktopOrder)
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: an older desktop keeps the activity order, empty workspaces hidden', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { phone, projectIds, desktop, teardown } = await pairedHome(
+    [
+      { title: 'first made', projectIndex: 0 },
+      { title: 'last made', projectIndex: 1 }
+    ],
+    {
+      projects: 3,
+      env: { HANG4R_TEST_BRIDGE_WITHOUT: 'sidebarState,markUnseen' },
+      beforePair: (desktop, pids) =>
+        desktop.evaluate(
+          (pids) => window.hang4r.setSetting('projectOrder', JSON.stringify([pids[0], pids[1]])),
+          pids
+        )
+    }
+  )
+  try {
+    const names = await desktop.evaluate(async (pids) => {
+      const all = await window.hang4r.listProjects()
+      return pids.map((id) => all.find((p) => p.id === id)!.name)
+    }, projectIds)
+    await expect(phone.locator('.project-header .project-name')).toHaveText([names[1], names[0]], {
+      timeout: 15_000
+    })
+    await expect(phone.locator('.banner-error')).toHaveCount(0)
   } finally {
     await teardown()
   }

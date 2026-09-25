@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Project, QuestionAnswer, SessionEvent, SessionMeta } from '@shared/protocol'
 import type { BridgeSidebarState } from '@shared/bridge'
+import type { SidebarLayout } from '@shared/sidebarOrder'
 import { BridgeClient, type ConnectionState } from '../bridge/client'
 import { applyEvent, countPending, emptyTranscript, type Transcript } from './transcript'
 import { IMAGE_ONLY_PROMPT } from '../hooks/useImageAttachments'
@@ -13,6 +14,7 @@ const SEEN_KEY = 'h4.seenAt'
 const DESKTOP_UNSEEN_KEY = 'h4.desktopUnseen'
 const PENDING_SEEN_KEY = 'h4.pendingSeen'
 const FINISHED_KEY = 'h4.finishedAt'
+const LAYOUT_KEY = 'h4.desktopLayout'
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -221,6 +223,8 @@ interface AppState {
   desktopUnseen: string[] | null
   /** when this phone learned a session's turn ended (old-desktop fallback) */
   finishedAt: Record<string, number>
+  /** the desktop sidebar's pins/order/sort/collapse; null = desktop too old */
+  desktopLayout: SidebarLayout | null
   error: string | null
   /** push registration outcome, surfaced in Settings so failures aren't silent */
   pushStatus: string
@@ -403,6 +407,7 @@ export const useApp = create<AppState>((set, get) => ({
   seenAt: loadJson<Record<string, number>>(SEEN_KEY, {}),
   desktopUnseen: loadJson<string[] | null>(DESKTOP_UNSEEN_KEY, null),
   finishedAt: loadJson<Record<string, number>>(FINISHED_KEY, {}),
+  desktopLayout: loadJson<SidebarLayout | null>(LAYOUT_KEY, null),
   error: null,
   queues: loadQueues(),
 
@@ -606,9 +611,12 @@ export const useApp = create<AppState>((set, get) => ({
     localStorage.removeItem(PAIRING_KEY)
     localStorage.removeItem(HOME_CACHE_KEY)
     localStorage.removeItem(QUEUE_KEY)
-    for (const k of [DESKTOP_UNSEEN_KEY, PENDING_SEEN_KEY, FINISHED_KEY]) localStorage.removeItem(k)
+    for (const k of [DESKTOP_UNSEEN_KEY, PENDING_SEEN_KEY, FINISHED_KEY, LAYOUT_KEY]) {
+      localStorage.removeItem(k)
+    }
     set({
       desktopUnseen: null,
+      desktopLayout: null,
       finishedAt: {},
       pairingUrl: null,
       conn: 'idle',
@@ -658,8 +666,14 @@ export const useApp = create<AppState>((set, get) => ({
         const next: Partial<AppState> = { projects, sessions, error: null }
         if (sidebar === null) {
           next.desktopUnseen = null
+          next.desktopLayout = null
           saveJson(DESKTOP_UNSEEN_KEY, null)
+          saveJson(LAYOUT_KEY, null)
         } else if (sidebar) {
+          if (sidebar.layout) {
+            next.desktopLayout = sidebar.layout
+            saveJson(LAYOUT_KEY, sidebar.layout)
+          }
           // a look on this phone after the snapshot was taken wins over it
           next.desktopUnseen = sidebar.unseen.filter((id) => (s.seenAt[id] ?? 0) < requestedAt)
           saveJson(DESKTOP_UNSEEN_KEY, next.desktopUnseen)

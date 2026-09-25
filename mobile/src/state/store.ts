@@ -16,6 +16,7 @@ const PENDING_SEEN_KEY = 'h4.pendingSeen'
 const FINISHED_KEY = 'h4.finishedAt'
 const LAYOUT_KEY = 'h4.desktopLayout'
 const UNREAD_KEY = 'h4.unreadOverrides'
+const PENDING_KEY = 'h4.pendingApprovals'
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -231,6 +232,8 @@ interface AppState {
   desktopLayout: SidebarLayout | null
   /** marked unread here when the desktop couldn't take it */
   unreadOverrides: string[]
+  /** sessions still working after their turn ended — live only, never cached */
+  liveWork: string[]
   /** "Mark as unread": the desktop flags it for every device */
   markUnseen(sessionId: string): Promise<void>
   error: string | null
@@ -295,7 +298,7 @@ function startClient(url: string): BridgeClient | null {
   const savedToken = localStorage.getItem(APNS_KEY)
   const c = BridgeClient.fromUrl(url, {
     onState: (conn) => {
-      useApp.setState(conn === 'online' ? { conn, error: null } : { conn })
+      useApp.setState(conn === 'online' ? { conn, error: null } : { conn, liveWork: [] })
       if (conn === 'online') {
         void useApp.getState().refresh()
         void useApp.getState().reloadOpenTranscript()
@@ -361,6 +364,7 @@ function startClient(url: string): BridgeClient | null {
         return { desktopUnseen }
       })
     },
+    onLiveWork: (ids: string[]) => useApp.setState({ liveWork: ids }),
     onSessionUpdated: (session: SessionMeta) => {
       const prev = useApp.getState().sessions.find((x) => x.id === session.id)?.status
       if (isActive(session.status)) flushInFlight.delete(session.id)
@@ -409,7 +413,7 @@ export const useApp = create<AppState>((set, get) => ({
   transcriptLoading: false,
   transcriptStale: false,
   attention: {},
-  pendingApprovals: {},
+  pendingApprovals: loadJson<Record<string, number>>(PENDING_KEY, {}),
   sessionInit: loadJson<SessionInit>(SESSION_INIT_KEY, {}),
   pinned: loadJson<string[]>(PINS_KEY, []),
   seenAt: loadJson<Record<string, number>>(SEEN_KEY, {}),
@@ -417,6 +421,7 @@ export const useApp = create<AppState>((set, get) => ({
   finishedAt: loadJson<Record<string, number>>(FINISHED_KEY, {}),
   desktopLayout: loadJson<SidebarLayout | null>(LAYOUT_KEY, null),
   unreadOverrides: loadJson<string[]>(UNREAD_KEY, []),
+  liveWork: [],
   error: null,
   queues: loadQueues(),
 
@@ -647,13 +652,21 @@ export const useApp = create<AppState>((set, get) => ({
     localStorage.removeItem(PAIRING_KEY)
     localStorage.removeItem(HOME_CACHE_KEY)
     localStorage.removeItem(QUEUE_KEY)
-    for (const k of [DESKTOP_UNSEEN_KEY, PENDING_SEEN_KEY, FINISHED_KEY, LAYOUT_KEY, UNREAD_KEY]) {
+    for (const k of [
+      DESKTOP_UNSEEN_KEY,
+      PENDING_SEEN_KEY,
+      FINISHED_KEY,
+      LAYOUT_KEY,
+      UNREAD_KEY,
+      PENDING_KEY
+    ]) {
       localStorage.removeItem(k)
     }
     set({
       desktopUnseen: null,
       desktopLayout: null,
       unreadOverrides: [],
+      liveWork: [],
       finishedAt: {},
       pairingUrl: null,
       conn: 'idle',
@@ -701,12 +714,17 @@ export const useApp = create<AppState>((set, get) => ({
         .map((x) => x.id)
       set((s) => {
         const next: Partial<AppState> = { projects, sessions, error: null }
+        // an unanswered request holds its turn open: a settled session has none
+        const pendingApprovals = { ...s.pendingApprovals }
+        for (const x of sessions) if (!isActive(x.status)) delete pendingApprovals[x.id]
+        next.pendingApprovals = pendingApprovals
         if (sidebar === null) {
           next.desktopUnseen = null
           next.desktopLayout = null
           saveJson(DESKTOP_UNSEEN_KEY, null)
           saveJson(LAYOUT_KEY, null)
         } else if (sidebar) {
+          next.liveWork = sidebar.liveWork ?? []
           if (sidebar.layout) {
             next.desktopLayout = sidebar.layout
             saveJson(LAYOUT_KEY, sidebar.layout)
@@ -837,5 +855,12 @@ if (savedPairing) {
   client = startClient(savedPairing)
   if (!client) localStorage.removeItem(PAIRING_KEY)
 }
+// "needs you" must survive a cold start; replay recomputes it on open
+useApp.subscribe((s, prev) => {
+  if (s.pendingApprovals !== prev.pendingApprovals) {
+    const kept = Object.fromEntries(Object.entries(s.pendingApprovals).filter(([, n]) => n > 0))
+    saveJson(PENDING_KEY, kept)
+  }
+})
 applyTextScale(useApp.getState().textScale)
 applyTheme(useApp.getState().theme)

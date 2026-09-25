@@ -9,6 +9,7 @@ import type {
 } from '../../../shared/protocol'
 import { useHang4r, isAwaitingPermission, isAwaitingQuestion } from '../state/store'
 import { orderProjects, orderSessions as orderByPin } from '../../../shared/sidebarOrder'
+import { relativeTime } from '../../../shared/relativeTime'
 import { contextWindow } from '../contextWindow'
 import { FALLBACK_CODEX_MODELS } from '../modelChoices'
 import { Icon, type IconName } from './Icon'
@@ -35,18 +36,6 @@ const BACKEND_LABEL: Record<BackendId, string> = {
   claude: 'Claude',
   codex: 'Codex',
   cursor: 'Cursor'
-}
-
-function relativeTime(ts: number): string {
-  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000))
-  if (s < 60) return 'now'
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h`
-  const d = Math.floor(h / 24)
-  if (d < 30) return `${d}d`
-  return `${Math.floor(d / 30)}mo`
 }
 
 export function Sidebar(): JSX.Element {

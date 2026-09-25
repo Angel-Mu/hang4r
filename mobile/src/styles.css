@@ -1739,3 +1739,47 @@ html.kb-open .split-master {
   color: var(--text-dim);
   font-size: 14px;
 }
+:root {
+  --cyan: #74b6cc;
+}
+html[data-theme='light'] {
+  --cyan: #0e7490;
+}
+/* turn over, session still working (async agent, background command,
+   Workflow, Monitor): slower than a live turn, needs nothing from you */
+.status-dot.status-pending {
+  background: var(--cyan);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+.session-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.project-flag {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.project-flag-error {
+  background: color-mix(in srgb, var(--red) 18%, transparent);
+  color: var(--red);
+}
+.project-flag-finished {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.sheet-error {
+  color: var(--red);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 30vh;
+  overflow-y: auto;
+}

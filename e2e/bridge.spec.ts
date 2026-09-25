@@ -271,4 +271,27 @@ test.describe('mobile bridge', () => {
     await phone.nextEvent(frameFor('unseen', s.id))
     expect((await phone.call<BridgeSidebarState>('sidebarState')).unseen).toEqual([s.id])
   })
+
+  test('work still running after a turn reaches the phone as it changes', async () => {
+    test.setTimeout(90_000)
+    launched = await launchApp()
+    const { page } = launched
+    const project = await createProject(page, makeScratchRepo())
+    phone = await pairPhone(page)
+    await phone.nextEvent((f) => f.t === 'live-work' && f.ids.length === 0)
+    const s = await page.evaluate(
+      (pid) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'claude',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          firstPrompt: 'spawn background agents'
+        }),
+      project.id
+    )
+    const frame = await phone.nextEvent((f) => f.t === 'live-work' && f.ids.length > 0)
+    expect(frame).toEqual({ t: 'live-work', ids: [s.id] })
+    expect((await phone.call<BridgeSidebarState>('sidebarState')).liveWork).toEqual([s.id])
+  })
 })

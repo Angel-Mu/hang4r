@@ -63,6 +63,9 @@ export type BridgeDesktopFrame =
   | { t: 'seen'; sessionId: string }
   /** the desktop flagged this session finished-unseen (sidebar bell) */
   | { t: 'unseen'; sessionId: string }
+  /** sessions still working after their turn ended (async agents, background
+   *  commands, Workflow, Monitor) — sent while a phone is connected, on change */
+  | { t: 'live-work'; ids: string[] }
   | { t: 'ping' }
 
 /**
@@ -137,6 +140,8 @@ export interface BridgeSidebarState {
   layout: SidebarLayout
   /** sessions the desktop flags finished-unseen */
   unseen: string[]
+  /** sessions still working after their turn ended */
+  liveWork: string[]
 }
 
 export interface BridgeStatus {

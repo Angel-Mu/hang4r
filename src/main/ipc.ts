@@ -381,7 +381,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       for (const win of wins) win.webContents.send('session-mark-unseen', sessionId)
       if (!wins.length) setDesktopUnseen([...desktopUnseen, sessionId])
     },
-    sidebarState: (): BridgeSidebarState => ({
+    sidebarState: async (): Promise<BridgeSidebarState> => ({
       layout: {
         pinnedProjects: readIds('pinnedProjects'),
         projectOrder: readIds('projectOrder'),
@@ -389,7 +389,8 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
         pinnedSessions: readIds('pinnedSessions'),
         collapsedProjects: readIds('collapsedProjects')
       },
-      unseen: [...desktopUnseen]
+      unseen: [...desktopUnseen],
+      liveWork: await sessions.sessionsWithLiveWork()
     })
   }
   // e2e: impersonate an older desktop that predates some methods
@@ -403,7 +404,8 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     (s) => {
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send('bridge:status', s)
     },
-    (sessionId) => store.getSession(sessionId)?.title ?? null
+    (sessionId) => store.getSession(sessionId)?.title ?? null,
+    () => sessions.sessionsWithLiveWork()
   )
   ipcMain.handle('bridge:status', () => bridgeService!.status())
   ipcMain.handle('bridge:set-enabled', (_e, on: boolean) => bridgeService!.setEnabled(on))

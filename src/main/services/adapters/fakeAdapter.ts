@@ -488,6 +488,25 @@ export class FakeAdapter implements AgentAdapter {
       })
     }
 
+    // tool output far longer than the phone shows (bridge history trims it)
+    if (text.includes('print a long log')) {
+      const logId = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 17,
+        block: { type: 'tool_use', id: logId, name: 'Bash', input: { command: 'cat build.log' } },
+        parentToolUseId: null
+      })
+      this.emit({
+        kind: 'tool-result',
+        toolUseId: logId,
+        content: Array.from({ length: 4000 }, (_, i) => `log line ${i}`).join('\n'),
+        isError: false,
+        parentToolUseId: null
+      })
+    }
+
     // a background bash task (run_in_background) so the Tasks panel has content
     const bgId = randomUUID()
     const bgLog = join(this.cwd, `.hang4r-bg-${turn}.log`)

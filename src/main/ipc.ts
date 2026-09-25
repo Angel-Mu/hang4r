@@ -35,7 +35,8 @@ import type {
 } from '../shared/protocol'
 import { SessionManager } from './services/sessionManager'
 import { BridgeService } from './services/bridgeService'
-import type { BridgeSidebarState } from '../shared/bridge'
+import { eventPage, slimHistory } from './services/bridgeHistory'
+import type { BridgeEventPageOpts, BridgeSidebarState } from '../shared/bridge'
 import { BrowserControlService } from './services/browserControlService'
 import QRCode from 'qrcode'
 import { CursorImport } from './services/cursorImport'
@@ -337,7 +338,20 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     listProjects: () => store.listProjects(),
     listSessions: () => store.listSessions(),
     listArchivedSessions: () => store.listArchivedSessions(),
-    getSessionEvents: (sessionId: string) => store.getEvents(sessionId),
+    getSessionEvents: (sessionId: string) => slimHistory(store.getEvents(sessionId)),
+    getSessionEventsPage: (sessionId: string, opts?: BridgeEventPageOpts) =>
+      eventPage(
+        {
+          backward: (before) => store.iterateEventsBackward(sessionId, before),
+          latest: (kind, before) => store.latestEventOfKind(sessionId, kind, before)
+        },
+        {
+          before: typeof opts?.before === 'number' ? opts.before : undefined,
+          budget:
+            (typeof opts?.budget === 'number' ? opts.budget : undefined) ??
+            (Number(process.env.HANG4R_TEST_BRIDGE_PAGE_BYTES) || undefined)
+        }
+      ),
     prompt: (sessionId: string, text: string, images?: PromptImage[]) =>
       sessions.prompt(sessionId, text, images),
     interrupt: (sessionId: string) => sessions.interrupt(sessionId),
@@ -408,6 +422,16 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   // e2e: impersonate an older desktop that predates some methods
   for (const m of (process.env.HANG4R_TEST_BRIDGE_WITHOUT ?? '').split(',')) {
     if (m) delete bridgeApi[m]
+  }
+  // e2e: a slow desktop, e.g. `getSessionEventsPage=25000`
+  for (const spec of (process.env.HANG4R_TEST_BRIDGE_DELAY ?? '').split(',')) {
+    const [m, ms] = spec.split('=')
+    const fn = bridgeApi[m]
+    if (!fn || !Number(ms)) continue
+    bridgeApi[m] = async (...args: never[]) => {
+      await new Promise((r) => setTimeout(r, Number(ms)))
+      return fn(...args)
+    }
   }
   bridgeService = new BridgeService(
     settings,

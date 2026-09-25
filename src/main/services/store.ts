@@ -317,6 +317,37 @@ export class Store {
     ).map((r) => ({ sessionId, seq: r.id, ts: r.ts, event: JSON.parse(r.event_json) }))
   }
 
+  /** Newest first, parsed lazily — a phone page reads a few hundred rows of
+   *  sessions that have tens of thousands. Subagent streams are skipped in SQL. */
+  *iterateEventsBackward(sessionId: string, before?: number): Generator<SessionEvent> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, ts, event_json FROM session_events
+         WHERE session_id = ? AND id < ?
+           AND json_extract(event_json, '$.parentToolUseId') IS NULL
+         ORDER BY id DESC`
+      )
+      .iterate(sessionId, before ?? Number.MAX_SAFE_INTEGER) as Iterable<{
+      id: number
+      ts: number
+      event_json: string
+    }>
+    for (const r of rows) {
+      yield { sessionId, seq: r.id, ts: r.ts, event: JSON.parse(r.event_json) }
+    }
+  }
+
+  latestEventOfKind(sessionId: string, kind: string, before: number): SessionEvent | undefined {
+    const r = this.db
+      .prepare(
+        `SELECT id, ts, event_json FROM session_events
+         WHERE session_id = ? AND id < ? AND json_extract(event_json, '$.kind') = ?
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(sessionId, before, kind) as { id: number; ts: number; event_json: string } | undefined
+    return r && { sessionId, seq: r.id, ts: r.ts, event: JSON.parse(r.event_json) }
+  }
+
   /**
    * The tail of a session's transcript: the last `maxTurns` completed turns and
    * everything after them, plus the init event, which carries the session's

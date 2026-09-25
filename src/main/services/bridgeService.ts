@@ -11,6 +11,7 @@ import {
   type BridgeStatus
 } from '../../shared/bridge'
 import type { SessionEvent, SessionMeta } from '../../shared/protocol'
+import { slimEventForPhone } from './bridgeHistory'
 
 interface SettingsLike {
   getSetting(key: string): string | null
@@ -157,8 +158,17 @@ export class BridgeService {
     const kind = ev.event.kind
     // deltas and mid-turn usage are the firehose — only for the session the
     // phone is actually looking at; everything else drives badges/approvals
-    if ((kind === 'block-delta' || kind === 'usage') && !this.subs.has(ev.sessionId)) return
-    this.send({ t: 'event', channel: 'agent-event', payload: ev })
+    const forPhone =
+      (kind === 'block-delta' || kind === 'usage') && !this.subs.has(ev.sessionId)
+        ? null
+        : slimEventForPhone(ev.event)
+    if (forPhone) {
+      this.send({
+        t: 'event',
+        channel: 'agent-event',
+        payload: forPhone === ev.event ? ev : { ...ev, event: forPhone }
+      })
+    }
     // an approval answered ANYWHERE makes its pending push moot
     if (kind === 'permission-resolved' || kind === 'question-resolved') {
       this.cancelNotify(ev.sessionId)

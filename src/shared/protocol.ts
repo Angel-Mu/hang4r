@@ -558,6 +558,7 @@ export interface BrowserHotkey {
 /* ---------------- IPC surface ---------------- */
 
 import type { BridgeStatus } from './bridge'
+import type { LinkDiagnostics } from './bridgeLink'
 
 export interface Hang4rApi {
   // mobile bridge (docs/mobile/design.md)
@@ -569,6 +570,9 @@ export interface Hang4rApi {
   bridgePairing(): Promise<{ url: string; qrDataUrl: string }>
   /** rotate the pairing secret; previously paired phones are cut off */
   bridgeRepair(): Promise<{ url: string; qrDataUrl: string }>
+  /** replace the relay socket now, keeping the pairing */
+  bridgeReconnect(): Promise<BridgeStatus>
+  bridgeDiagnostics(): Promise<LinkDiagnostics>
   onBridgeStatus(cb: (s: BridgeStatus) => void): () => void
   /** the phone opened this session — clear its bell/badge here too */
   onSessionSeen(cb: (sessionId: string) => void): () => void

@@ -27,6 +27,8 @@ const api: Hang4rApi = {
   bridgeSetKeepAwake: (on: boolean) => ipcRenderer.invoke('bridge:set-keep-awake', on),
   bridgePairing: () => ipcRenderer.invoke('bridge:pairing'),
   bridgeRepair: () => ipcRenderer.invoke('bridge:repair'),
+  bridgeReconnect: () => ipcRenderer.invoke('bridge:reconnect'),
+  bridgeDiagnostics: () => ipcRenderer.invoke('bridge:diagnostics'),
   onBridgeStatus: (cb) => {
     const handler = (_e: unknown, s: Parameters<typeof cb>[0]): void => cb(s)
     ipcRenderer.on('bridge:status', handler)

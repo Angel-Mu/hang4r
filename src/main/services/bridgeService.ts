@@ -1,5 +1,11 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, randomUUID } from 'crypto'
-import { BrowserWindow, powerSaveBlocker } from 'electron'
+import { readFileSync } from 'fs'
+import { writeFile } from 'fs/promises'
+import { networkInterfaces } from 'os'
+import { BrowserWindow, powerMonitor, powerSaveBlocker } from 'electron'
+// not the global WebSocket: only `ws` can send protocol pings, and the relay's
+// edge answers those — the one reply a desktop gets with no phone connected
+import WebSocket, { type RawData } from 'ws'
 import {
   DEFAULT_RELAY_URL,
   HKDF_INFO_E2E,
@@ -12,6 +18,16 @@ import {
 } from '../../shared/bridge'
 import type { SessionEvent, SessionMeta } from '../../shared/protocol'
 import { slimEventForPhone } from './bridgeHistory'
+import {
+  DIAG_LOG_MAX,
+  LINK_CONNECT_TIMEOUT_MS,
+  LINK_SILENCE_MS,
+  emptyDiagnostics,
+  linkIsSilent,
+  pushLog,
+  type LinkDiagnostics,
+  type LinkLogEntry
+} from '../../shared/bridgeLink'
 
 interface SettingsLike {
   getSetting(key: string): string | null
@@ -38,6 +54,32 @@ const NOTIFY_DELAY_FOCUSED_APPROVAL_MS = 60_000
 const LIVE_WORK_POLL_MS = 5_000
 const BACKOFF_MIN_MS = 1_000
 const BACKOFF_MAX_MS = 30_000
+/** how long a wake-up probe waits for any frame before replacing the socket */
+const PROBE_MS = 5_000
+const NET_POLL_MS = 5_000
+
+/** e2e: `ping=1000,silence=4000,connect=15000` */
+function linkTiming(): { ping: number; silence: number; connect: number } {
+  const t = { ping: PING_MS, silence: LINK_SILENCE_MS, connect: LINK_CONNECT_TIMEOUT_MS }
+  for (const spec of (process.env.HANG4R_TEST_BRIDGE_TIMING ?? '').split(',')) {
+    const [k, v] = spec.split('=')
+    if (k in t && Number(v) > 0) t[k as keyof typeof t] = Number(v)
+  }
+  return t
+}
+
+/** Routable IPv4 addresses only: link-local and AWDL churn would reconnect
+ *  for nothing, while a Wi-Fi/VPN/Ethernet switch always changes this. */
+function networkSignature(): string {
+  const addrs: string[] = []
+  for (const [name, list] of Object.entries(networkInterfaces())) {
+    for (const a of list ?? []) {
+      if (a.internal || a.family !== 'IPv4' || a.address.startsWith('169.254.')) continue
+      addrs.push(`${name}=${a.address}`)
+    }
+  }
+  return addrs.sort().join(',')
+}
 
 /**
  * Desktop side of the mobile bridge: one outbound WebSocket to the relay,
@@ -62,6 +104,19 @@ export class BridgeService {
   private pendingNotifies = new Map<string, ReturnType<typeof setTimeout>>()
   private liveWorkTimer: ReturnType<typeof setInterval> | null = null
   private lastLiveWork: string | null = null
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null
+  private connectTimer: ReturnType<typeof setTimeout> | null = null
+  private netTimer: ReturnType<typeof setInterval> | null = null
+  private netSignature = networkSignature()
+  private timing = linkTiming()
+  /** e2e: the first socket hears nothing — a link that died without a close */
+  private deafNext = process.env.HANG4R_TEST_BRIDGE_DEAF === '1'
+  private everConnected = false
+  private diag: LinkDiagnostics = emptyDiagnostics('desktop')
+  private diagWrite: Promise<void> | null = null
+  private diagDirty = false
+  private onResume = (): void => this.wake('system resumed', false)
+  private onUnlock = (): void => this.wake('screen unlocked', true)
 
   constructor(
     private settings: SettingsLike,
@@ -69,8 +124,15 @@ export class BridgeService {
     private appVersion: string,
     private onStatus: (s: BridgeStatus) => void,
     private titleFor: (sessionId: string) => string | null = () => null,
-    private liveWork: () => Promise<string[]> = async () => []
+    private liveWork: () => Promise<string[]> = async () => [],
+    private diagPath: string | null = null
   ) {
+    this.loadLog()
+    this.diag.state = this.enabled ? 'connecting' : 'off'
+    this.diag.stateSince = Date.now()
+    powerMonitor.on('resume', this.onResume)
+    powerMonitor.on('unlock-screen', this.onUnlock)
+    this.netTimer = setInterval(() => this.checkNetwork(), NET_POLL_MS)
     if (this.enabled) this.connect()
     this.syncKeepAwake()
   }
@@ -121,8 +183,12 @@ export class BridgeService {
 
   setEnabled(on: boolean): BridgeStatus {
     this.settings.setSetting(ENABLED_KEY, on ? '1' : '0')
+    this.log(on ? 'phone access turned on' : 'phone access turned off')
     if (on) this.connect()
-    else this.disconnect()
+    else {
+      this.disconnect()
+      this.setLinkState('off')
+    }
     this.syncKeepAwake()
     return this.status()
   }
@@ -147,6 +213,7 @@ export class BridgeService {
     this.settings.setSetting(NEEDS_RESET_KEY, '1')
     this.key = null
     this.relayToken = ''
+    this.log('re-paired: new pairing secret, every phone must scan the new QR')
     if (this.enabled) {
       this.disconnect()
       this.connect()
@@ -276,11 +343,60 @@ export class BridgeService {
     this.send({ t: 'live-work', ids })
   }
 
+  /** Replace the relay socket now, keeping the pairing. */
+  reconnect(reason = 'reconnect requested'): BridgeStatus {
+    if (!this.enabled || this.disposed) return this.status()
+    if (!this.ws) this.log(reason)
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    this.backoffMs = BACKOFF_MIN_MS
+    this.dropSocket(reason)
+    this.connect()
+    return this.status()
+  }
+
+  diagnostics(): LinkDiagnostics {
+    return { ...this.diag, log: [...this.diag.log] }
+  }
+
+  /** After sleep the socket is dead for sure; after an unlock or a network
+   *  switch it may be fine — ask it first, replace it only if it stays mute. */
+  private wake(reason: string, probeFirst: boolean): void {
+    if (!this.enabled || this.disposed) return
+    const ws = this.ws
+    if (!probeFirst || !ws || ws.readyState !== WebSocket.OPEN) {
+      if (ws?.readyState === WebSocket.CONNECTING) return
+      this.reconnect(reason)
+      return
+    }
+    this.log(`${reason}: probing the relay link`)
+    const before = this.diag.lastRxAt
+    this.pingNow()
+    setTimeout(() => {
+      if (this.ws === ws && this.diag.lastRxAt === before) {
+        this.reconnect(`${reason}: no answer in ${PROBE_MS / 1000}s`)
+      }
+    }, PROBE_MS)
+  }
+
+  private checkNetwork(): void {
+    const sig = networkSignature()
+    if (sig === this.netSignature) return
+    this.netSignature = sig
+    this.wake('network changed', true)
+  }
+
   dispose(): void {
     this.disposed = true
     this.cancelNotify()
     this.disconnect()
     this.syncKeepAwake()
+    powerMonitor.off('resume', this.onResume)
+    powerMonitor.off('unlock-screen', this.onUnlock)
+    if (this.netTimer) clearInterval(this.netTimer)
+    this.netTimer = null
   }
 
   private identity(): BridgeIdentity {
@@ -303,9 +419,9 @@ export class BridgeService {
   private deriveKeys(): void {
     const secret = Buffer.from(this.identity().pairSecret, 'base64url')
     this.key = Buffer.from(hkdfSync('sha256', secret, HKDF_SALT, HKDF_INFO_E2E, 32))
-    this.relayToken = Buffer.from(hkdfSync('sha256', secret, HKDF_SALT, HKDF_INFO_RELAY, 32)).toString(
-      'base64url'
-    )
+    this.relayToken = Buffer.from(
+      hkdfSync('sha256', secret, HKDF_SALT, HKDF_INFO_RELAY, 32)
+    ).toString('base64url')
   }
 
   private connect(): void {
@@ -314,30 +430,69 @@ export class BridgeService {
     const id = this.identity()
     const reset = this.settings.getSetting(NEEDS_RESET_KEY) === '1' ? '&reset=1' : ''
     const url = `${this.relayUrl()}/device/${id.deviceId}?t=${encodeURIComponent(this.relayToken)}${reset}`
+    if (this.everConnected) this.diag.reconnects++
+    this.everConnected = true
+    this.setLinkState('connecting')
     let ws: WebSocket
     try {
       ws = new WebSocket(url)
-    } catch {
+    } catch (err) {
+      this.log(`connect failed: ${err instanceof Error ? err.message : String(err)}`)
+      this.setLinkState('waiting')
       this.scheduleReconnect()
       return
     }
-    ws.binaryType = 'arraybuffer'
     this.ws = ws
-    ws.onopen = (): void => {
+    const deaf = this.deafNext
+    this.deafNext = false
+    this.connectTimer = setTimeout(() => {
+      this.connectTimer = null
+      if (this.ws !== ws || ws.readyState === WebSocket.OPEN) return
+      this.dropSocket(`connect timed out after ${this.timing.connect / 1000}s`)
+      this.scheduleReconnect()
+    }, this.timing.connect)
+    ws.on('open', () => {
       if (this.ws !== ws) return
+      this.clearConnectTimer()
       this.relayConnected = true
       this.backoffMs = BACKOFF_MIN_MS
       if (reset) this.settings.setSetting(NEEDS_RESET_KEY, '0')
+      this.diag.lastRxAt = Date.now()
+      this.setLinkState('open')
+      this.log('relay socket open')
       this.send({ t: 'hello', role: 'desktop', appVersion: this.appVersion })
-      this.pingTimer = setInterval(() => this.send({ t: 'ping' }), PING_MS)
+      this.pingTimer = setInterval(() => this.pingNow(), this.timing.ping)
+      this.watchdogTimer = setInterval(
+        () => {
+          if (this.ws !== ws || !linkIsSilent(this.diag.lastRxAt, Date.now(), this.timing.silence))
+            return
+          this.dropSocket(`no frames for ${Math.round(this.timing.silence / 1000)}s`)
+          this.scheduleReconnect()
+        },
+        Math.min(5_000, this.timing.silence / 4)
+      )
       this.emitStatus()
-    }
-    ws.onmessage = (e: MessageEvent): void => {
-      if (typeof e.data === 'string') {
+    })
+    ws.on('pong', () => {
+      if (this.ws === ws && !deaf) this.diag.lastRxAt = Date.now()
+    })
+    ws.on('message', (raw: RawData, isBinary: boolean) => {
+      if (this.ws !== ws || deaf) return
+      this.diag.lastRxAt = Date.now()
+      const data = Buffer.isBuffer(raw)
+        ? raw
+        : Array.isArray(raw)
+          ? Buffer.concat(raw)
+          : Buffer.from(raw)
+      if (!isBinary) {
         try {
-          const frame = JSON.parse(e.data) as { t?: string; connected?: boolean }
+          const frame = JSON.parse(data.toString('utf8')) as { t?: string; connected?: boolean }
           if (frame.t === 'peer') {
+            const was = this.phoneConnected
             this.phoneConnected = frame.connected === true
+            if (was !== this.phoneConnected) {
+              this.log(this.phoneConnected ? 'phone connected' : 'no phone connected')
+            }
             if (!this.phoneConnected) this.subs.clear()
             this.syncLiveWorkPolling()
             this.emitStatus()
@@ -347,15 +502,53 @@ export class BridgeService {
         }
         return
       }
-      this.onCipherFrame(Buffer.from(e.data as ArrayBuffer))
-    }
-    ws.onclose = (): void => {
+      this.onCipherFrame(data)
+    })
+    ws.on('close', (code: number, reason: Buffer) => {
       if (this.ws !== ws) return
+      this.diag.lastClose = { code, reason: reason.toString('utf8'), at: Date.now() }
+      this.log(`relay socket closed: ${code}${reason.length ? ` ${reason.toString('utf8')}` : ''}`)
       this.teardownSocket()
-      if (!this.disposed && this.enabled) this.scheduleReconnect()
+      if (!this.disposed && this.enabled) {
+        this.setLinkState('waiting')
+        this.scheduleReconnect()
+      }
+    })
+    ws.on('error', (err: Error) => {
+      // a listener is mandatory (ws throws otherwise); close follows and reconnects
+      if (this.ws === ws) this.log(`socket error: ${err.message}`)
+    })
+  }
+
+  private pingNow(): void {
+    this.send({ t: 'ping' })
+    try {
+      this.ws?.ping()
+    } catch {
+      // not open; the watchdog or close handler takes it from here
     }
-    ws.onerror = (): void => {
-      // onclose always follows; reconnect is handled there
+  }
+
+  /** Abandon the current socket without waiting for a close handshake a dead
+   *  link would never deliver. */
+  private dropSocket(reason: string): void {
+    const ws = this.ws
+    if (!ws) return
+    this.diag.lastClose = { code: 0, reason, at: Date.now() }
+    this.log(`dropped the relay socket: ${reason}`)
+    this.teardownSocket()
+    this.setLinkState('waiting')
+    try {
+      ws.terminate()
+    } catch {
+      // already gone
+    }
+  }
+
+  private clearConnectTimer(): void {
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer)
+      this.connectTimer = null
     }
   }
 
@@ -379,9 +572,14 @@ export class BridgeService {
     this.phoneConnected = false
     this.subs.clear()
     this.syncLiveWorkPolling()
+    this.clearConnectTimer()
     if (this.pingTimer) {
       clearInterval(this.pingTimer)
       this.pingTimer = null
+    }
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer)
+      this.watchdogTimer = null
     }
     this.emitStatus()
   }
@@ -394,6 +592,42 @@ export class BridgeService {
       this.reconnectTimer = null
       if (this.enabled) this.connect()
     }, delay)
+  }
+
+  private setLinkState(state: string): void {
+    if (this.diag.state === state) return
+    this.diag.state = state
+    this.diag.stateSince = Date.now()
+  }
+
+  private log(msg: string): void {
+    pushLog(this.diag.log, msg)
+    this.saveLog()
+  }
+
+  private loadLog(): void {
+    if (!this.diagPath) return
+    try {
+      const saved = JSON.parse(readFileSync(this.diagPath, 'utf8')) as LinkLogEntry[]
+      if (Array.isArray(saved)) this.diag.log = saved.slice(-DIAG_LOG_MAX)
+    } catch {
+      // first run or unreadable — start fresh
+    }
+  }
+
+  private saveLog(): void {
+    if (!this.diagPath) return
+    this.diagDirty = true
+    if (this.diagWrite) return
+    const path = this.diagPath
+    const flush = async (): Promise<void> => {
+      while (this.diagDirty) {
+        this.diagDirty = false
+        await writeFile(path, JSON.stringify(this.diag.log)).catch(() => {})
+      }
+      this.diagWrite = null
+    }
+    this.diagWrite = flush()
   }
 
   private onCipherFrame(buf: Buffer): void {
@@ -419,6 +653,8 @@ export class BridgeService {
         this.send({ t: 'ping' })
         break
       case 'hello':
+        if (this.diag.peerVersion !== frame.appVersion) this.log(`phone app ${frame.appVersion}`)
+        this.diag.peerVersion = frame.appVersion
         break
     }
   }
@@ -443,6 +679,7 @@ export class BridgeService {
     if (frame.t === 'event' && !this.phoneConnected) return
     try {
       this.ws.send(this.encrypt(Buffer.from(JSON.stringify(frame), 'utf8')))
+      this.diag.lastSentAt = Date.now()
     } catch {
       // socket died mid-send; onclose reconnects
     }

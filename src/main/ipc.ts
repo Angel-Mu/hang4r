@@ -441,7 +441,8 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send('bridge:status', s)
     },
     (sessionId) => store.getSession(sessionId)?.title ?? null,
-    () => sessions.sessionsWithLiveWork()
+    () => sessions.sessionsWithLiveWork(),
+    join(app.getPath('userData'), 'bridge-log.json')
   )
   ipcMain.handle('bridge:status', () => bridgeService!.status())
   ipcMain.handle('bridge:set-enabled', (_e, on: boolean) => bridgeService!.setEnabled(on))
@@ -453,6 +454,8 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     const url = bridgeService!.pairingUrl()
     return { url, qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 560 }) }
   })
+  ipcMain.handle('bridge:reconnect', () => bridgeService!.reconnect('Reconnect clicked'))
+  ipcMain.handle('bridge:diagnostics', () => bridgeService!.diagnostics())
   ipcMain.handle('bridge:repair', async () => {
     const url = bridgeService!.repair()
     return { url, qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 560 }) }

@@ -3,6 +3,7 @@ import { useHang4r, type FileView } from '../state/store'
 import { THEMES, type Theme } from '../theme'
 import type { ModelChoice, SettingsScope, UpdateStatus } from '../../../shared/protocol'
 import type { BridgeStatus } from '../../../shared/bridge'
+import { diagnosticsText, type LinkDiagnostics } from '../../../shared/bridgeLink'
 import {
   CLAUDE_MODELS,
   EFFORT_LEVELS,
@@ -1173,10 +1174,21 @@ function PhoneBridge(): JSX.Element {
             </div>
           </Field>
           <Field label="Status">
-            <p className="settings-note">
-              Relay: {status.relayConnected ? '🟢 connected' : '🔴 connecting…'} · Phone:{' '}
-              {status.phoneConnected ? '🟢 online' : '⚪ not connected'}
-            </p>
+            <div className="bridge-status-row">
+              <p className="settings-note">
+                Relay: {status.relayConnected ? '🟢 connected' : '🔴 connecting…'} · Phone:{' '}
+                {status.phoneConnected ? '🟢 online' : '⚪ not connected'}
+              </p>
+              <button
+                className="ghost-btn bridge-reconnect"
+                onClick={() => void window.hang4r.bridgeReconnect().then(setStatus)}
+              >
+                Reconnect
+              </button>
+            </div>
+          </Field>
+          <Field label="Connection">
+            <BridgeDiagnosticsPanel />
           </Field>
           <Field label="Pair a phone">
             <>
@@ -1206,9 +1218,13 @@ function PhoneBridge(): JSX.Element {
                           {copied ? 'Copied ✓' : 'Copy pairing link'}
                         </button>
                         <button className="ghost-btn" onClick={() => void repair()}>
-                          Re-pair (cuts off paired phones)
+                          Re-pair with a new code
                         </button>
                       </div>
+                      <p className="notify-hint">
+                        Re-pair makes a new code: every phone paired now is cut off and must scan
+                        the new QR code. To fix a stuck connection, use Reconnect instead.
+                      </p>
                     </>
                   )}
                 </div>
@@ -1220,6 +1236,78 @@ function PhoneBridge(): JSX.Element {
         </>
       )}
     </>
+  )
+}
+
+function ago(at: number | null, now: number): string {
+  if (at === null) return 'never'
+  const s = Math.max(0, Math.round((now - at) / 1000))
+  return s < 90 ? `${s}s ago` : `${Math.round(s / 60)}m ago`
+}
+
+function BridgeDiagnosticsPanel(): JSX.Element {
+  const [diag, setDiag] = useState<LinkDiagnostics | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const read = (): void => {
+      void window.hang4r.bridgeDiagnostics().then((d) => {
+        if (!alive) return
+        setDiag(d)
+        setNow(Date.now())
+      })
+    }
+    read()
+    const t = setInterval(read, 2000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [])
+  if (!diag) return <p className="settings-note">…</p>
+  const copy = async (): Promise<void> => {
+    await navigator.clipboard.writeText(diagnosticsText(diag))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  const close = diag.lastClose
+  return (
+    <div className="bridge-diag">
+      <dl className="bridge-diag-grid">
+        <dt>State</dt>
+        <dd data-diag="state">
+          {diag.state}
+          {diag.stateSince ? ` · ${ago(diag.stateSince, now)}` : ''}
+        </dd>
+        <dt>Last sent</dt>
+        <dd>{ago(diag.lastSentAt, now)}</dd>
+        <dt>Last received</dt>
+        <dd>{ago(diag.lastRxAt, now)}</dd>
+        <dt>Last close</dt>
+        <dd data-diag="close">
+          {close
+            ? `${close.code ? `${close.code} ` : ''}${close.reason || '(no reason)'} · ${ago(close.at, now)}`
+            : 'none'}
+        </dd>
+        <dt>Reconnects</dt>
+        <dd data-diag="reconnects">{diag.reconnects}</dd>
+        <dt>Phone app</dt>
+        <dd>{diag.peerVersion ?? 'not seen yet'}</dd>
+      </dl>
+      {diag.log.length > 0 && (
+        <ol className="bridge-diag-log">
+          {diag.log.slice(-6).map((e, i) => (
+            <li key={`${e.at}-${i}`}>
+              <time>{new Date(e.at).toLocaleTimeString()}</time> {e.msg}
+            </li>
+          ))}
+        </ol>
+      )}
+      <button className="ghost-btn" onClick={() => void copy()}>
+        {copied ? 'Copied ✓' : 'Copy connection details'}
+      </button>
+    </div>
   )
 }
 

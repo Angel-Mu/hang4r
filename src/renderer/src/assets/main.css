@@ -6958,3 +6958,42 @@ button:disabled {
   display: flex;
   gap: 8px;
 }
+.bridge-status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.bridge-status-row .settings-note {
+  margin: 0;
+}
+.bridge-diag {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.bridge-diag-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 14px;
+  margin: 0;
+  font-size: 12px;
+}
+.bridge-diag-grid dt {
+  color: var(--text-muted);
+}
+.bridge-diag-grid dd {
+  margin: 0;
+  font-family: var(--mono);
+}
+.bridge-diag-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.bridge-diag-log time {
+  opacity: 0.7;
+}

@@ -1180,7 +1180,8 @@ test('phone: a link that goes quiet while in the foreground is probed and replac
     await expect(card.locator('[data-diag="state"]')).toContainText('online')
     const before = sockets
     deafSocket = sockets
-    await expect.poll(() => sockets, { timeout: 30_000 }).toBeGreaterThan(before)
+    // silence 4s + tick 1s + probe 3s — well before a 20s call timeout would notice
+    await expect.poll(() => sockets, { timeout: 12_000 }).toBeGreaterThan(before)
     await expect(card.locator('[data-diag="state"]')).toContainText('online', { timeout: 20_000 })
     await expect(card).toContainText('nothing received for 4s — probing')
     await expect(card.locator('[data-diag="close"]')).toContainText('probe unanswered')
@@ -1217,7 +1218,9 @@ test('phone: after a re-pair on the computer, the old pairing says to scan the Q
     const fresh = await desktop.evaluate(() => window.hang4r.bridgeRepair())
     // still connected: the desktop now speaks a key this phone doesn't hold
     await expect(banner).toBeVisible({ timeout: 30_000 })
-    await expect(banner).toContainText('Pairing may have changed on your computer — scan the QR again')
+    await expect(banner).toContainText(
+      'Pairing may have changed on your computer — scan the QR again'
+    )
     // a cold start with the stale pairing: the relay refuses every socket
     await phone.reload()
     await expect(phone.locator('.session-row').first()).toBeVisible()

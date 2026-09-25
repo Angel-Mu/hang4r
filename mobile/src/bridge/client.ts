@@ -104,6 +104,9 @@ export class BridgeClient {
     this.watchdogTimer ??= window.setInterval(() => {
       if (this.state !== 'online' || this.probing || document.visibilityState !== 'visible') return
       if (!linkIsSilent(this.lastRxAt, Date.now(), this.timing.silence)) return
+      // a transcript page is one frame: nothing else arrives until it lands,
+      // and its own timeout already bounds the wait
+      if ([...this.waiters.values()].some((w) => w.history)) return
       this.log(`nothing received for ${Math.round(this.timing.silence / 1000)}s — probing`)
       this.checkAlive()
     }, this.timing.tick)

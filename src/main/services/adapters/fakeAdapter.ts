@@ -294,6 +294,46 @@ export class FakeAdapter implements AgentAdapter {
       })
     }
 
+    // An agent narrating between tool calls: the interim text is NOT the end of
+    // the thread, and reading it as one retired a still-working agent.
+    if (text.includes('background agent still working')) {
+      const workId = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 20,
+        block: {
+          type: 'tool_use',
+          id: workId,
+          name: 'Agent',
+          input: { description: 'long errand', subagent_type: 'general-purpose' }
+        },
+        parentToolUseId: null
+      })
+      this.emit({
+        kind: 'tool-result',
+        toolUseId: workId,
+        content: `Async agent launched successfully. agentId: bg_${workId.slice(0, 12)}`,
+        isError: false,
+        parentToolUseId: null
+      })
+      const step = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 21,
+        block: { type: 'text', text: 'Good, on the correct branch. Let me read the sources.' },
+        parentToolUseId: workId
+      })
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 22,
+        block: { type: 'tool_use', id: step, name: 'Read', input: { file_path: '/tmp/x' } },
+        parentToolUseId: workId
+      })
+    }
+
     // The CLI sends no completion notification, so the thread's own closing
     // text block is the finish signal this fixture exists to produce.
     if (text.includes('background agent that finishes')) {

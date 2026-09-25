@@ -343,3 +343,24 @@ test('an async agent that reports back stops counting as live work', async () =>
     })
     .not.toContain(sid)
 })
+
+// Agents write text BETWEEN tool calls. Retiring on the first such text told
+// SubagentInspector the owning process had died, so a working agent read
+// "interrupted · no result".
+test('an agent that narrates between tool calls is still live work', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn.project-add').first().click()
+  await page.locator('.dialog-prompt').fill('background agent still working')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+
+  const tile = page.locator('.tile').first()
+  await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  const sid = (await page.evaluate(() => window.hang4r.listSessions()))[0].id
+  expect(await page.evaluate(() => window.hang4r.sessionsWithLiveWork())).toContain(sid)
+  expect(await page.evaluate((id) => window.hang4r.liveAgentIds(id), sid)).not.toEqual([])
+})

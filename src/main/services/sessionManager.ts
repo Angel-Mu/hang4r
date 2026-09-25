@@ -1028,28 +1028,30 @@ export class SessionManager {
   }
 
   /**
-   * Retire an async agent once its thread goes quiet. The launch was otherwise
-   * the only thing ever recorded, so one background agent kept the sidebar
-   * claiming live work for the rest of the app run.
+   * Track an async agent's thread so the launch is not the only thing ever
+   * recorded — one background agent otherwise kept the sidebar claiming live
+   * work for the rest of the app run.
+   *
+   * Reversible, because an agent writes text BETWEEN tool calls: a thread that
+   * has gone quiet is only provisionally finished, and the next block puts it
+   * back. Retiring for good on the first such text read a working agent as
+   * "interrupted · no result", since liveAgentIds missing an id is what tells
+   * SubagentInspector the owning process died.
    */
   private noteAsyncAgentProgress(sessionId: string, ev: AgentEvent): void {
-    const open = this.asyncAgentOpenTools.get(sessionId) ?? new Set<string>()
-    if (ev.kind === 'tool-result') open.delete(ev.toolUseId)
-    if (ev.kind === 'block-final' && ev.parentToolUseId && ev.block.type === 'tool_use') {
-      open.add(ev.block.id)
-    }
-    this.asyncAgentOpenTools.set(sessionId, open)
-    if (
-      ev.kind !== 'block-final' ||
-      !ev.parentToolUseId ||
-      ev.block.type !== 'text' ||
-      !ev.block.text.trim() ||
-      open.size > 0
-    ) {
-      return
-    }
+    if (ev.kind === 'tool-result') this.asyncAgentOpenTools.get(sessionId)?.delete(ev.toolUseId)
+    if (ev.kind !== 'block-final' || !ev.parentToolUseId) return
     const agentId = this.asyncAgentByTool.get(sessionId)?.get(ev.parentToolUseId)
-    if (agentId) this.liveAsyncAgents.get(sessionId)?.delete(agentId)
+    if (!agentId) return
+
+    let open = this.asyncAgentOpenTools.get(sessionId)
+    if (!open) this.asyncAgentOpenTools.set(sessionId, (open = new Set()))
+    if (ev.block.type === 'tool_use') open.add(ev.block.id)
+
+    const quiet = ev.block.type === 'text' && !!ev.block.text.trim() && open.size === 0
+    const live = this.liveAsyncAgents.get(sessionId)
+    if (quiet) live?.delete(agentId)
+    else live?.add(agentId)
   }
 
   /** agentIds still owned by this session's LIVE process; anything else the

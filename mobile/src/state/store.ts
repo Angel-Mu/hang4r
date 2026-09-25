@@ -1,9 +1,15 @@
 import { create } from 'zustand'
 import type { Project, QuestionAnswer, SessionEvent, SessionMeta } from '@shared/protocol'
-import type { BridgeSidebarState } from '@shared/bridge'
+import type { BridgeEventPage, BridgeSidebarState } from '@shared/bridge'
 import type { SidebarLayout } from '@shared/sidebarOrder'
 import { BridgeClient, type ConnectionState } from '../bridge/client'
-import { applyEvent, countPending, emptyTranscript, type Transcript } from './transcript'
+import {
+  applyEvent,
+  countPending,
+  emptyTranscript,
+  prependPage,
+  type Transcript
+} from './transcript'
 import { IMAGE_ONLY_PROMPT } from '../hooks/useImageAttachments'
 
 const PAIRING_KEY = 'h4.pairing'
@@ -229,6 +235,11 @@ interface AppState {
   transcriptLoading: boolean
   /** showing cached/none while the live fetch failed or the link is down */
   transcriptStale: boolean
+  loadingOlder: boolean
+  /** the last older-page fetch failed — no auto-retry until asked */
+  olderFailed: boolean
+  /** fetch the page before the open transcript's first loaded turn */
+  loadOlder(): Promise<void>
   /** sessions that hit permission/question/turn-complete while not open */
   attention: Record<string, boolean>
   /** unresolved permission/question requests per session — drives the
@@ -305,6 +316,53 @@ interface AppState {
   /** interrupt the running turn and send this one next */
   sendQueuedNow(sessionId: string, id: string): Promise<void>
   flushQueue(sessionId: string): Promise<void>
+}
+
+/** reload keeps at most this many older pages the user had scrolled into */
+const RELOAD_MAX_PAGES = 20
+
+/**
+ * The newest page of a transcript. `keepFrom` is the cursor of what was on
+ * screen (null = all of it): a reload reaches back that far so scrolled-in
+ * history doesn't vanish. A desktop without paging sends everything.
+ */
+async function fetchTranscript(id: string, keepFrom?: number | null): Promise<Transcript> {
+  const c = bridge()
+  let page: BridgeEventPage
+  try {
+    page = await c.callHistory<BridgeEventPage>('getSessionEventsPage', id, {})
+  } catch (err) {
+    if (!isUnknownMethod(err)) throw err
+    const t = emptyTranscript()
+    for (const ev of await c.callHistory<SessionEvent[]>('getSessionEvents', id)) applyEvent(t, ev)
+    return t
+  }
+  let t = emptyTranscript()
+  for (const ev of page.events) applyEvent(t, ev)
+  t.cursor = page.cursor
+  for (let n = 0; n < RELOAD_MAX_PAGES; n++) {
+    const cursor = t.cursor
+    if (keepFrom === undefined || cursor == null || (keepFrom !== null && cursor <= keepFrom)) break
+    const older = await c.callHistory<BridgeEventPage>('getSessionEventsPage', id, { before: cursor })
+    t = prependPage(t, older.events, older.cursor)
+  }
+  return t
+}
+
+function installTranscript(id: string, t: Transcript): void {
+  useApp.setState((s) => {
+    if (s.openSessionId !== id) return {}
+    saveTranscriptCache(id, t)
+    const init = withInitModel(s.sessionInit, id, t.initModel)
+    return {
+      transcripts: { ...s.transcripts, [id]: t },
+      transcriptLoading: false,
+      transcriptStale: false,
+      olderFailed: false,
+      pendingApprovals: { ...s.pendingApprovals, [id]: countPending(t) },
+      ...(init && { sessionInit: init })
+    }
+  })
 }
 
 let client: BridgeClient | null = null
@@ -450,6 +508,8 @@ export const useApp = create<AppState>((set, get) => ({
   transcripts: loadTranscriptCache(),
   transcriptLoading: false,
   transcriptStale: false,
+  loadingOlder: false,
+  olderFailed: false,
   attention: {},
   pendingApprovals: loadJson<Record<string, number>>(PENDING_KEY, {}),
   sessionInit: loadJson<SessionInit>(SESSION_INIT_KEY, {}),
@@ -643,21 +703,7 @@ export const useApp = create<AppState>((set, get) => ({
       await bridge()
         .call('resyncSession', id)
         .catch(() => {})
-      const events = await bridge().call<SessionEvent[]>('getSessionEvents', id)
-      set((s) => {
-        if (s.openSessionId !== id) return {}
-        const t = emptyTranscript()
-        for (const ev of events) applyEvent(t, ev)
-        saveTranscriptCache(id, t)
-        const init = withInitModel(s.sessionInit, id, t.initModel)
-        return {
-          transcripts: { ...s.transcripts, [id]: t },
-          transcriptLoading: false,
-          transcriptStale: false,
-          pendingApprovals: { ...s.pendingApprovals, [id]: countPending(t) },
-          ...(init && { sessionInit: init })
-        }
-      })
+      installTranscript(id, await fetchTranscript(id, get().transcripts[id]?.cursor))
     } catch {
       // resume with no connection yet — the reconnect's 'online' retriggers this
     }
@@ -808,6 +854,8 @@ export const useApp = create<AppState>((set, get) => ({
       openSessionId: id,
       transcriptLoading: online && !cached,
       transcriptStale: !online,
+      loadingOlder: false,
+      olderFailed: false,
       attention: { ...s.attention, [id]: false },
       transcripts: cached ? s.transcripts : { ...s.transcripts, [id]: emptyTranscript() }
     }))
@@ -824,22 +872,7 @@ export const useApp = create<AppState>((set, get) => ({
       await bridge()
         .call('resyncSession', id)
         .catch(() => {})
-      const events = await bridge().call<SessionEvent[]>('getSessionEvents', id)
-      set((s) => {
-        if (s.openSessionId !== id) return {}
-        const t = emptyTranscript()
-        for (const ev of events) applyEvent(t, ev)
-        const pending = countPending(t)
-        saveTranscriptCache(id, t)
-        const init = withInitModel(s.sessionInit, id, t.initModel)
-        return {
-          transcripts: { ...s.transcripts, [id]: t },
-          transcriptLoading: false,
-          transcriptStale: false,
-          pendingApprovals: { ...s.pendingApprovals, [id]: pending },
-          ...(init && { sessionInit: init })
-        }
-      })
+      installTranscript(id, await fetchTranscript(id))
     } catch (err) {
       // the fetch failed — whatever is on screen is stale, say so honestly
       set({
@@ -847,6 +880,28 @@ export const useApp = create<AppState>((set, get) => ({
         transcriptLoading: false,
         transcriptStale: true
       })
+    }
+  },
+
+  async loadOlder(): Promise<void> {
+    const id = get().openSessionId
+    const cursor = id ? get().transcripts[id]?.cursor : undefined
+    if (!id || typeof cursor !== 'number' || get().loadingOlder) return
+    set({ loadingOlder: true, olderFailed: false })
+    try {
+      const page = await bridge().callHistory<BridgeEventPage>('getSessionEventsPage', id, {
+        before: cursor
+      })
+      set((s) => {
+        const cur = s.transcripts[id]
+        // a reload replaced the transcript meanwhile; this page may not fit it
+        if (s.openSessionId !== id || cur?.cursor !== cursor) return { loadingOlder: false }
+        const next = prependPage(cur, page.events, page.cursor)
+        next.olderLoads = (cur.olderLoads ?? 0) + 1
+        return { transcripts: { ...s.transcripts, [id]: next }, loadingOlder: false }
+      })
+    } catch {
+      set({ loadingOlder: false, olderFailed: true })
     }
   },
 

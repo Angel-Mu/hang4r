@@ -4,7 +4,7 @@ import {
   resolveClaudeModels,
   CLAUDE_MODELS,
   CURRENT_CLAUDE_VERSIONS
-} from '../src/renderer/src/modelChoices'
+} from '../src/shared/claudeModels'
 
 /**
  * Claude model labels must not hard-code a version that goes stale (Angel: the
@@ -23,6 +23,18 @@ test('every named alias has a current-lineup version so the picker is never blan
   // Angel: only the running model ("Fable 5") showed a number; the rest didn't.
   for (const alias of ['opus', 'sonnet', 'fable', 'haiku']) {
     expect(CURRENT_CLAUDE_VERSIONS[alias]).toMatch(/^[A-Z][a-z]+ \d/) // e.g. "Opus 5"
+  }
+})
+
+test("the current-lineup labels match the ids today's CLI resolves each alias to", () => {
+  const today: Record<string, string> = {
+    fable: 'claude-fable-5-1',
+    opus: 'claude-opus-5-5',
+    sonnet: 'claude-sonnet-5',
+    haiku: 'claude-haiku-4-5-20251001'
+  }
+  for (const [alias, id] of Object.entries(today)) {
+    expect(CURRENT_CLAUDE_VERSIONS[alias]).toBe(prettifyClaudeModelId(id))
   }
 })
 

@@ -1,8 +1,8 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { ModelChoice } from '@shared/protocol'
-import { CLAUDE_MODELS, CURRENT_CLAUDE_VERSIONS } from '@shared/claudeModels'
 import { bridge, useApp } from '../state/store'
 import { useNav } from '../components/PushScreen'
+import { useClaudeModels } from '../hooks/useClaudeModels'
 import { AttachButton, PendingImages } from '../components/ImageAttach'
 import { IMAGE_ONLY_PROMPT, useImageAttachments } from '../hooks/useImageAttachments'
 
@@ -16,11 +16,6 @@ const PERMISSION_MODES = [
   { value: 'bypassPermissions', label: 'Bypass (YOLO)' }
 ]
 
-const claudeChoices: ModelChoice[] = CLAUDE_MODELS.map((m) => ({
-  ...m,
-  label: CURRENT_CLAUDE_VERSIONS[m.value] ?? m.label
-}))
-
 export function NewSessionScreen(): JSX.Element {
   const nav = useNav()
   const projects = useApp((s) => s.projects)
@@ -33,7 +28,9 @@ export function NewSessionScreen(): JSX.Element {
     codex: 'unknown',
     cursor: 'unknown'
   })
-  const [models, setModels] = useState<ModelChoice[]>(claudeChoices)
+  const claudeModels = useClaudeModels()
+  const [otherModels, setOtherModels] = useState<ModelChoice[]>([])
+  const models = backend === 'claude' ? claudeModels : otherModels
   const [model, setModel] = useState('')
   const [permissionMode, setPermissionMode] = useState('acceptEdits')
   const [environment, setEnvironment] = useState<'worktree' | 'local'>('worktree')
@@ -51,14 +48,11 @@ export function NewSessionScreen(): JSX.Element {
 
   useEffect(() => {
     setModel('')
-    if (backend === 'claude') {
-      setModels(claudeChoices)
-      return
-    }
-    setModels([{ value: '', label: 'Default model' }])
+    if (backend === 'claude') return
+    setOtherModels([{ value: '', label: 'Default model' }])
     void bridge()
       .call<ModelChoice[]>(backend === 'codex' ? 'listCodexModels' : 'listCursorModels')
-      .then((list) => setModels(list.length ? list : [{ value: '', label: 'Default model' }]))
+      .then((list) => setOtherModels(list.length ? list : [{ value: '', label: 'Default model' }]))
       .catch(() => {})
   }, [backend])
 

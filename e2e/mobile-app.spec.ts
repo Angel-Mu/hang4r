@@ -96,6 +96,19 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
     timeout: 15_000
   })
   await expect(phone.locator('.msg-assistant').first()).toBeVisible()
+  // the CLI-resolved model (init) is captured per session and persisted
+  await expect
+    .poll(() =>
+      phone.evaluate(() =>
+        Object.values(
+          JSON.parse(localStorage.getItem('h4.sessionInit') ?? '{}') as Record<
+            string,
+            { model: string }
+          >
+        ).map((v) => v.model)
+      )
+    )
+    .toContain('fake-model')
 
   // composer grows with multiline text up to its CSS cap, shrinks after send
   const composer = phone.locator('.composer-input')
@@ -170,6 +183,10 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   await phone.click('.topbar-new')
   await expect(phone.locator('.form-screen')).toBeVisible()
   await phone.selectOption('.form-field >> nth=0', project.id)
+  // every Claude alias carries today's lineup version
+  for (const label of ['Opus 5.5', 'Sonnet 5', 'Fable 5.1', 'Haiku 4.5']) {
+    await expect(phone.locator('.form-screen option', { hasText: label })).toHaveCount(1)
+  }
   await phone.click('.segment-item:has-text("Local")')
   await phone.fill('.form-textarea', 'second session from the phone')
   await phone.setInputFiles('.form-screen .attach-btn input[type=file]', pngPath)
@@ -204,6 +221,7 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
 
   // session info sheet: change the model, desktop reflects it
   await phone.click('[aria-label="Session info"]')
+  await expect(phone.locator('.sheet option', { hasText: 'Opus 5.5' })).toHaveCount(1)
   await phone.selectOption('.sheet select', 'sonnet')
   await expect
     .poll(

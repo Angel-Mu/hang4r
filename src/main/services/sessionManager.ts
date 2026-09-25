@@ -55,6 +55,7 @@ import type { SettingsService } from './settingsService'
 type Broadcast = {
   agentEvent(ev: SessionEvent): void
   sessionUpdated(session: SessionMeta): void
+  transcriptReset(sessionId: string): void
 }
 
 /**
@@ -1198,7 +1199,7 @@ export class SessionManager {
       const adapter = await this.ensureAdapter(sessionId)
       const truncated = (await adapter.rewindTurns?.(turns)) ?? false
       if (truncated) {
-        this.store.deleteEventsFrom(sessionId, target.seq)
+        this.truncateTranscript(sessionId, target.seq)
         const agentText = this.writeImageAttachments(session, newText, images)
         adapter.prompt(agentText, images, agentText !== newText ? { displayText: newText } : undefined)
         this.updateSession(sessionId, { status: 'running', lastError: null })
@@ -1213,6 +1214,13 @@ export class SessionManager {
     // headless mode can't ingest images, so don't claim to re-send them there.
     const resendImages = session.backend === 'cursor' ? undefined : images
     await this.prompt(sessionId, newText, resendImages)
+  }
+
+  /** Every view holding this transcript must refetch — deleted events never
+   *  arrive as events, and seq-gated replay only ever appends. */
+  private truncateTranscript(sessionId: string, fromSeq: number): void {
+    this.store.deleteEventsFrom(sessionId, fromSeq)
+    this.broadcast.transcriptReset(sessionId)
   }
 
   /**
@@ -1253,7 +1261,7 @@ export class SessionManager {
     if (!anchor)
       throw new Error("Couldn't locate that message in the Claude session history to rewind.")
 
-    if (target) this.store.deleteEventsFrom(session.id, target.seq)
+    if (target) this.truncateTranscript(session.id, target.seq)
 
     // replace the live adapter with a fork truncated at the anchor. A null
     // parentUuid means the edited message was the very first — start fresh.

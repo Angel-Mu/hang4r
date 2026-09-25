@@ -1138,6 +1138,17 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       })
     })
     window.hang4r.onMarkUnseen((sessionId) => get().setSessionUnseen(sessionId, true))
+    // a rewind (possibly from a phone) deleted events: nothing live says so
+    window.hang4r.onTranscriptReset((sessionId) => {
+      if (!get().transcripts[sessionId]) return
+      void loadTranscriptData(sessionId).then((loaded) => {
+        set((s) =>
+          s.transcripts[sessionId]
+            ? { transcripts: { ...s.transcripts, [sessionId]: loaded.transcript } }
+            : {}
+        )
+      })
+    })
     window.hang4r.onFocusSession((sessionId) => {
       void get().openSession(sessionId)
     })

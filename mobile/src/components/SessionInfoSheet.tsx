@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { ModelChoice, SessionMeta } from '@shared/protocol'
-import { bridge, useApp } from '../state/store'
+import { bridge, needsDesktop, useApp } from '../state/store'
 import type { Transcript } from '../state/transcript'
 import { useClaudeModels } from '../hooks/useClaudeModels'
 
@@ -10,13 +10,6 @@ const PERMISSION_MODES = [
   { value: 'plan', label: 'Plan' },
   { value: 'bypassPermissions', label: 'YOLO' }
 ]
-
-function needsDesktop(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e)
-  return msg.includes('unknown method')
-    ? 'Needs a newer hang4r on your computer — update it and retry.'
-    : msg
-}
 
 /** Bottom sheet with the session's live vitals + controls: model, permission
  *  mode, context-window gauge, branch, stop. */

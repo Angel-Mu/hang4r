@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { Icon } from '@shared/icons'
 import { useApp } from '../state/store'
 import type { Block, Item } from '../state/transcript'
@@ -252,13 +252,15 @@ export function SessionScreen({
     setNearBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120)
   }
 
-  // Slack-style auto-grow: content height up to the CSS max-height cap
-  const autoGrow = (): void => {
+  // Slack-style auto-grow: content height up to the CSS max-height cap. Keyed
+  // on the draft (not onChange) so programmatic changes — the clear after
+  // send — shrink it back too.
+  useLayoutEffect(() => {
     const el = inputRef.current
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight}px`
-  }
+  }, [draft, view])
 
   const running = session?.status === 'running' || session?.status === 'starting'
 
@@ -268,7 +270,6 @@ export function SessionScreen({
     const images = pendingImages
     setDraft('')
     setPendingImages([])
-    requestAnimationFrame(autoGrow)
     void sendPrompt(text || 'See the attached image.', images.length ? images : undefined)
   }
 
@@ -419,10 +420,7 @@ export function SessionScreen({
             disabled={conn !== 'online'}
             value={draft}
             rows={1}
-            onChange={(e) => {
-              setDraft(e.target.value)
-              autoGrow()
-            }}
+            onChange={(e) => setDraft(e.target.value)}
             onFocus={() => setTimeout(() => scrollToBottom(false), 250)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()

@@ -97,9 +97,21 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   })
   await expect(phone.locator('.msg-assistant').first()).toBeVisible()
 
+  // composer grows with multiline text up to its CSS cap, shrinks after send
+  const composer = phone.locator('.composer-input')
+  const composerH = (): Promise<number> =>
+    composer.evaluate((el) => Math.round(el.getBoundingClientRect().height))
+  const oneLineH = await composerH()
+  await composer.fill('one\ntwo\nthree')
+  await expect.poll(composerH).toBeGreaterThan(oneLineH + 20)
+  await composer.fill(Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n'))
+  await expect.poll(composerH).toBe(132)
+
   // drive a new turn from the phone and watch it stream
-  await phone.fill('.composer-input', 'stream me something')
+  await phone.fill('.composer-input', 'stream me something\nover two lines')
+  await expect.poll(composerH).toBeGreaterThan(oneLineH)
   await phone.click('.composer .btn-primary')
+  await expect.poll(composerH).toBe(oneLineH)
   await expect(phone.locator('.msg-user').nth(1)).toContainText('stream me something')
   await expect(phone.locator('.turn-divider')).toHaveCount(2, { timeout: 30_000 })
 

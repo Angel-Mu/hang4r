@@ -1415,6 +1415,11 @@ html.kb-open .split-master {
   gap: 8px;
   min-width: 0;
 }
+/* in this column, .composer-input's `flex: 1` is a 0% vertical basis that
+   overrides autoGrow's inline height — the box never grew */
+.composer-main .composer-input {
+  flex: 0 0 auto;
+}
 .pending-images {
   display: flex;
   gap: 8px;

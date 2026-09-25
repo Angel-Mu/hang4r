@@ -1652,3 +1652,56 @@ html.kb-open .split-master {
   font-size: 13px;
   color: var(--text-dim);
 }
+
+/* ---- round 18: message queue ---- */
+.queue-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.queue-count {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 2px 2px 0;
+}
+.queue-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  padding-left: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.queue-row-img {
+  display: flex;
+  color: var(--text-dim);
+}
+.queue-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.queue-row-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+}
+.queue-row-btn:disabled {
+  opacity: 0.4;
+}
+.queue-row-del {
+  color: var(--red);
+}

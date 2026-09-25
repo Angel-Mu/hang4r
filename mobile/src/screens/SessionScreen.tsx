@@ -241,6 +241,8 @@ function lastQuickQuestion(items: Item[] | undefined): QuickQuestion | null {
   return null
 }
 
+const NO_QUEUE: never[] = []
+
 function TranscriptSkeleton(): JSX.Element {
   return (
     <div className="skeleton-stack" aria-label="Loading conversation">
@@ -270,6 +272,10 @@ export function SessionScreen({
   const sendPrompt = useApp((s) => s.sendPrompt)
   const interrupt = useApp((s) => s.interrupt)
   const conn = useApp((s) => s.conn)
+  const queued = useApp((s) => s.queues[id] ?? NO_QUEUE)
+  const queueMessage = useApp((s) => s.queueMessage)
+  const removeQueued = useApp((s) => s.removeQueued)
+  const sendQueuedNow = useApp((s) => s.sendQueuedNow)
   const nav = useNav()
   const [draft, setDraft] = useState('')
   const attachments = useImageAttachments()
@@ -326,6 +332,11 @@ export function SessionScreen({
     const images = pendingImages
     setDraft('')
     attachments.clear()
+    // mid-turn, a submit waits its turn instead of racing the live one
+    if (running) {
+      queueMessage(id, text, images.length ? images : undefined)
+      return
+    }
     void sendPrompt(text || IMAGE_ONLY_PROMPT, images.length ? images : undefined)
   }
 
@@ -459,6 +470,48 @@ export function SessionScreen({
               ))}
             </div>
           )}
+          {queued.length > 0 && (
+            <div className="queue-strip">
+              <p className="queue-count">{queued.length} Queued</p>
+              {queued.map((m) => (
+                <div key={m.id} className="queue-row">
+                  {m.images?.length ? (
+                    <span className="queue-row-img" aria-label="has an image">
+                      <Icon name="image" size={14} />
+                    </span>
+                  ) : null}
+                  <span className="queue-row-text">{m.text || 'Image'}</span>
+                  <button
+                    className="queue-row-btn"
+                    aria-label="Edit queued message"
+                    onClick={() => {
+                      setDraft(m.text)
+                      if (m.images?.length) attachments.add(m.images)
+                      removeQueued(id, m.id)
+                      inputRef.current?.focus()
+                    }}
+                  >
+                    <Icon name="pencil" size={15} />
+                  </button>
+                  <button
+                    className="queue-row-btn"
+                    aria-label="Send now"
+                    disabled={conn !== 'online'}
+                    onClick={() => void sendQueuedNow(id, m.id)}
+                  >
+                    <Icon name="arrow-up" size={15} />
+                  </button>
+                  <button
+                    className="queue-row-btn queue-row-del"
+                    aria-label="Remove from queue"
+                    onClick={() => removeQueued(id, m.id)}
+                  >
+                    <Icon name="close" size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {view === 'chat' && (
@@ -469,7 +522,13 @@ export function SessionScreen({
             <textarea
             ref={inputRef}
             className="composer-input"
-            placeholder={conn === 'online' ? 'Message the agent…' : 'desktop offline'}
+            placeholder={
+              conn !== 'online'
+                ? 'desktop offline'
+                : running
+                  ? 'Agent is working… queue a follow-up'
+                  : 'Message the agent…'
+            }
             disabled={conn !== 'online'}
             value={draft}
             rows={1}
@@ -484,19 +543,18 @@ export function SessionScreen({
             }}
           />
           </div>
-          {running ? (
+          {running && (
             <button className="btn btn-danger" onClick={() => void interrupt()}>
               Stop
             </button>
-          ) : (
-            <button
-              className="btn btn-primary"
-              disabled={(!draft.trim() && pendingImages.length === 0) || conn !== 'online'}
-              onClick={send}
-            >
-              Send
-            </button>
           )}
+          <button
+            className="btn btn-primary"
+            disabled={(!draft.trim() && pendingImages.length === 0) || conn !== 'online'}
+            onClick={send}
+          >
+            {running ? 'Queue' : 'Send'}
+          </button>
         </footer>
       )}
       {infoOpen && session && (

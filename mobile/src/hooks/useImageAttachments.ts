@@ -25,6 +25,7 @@ export function useImageAttachments(): {
   pick: (files: FileList | null) => Promise<void>
   remove: (index: number) => void
   clear: () => void
+  add: (imgs: Img[]) => void
 } {
   const [images, setImages] = useState<Img[]>([])
   return {
@@ -35,6 +36,7 @@ export function useImageAttachments(): {
       setImages((prev) => [...prev, ...imgs].slice(0, MAX_IMAGES))
     },
     remove: (index) => setImages((p) => p.filter((_, j) => j !== index)),
-    clear: () => setImages([])
+    clear: () => setImages([]),
+    add: (imgs) => setImages((prev) => [...prev, ...imgs].slice(0, MAX_IMAGES))
   }
 }

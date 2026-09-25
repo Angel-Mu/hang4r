@@ -46,6 +46,7 @@ export type IconName =
   | 'gauge'
   | 'arrow-down'
   | 'gear'
+  | 'stop'
 
 // Monochrome line icons (Lucide-style), stroke = currentColor. Professional,
 // theme-aware, and crisp at small sizes — replaces the emoji we used before.
@@ -310,10 +311,12 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   // copied confirmation — Lucide "check"
-  check: <polyline points="20 6 9 17 4 12" />
+  check: <polyline points="20 6 9 17 4 12" />,
+  // interrupt the live turn — filled rounded square
+  stop: <rect x="5" y="5" width="14" height="14" rx="2.5" />
 }
 
-const FILLED = new Set<IconName>(['pin', 'sparkle', 'cursor'])
+const FILLED = new Set<IconName>(['pin', 'sparkle', 'cursor', 'stop'])
 
 export function Icon({
   name,

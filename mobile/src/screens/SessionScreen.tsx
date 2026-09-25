@@ -468,9 +468,10 @@ export function SessionScreen({
     [transcript, running]
   )
 
+  const hasDraft = draft.trim() !== '' || pendingImages.length > 0
   const send = (): void => {
     const text = draft.trim()
-    if (!text && pendingImages.length === 0) return
+    if (!hasDraft) return
     const images = pendingImages
     setDraft('')
     attachments.clear()
@@ -705,18 +706,33 @@ export function SessionScreen({
             }}
           />
           </div>
-          {running && (
-            <button className="btn btn-danger" onClick={() => void interrupt()}>
-              Stop
-            </button>
-          )}
-          <button
-            className="btn btn-primary"
-            disabled={(!draft.trim() && pendingImages.length === 0) || conn !== 'online'}
-            onClick={send}
-          >
-            {running ? 'Queue' : 'Send'}
-          </button>
+          <div className="composer-actions">
+            {running && (
+              <button
+                className="composer-btn composer-stop"
+                aria-label="Stop"
+                title="Stop"
+                onClick={() => void interrupt()}
+              >
+                <span className="composer-btn-disc">
+                  <Icon name="stop" size={18} />
+                </span>
+              </button>
+            )}
+            {(!running || hasDraft) && (
+              <button
+                className={'composer-btn ' + (running ? 'composer-queue' : 'composer-send')}
+                aria-label={running ? 'Queue' : 'Send'}
+                title={running ? 'Queue' : 'Send'}
+                disabled={!hasDraft || conn !== 'online'}
+                onClick={send}
+              >
+                <span className="composer-btn-disc">
+                  <Icon name="arrow-up" size={20} />
+                </span>
+              </button>
+            )}
+          </div>
         </footer>
       )}
       {infoOpen && session && (

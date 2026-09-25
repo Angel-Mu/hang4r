@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { ModelChoice } from '../../shared/protocol'
 import { useHang4r } from './state/store'
-import { resolveClaudeModels } from './modelChoices'
+import { resolveClaudeModels } from '../../shared/claudeModels'
 
 /**
  * Claude model choices with a version on every label. Priority per alias:

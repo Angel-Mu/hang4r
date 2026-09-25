@@ -43,6 +43,8 @@ export interface Transcript {
   /** latest context-window occupancy (from usage / turn-complete events) */
   ctxTokens?: number
   ctxWindow?: number
+  /** the model id the CLI resolved at session init (`claude-opus-…`) */
+  initModel?: string
 }
 
 export function emptyTranscript(): Transcript {
@@ -183,6 +185,9 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
     case 'plan':
       t.plan = e.entries
       return true
+    case 'init':
+      t.initModel = e.model
+      return false
     case 'usage':
       if (e.contextTokens) t.ctxTokens = e.contextTokens
       if (e.contextWindowTokens) t.ctxWindow = e.contextWindowTokens

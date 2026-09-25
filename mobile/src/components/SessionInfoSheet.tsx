@@ -1,8 +1,8 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { ModelChoice, SessionMeta } from '@shared/protocol'
-import { CLAUDE_MODELS, CURRENT_CLAUDE_VERSIONS } from '@shared/claudeModels'
 import { bridge, useApp } from '../state/store'
 import type { Transcript } from '../state/transcript'
+import { useClaudeModels } from '../hooks/useClaudeModels'
 
 const PERMISSION_MODES = [
   { value: 'acceptEdits', label: 'Accept edits' },
@@ -10,11 +10,6 @@ const PERMISSION_MODES = [
   { value: 'plan', label: 'Plan' },
   { value: 'bypassPermissions', label: 'YOLO' }
 ]
-
-const claudeChoices: ModelChoice[] = CLAUDE_MODELS.map((m) => ({
-  ...m,
-  label: CURRENT_CLAUDE_VERSIONS[m.value] ?? m.label
-}))
 
 function needsDesktop(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
@@ -36,18 +31,18 @@ export function SessionInfoSheet({
 }): JSX.Element {
   const refresh = useApp((s) => s.refresh)
   const interrupt = useApp((s) => s.interrupt)
-  const [models, setModels] = useState<ModelChoice[]>(claudeChoices)
+  const claudeModels = useClaudeModels()
+  const [otherModels, setOtherModels] = useState<ModelChoice[]>([])
+  const models = session.backend === 'claude' ? claudeModels : otherModels
   const [branch, setBranch] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (session.backend === 'claude') {
-      setModels(claudeChoices)
-    } else {
+    if (session.backend !== 'claude') {
       void bridge()
         .call<ModelChoice[]>(session.backend === 'codex' ? 'listCodexModels' : 'listCursorModels')
-        .then((list) => setModels(list.length ? list : [{ value: '', label: 'Default model' }]))
+        .then((list) => setOtherModels(list.length ? list : [{ value: '', label: 'Default model' }]))
         .catch(() => {})
     }
     void bridge()

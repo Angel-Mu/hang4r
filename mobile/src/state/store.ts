@@ -32,6 +32,27 @@ const HOME_CACHE_KEY = 'h4.homeCache'
 const TRANSCRIPT_CACHE_KEY = 'h4.transcripts.v1'
 const TRANSCRIPT_CACHE_MAX_SESSIONS = 10
 const TRANSCRIPT_CACHE_MAX_ITEMS = 150
+const SESSION_INIT_KEY = 'h4.sessionInit'
+const SESSION_INIT_MAX = 100
+
+/** per-session CLI-resolved model id, persisted so the model pickers keep the
+ *  real version across cold starts (same shape as the desktop's sessionInit) */
+type SessionInit = Record<string, { model: string }>
+
+function withInitModel(map: SessionInit, id: string, model: string | undefined): SessionInit | null {
+  if (!model || map[id]?.model === model) return null
+  const next = { ...map }
+  delete next[id]
+  next[id] = { model }
+  const ids = Object.keys(next)
+  for (const k of ids.slice(0, Math.max(0, ids.length - SESSION_INIT_MAX))) delete next[k]
+  try {
+    localStorage.setItem(SESSION_INIT_KEY, JSON.stringify(next))
+  } catch {
+    // best-effort, like the other caches
+  }
+  return next
+}
 
 /** last successful projects+sessions snapshot — the home screen must show
  *  something useful when the desktop is off, not a void with a timeout */
@@ -117,6 +138,7 @@ interface AppState {
   /** unresolved permission/question requests per session — drives the
    *  "needs you" badge in the list without opening the conversation */
   pendingApprovals: Record<string, number>
+  sessionInit: SessionInit
   /** phone-local pins: pinned sessions sort first in their workspace */
   pinned: string[]
   togglePin(sessionId: string): void
@@ -197,6 +219,10 @@ function startClient(url: string): BridgeClient | null {
           next.transcripts = { ...s.transcripts, [ev.sessionId]: { ...t } }
         }
         const kind = ev.event.kind
+        if (ev.event.kind === 'init') {
+          const init = withInitModel(s.sessionInit, ev.sessionId, ev.event.model)
+          if (init) next.sessionInit = init
+        }
         if (
           ev.sessionId !== s.openSessionId &&
           (kind === 'permission-request' || kind === 'question-request' || kind === 'turn-complete')
@@ -249,6 +275,7 @@ export const useApp = create<AppState>((set, get) => ({
   transcriptStale: false,
   attention: {},
   pendingApprovals: {},
+  sessionInit: loadJson<SessionInit>(SESSION_INIT_KEY, {}),
   pinned: loadJson<string[]>(PINS_KEY, []),
   seenAt: loadJson<Record<string, number>>(SEEN_KEY, {}),
   error: null,
@@ -334,7 +361,13 @@ export const useApp = create<AppState>((set, get) => ({
         const t = emptyTranscript()
         for (const ev of events) applyEvent(t, ev)
         saveTranscriptCache(id, t)
-        return { transcripts: { ...s.transcripts, [id]: t }, transcriptLoading: false, transcriptStale: false }
+        const init = withInitModel(s.sessionInit, id, t.initModel)
+        return {
+          transcripts: { ...s.transcripts, [id]: t },
+          transcriptLoading: false,
+          transcriptStale: false,
+          ...(init && { sessionInit: init })
+        }
       })
     } catch {
       // resume with no connection yet — the reconnect's 'online' retriggers this
@@ -455,11 +488,13 @@ export const useApp = create<AppState>((set, get) => ({
             (it.kind === 'permission' && !it.decision) || (it.kind === 'question' && !it.answered)
         ).length
         saveTranscriptCache(id, t)
+        const init = withInitModel(s.sessionInit, id, t.initModel)
         return {
           transcripts: { ...s.transcripts, [id]: t },
           transcriptLoading: false,
           transcriptStale: false,
-          pendingApprovals: { ...s.pendingApprovals, [id]: pending }
+          pendingApprovals: { ...s.pendingApprovals, [id]: pending },
+          ...(init && { sessionInit: init })
         }
       })
     } catch (err) {

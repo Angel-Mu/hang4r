@@ -107,6 +107,12 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   await composer.fill(Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n'))
   await expect.poll(composerH).toBe(132)
 
+  // keyboard backdrop follows the composer only while it has focus
+  await composer.focus()
+  await expect(phone.locator('html')).toHaveClass(/\bkb-composer\b/)
+  await composer.blur()
+  await expect(phone.locator('html')).not.toHaveClass(/\bkb-composer\b/)
+
   // drive a new turn from the phone and watch it stream
   await phone.fill('.composer-input', 'stream me something\nover two lines')
   await expect.poll(composerH).toBeGreaterThan(oneLineH)

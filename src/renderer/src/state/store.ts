@@ -774,6 +774,7 @@ let subscribed = false
  * A never-reset counter keeps every click a genuinely new signal.
  */
 let urlOpenSeq = 0
+let unseenSyncWired = false
 
 export const useHang4r = create<Hang4rState>((set, get) => ({
   projects: [],
@@ -873,6 +874,28 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       } catch {
         /* ignore */
       }
+    }
+    // finished-unseen survives a restart; main owns the copy the phones read
+    const unseenJson = await window.hang4r.getSetting('finishedUnseenV1')
+    if (unseenJson) {
+      try {
+        const ids = JSON.parse(unseenJson)
+        if (Array.isArray(ids)) {
+          const live = ids.filter((id) => sessions.some((x) => x.id === id))
+          set((s) => ({ finishedUnseen: new Set([...s.finishedUnseen, ...live]) }))
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!unseenSyncWired) {
+      unseenSyncWired = true
+      useHang4r.subscribe((s, prev) => {
+        if (s.finishedUnseen !== prev.finishedUnseen) {
+          void window.hang4r.syncUnseen([...s.finishedUnseen])
+        }
+      })
+      void window.hang4r.syncUnseen([...get().finishedUnseen])
     }
     const sort = await window.hang4r.getSetting('projectSort')
     if (sort === 'name' || sort === 'recent') set({ projectSort: sort })
@@ -1100,6 +1123,8 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
           else next.delete(session.id)
           return { finishedUnseen: next }
         })
+        // watched it finish: phones heard the turn end and would light a bell
+        if (!notLooking) void window.hang4r.notifySessionOpened(session.id)
       }
     })
 
@@ -1300,9 +1325,10 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       if (finishedUnseen.has(sessionId)) {
         finishedUnseen = new Set(finishedUnseen)
         finishedUnseen.delete(sessionId)
-        // …and everywhere else: phones' bells + any held push for it
-        void window.hang4r.notifySessionOpened(sessionId)
       }
+      // …and everywhere else, even when this desktop never flagged it: a phone
+      // lights its bell from the turn it heard finish
+      void window.hang4r.notifySessionOpened(sessionId)
       return {
         transcripts: { ...s.transcripts, [sessionId]: loaded.transcript },
         sessionInit: loaded.init
@@ -1371,6 +1397,10 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
 
   focusSession(sessionId) {
+    const s0 = get()
+    if (s0.focusedSessionId !== sessionId || s0.finishedUnseen.has(sessionId)) {
+      void window.hang4r.notifySessionOpened(sessionId)
+    }
     set((s) => {
       if (!s.finishedUnseen.has(sessionId)) return { focusedSessionId: sessionId }
       const finishedUnseen = new Set(s.finishedUnseen)

@@ -127,6 +127,11 @@ export class FakePhone {
     })
   }
 
+  /** forget frames received so far — the next wait sees only fresh ones */
+  clearEvents(): void {
+    this.eventQueue = []
+  }
+
   close(): void {
     try {
       this.ws.close()

@@ -60,6 +60,8 @@ export type BridgeDesktopFrame =
   /** this session was seen SOMEWHERE (desktop or another phone) — clear its
    *  unseen markers locally */
   | { t: 'seen'; sessionId: string }
+  /** the desktop flagged this session finished-unseen (sidebar bell) */
+  | { t: 'unseen'; sessionId: string }
   | { t: 'ping' }
 
 /**
@@ -121,10 +123,17 @@ export const BRIDGE_METHODS = [
   'appVersion',
   'agentAlive',
   'currentBranch',
-  'resyncSession'
+  'resyncSession',
+  'sidebarState'
 ] as const
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number]
+
+/** What the desktop sidebar shows, so the phone can mirror it. */
+export interface BridgeSidebarState {
+  /** sessions the desktop flags finished-unseen */
+  unseen: string[]
+}
 
 export interface BridgeStatus {
   enabled: boolean

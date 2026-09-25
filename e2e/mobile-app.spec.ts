@@ -477,3 +477,159 @@ test('phone: a queue left behind is sent once, in turn, when the phone comes bac
     await teardown()
   }
 })
+
+/** Desktop (fake agent, optional env) with one workspace and the given
+ *  sessions, and a phone paired to it sitting on the home list. */
+async function pairedHome(
+  specs: { title: string; firstPrompt?: string; projectIndex?: number }[],
+  opts: { env?: Record<string, string>; projects?: number } = {}
+): Promise<{
+  desktop: Page
+  phone: Page
+  projectIds: string[]
+  ids: string[]
+  teardown: () => Promise<void>
+}> {
+  const app = await launchApp({ env: opts.env })
+  const desktop = app.page
+  await desktop.evaluate(() => window.hang4r.bridgeSetEnabled(true))
+  const pairing = await desktop.evaluate(() => window.hang4r.bridgePairing())
+  await expect
+    .poll(async () => (await desktop.evaluate(() => window.hang4r.bridgeStatus())).relayConnected, {
+      timeout: 15_000
+    })
+    .toBe(true)
+  const projectIds: string[] = []
+  for (let i = 0; i < (opts.projects ?? 1); i++) {
+    projectIds.push((await createProject(desktop, makeScratchRepo())).id)
+  }
+  await desktop.reload()
+  await desktop.waitForSelector('.app')
+  const ids: string[] = []
+  for (const spec of specs) {
+    const s = await desktop.evaluate(
+      ({ projectId, title, firstPrompt }) =>
+        window.hang4r.createSession({
+          projectId,
+          backend: 'claude',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          title,
+          ...(firstPrompt ? { firstPrompt } : {})
+        }),
+      {
+        projectId: projectIds[spec.projectIndex ?? 0],
+        title: spec.title,
+        firstPrompt: spec.firstPrompt
+      }
+    )
+    ids.push(s.id)
+  }
+  for (const [i, spec] of specs.entries()) {
+    if (!spec.firstPrompt) continue
+    await expect
+      .poll(
+        async () =>
+          (await desktop.evaluate(() => window.hang4r.listSessions())).find((x) => x.id === ids[i])
+            ?.status,
+        { timeout: 20_000 }
+      )
+      .toBe('idle')
+  }
+  const b = await chromium.launch()
+  const phone = await b.newPage({ viewport: { width: 390, height: 844 } })
+  await phone.goto(`http://localhost:${PREVIEW_PORT}/`)
+  await phone.fill('.pair-input', pairing.url)
+  await phone.click('button:has-text("Pair with this computer")')
+  await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+  await expect(phone.locator('.session-row')).toHaveCount(specs.length, { timeout: 15_000 })
+  return {
+    desktop,
+    phone,
+    projectIds,
+    ids,
+    teardown: async () => {
+      await b.close().catch(() => {})
+      await app.app.close().catch(() => {})
+    }
+  }
+}
+
+const SHOTS = '/private/tmp/claude-501/mobile-round-18-shots'
+
+test('phone: the bell is the desktop bell — lit by it, cleared by a desktop open, blind to metadata', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { desktop, phone, ids, teardown } = await pairedHome([
+    { title: 'alpha', firstPrompt: 'do the thing' }
+  ])
+  try {
+    const bell = phone.locator('.session-row', { hasText: 'alpha' }).locator('.session-bell')
+    await expect(bell).toBeVisible({ timeout: 15_000 })
+    await phone.screenshot({ path: `${SHOTS}/3-bell-from-desktop.png` })
+
+    // opened on the desktop → the phone's bell goes too
+    const desktopRow = desktop.locator('.session-row', { hasText: 'alpha' })
+    await desktopRow.click()
+    await expect(bell).toHaveCount(0, { timeout: 15_000 })
+
+    // rename + model change bump updatedAt; neither is a finished turn
+    await desktop.evaluate((id) => window.hang4r.renameSession(id, 'alpha renamed'), ids[0])
+    await desktop.evaluate((id) => window.hang4r.setSessionModel(id, 'sonnet'), ids[0])
+    const renamed = phone.locator('.session-row', { hasText: 'alpha renamed' })
+    await expect(renamed).toBeVisible({ timeout: 15_000 })
+    await expect(renamed.locator('.session-bell')).toHaveCount(0)
+    await phone.reload()
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await expect(renamed).toBeVisible()
+    await expect(renamed.locator('.session-bell')).toHaveCount(0)
+
+    // marked unread on the desktop while the phone is away → there on return
+    await phone.goto('about:blank')
+    await desktop.locator('.session-row', { hasText: 'alpha renamed' }).click({ button: 'right' })
+    await desktop.locator('.ctx-menu .ctx-item', { hasText: 'Mark as unread' }).click()
+    await phone.goto(`http://localhost:${PREVIEW_PORT}/`)
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await expect(renamed.locator('.session-bell')).toBeVisible({ timeout: 15_000 })
+
+    // …and opened on the desktop while the phone is away → gone on return
+    await phone.goto('about:blank')
+    await desktop.locator('.session-row', { hasText: 'alpha renamed' }).click()
+    await phone.goto(`http://localhost:${PREVIEW_PORT}/`)
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await expect(renamed.locator('.session-bell')).toHaveCount(0, { timeout: 15_000 })
+    await phone.screenshot({ path: `${SHOTS}/3-seen-on-desktop-while-away.png` })
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: an older desktop still gets bells from finished turns, not from metadata', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { desktop, phone, ids, teardown } = await pairedHome([{ title: 'legacy' }], {
+    env: { HANG4R_TEST_BRIDGE_WITHOUT: 'sidebarState,markUnseen' }
+  })
+  try {
+    const row = phone.locator('.session-row', { hasText: 'legacy' })
+    await expect(row.locator('.session-bell')).toHaveCount(0)
+    await desktop.evaluate((id) => window.hang4r.prompt(id, 'do a turn'), ids[0])
+    await expect(row.locator('.session-bell')).toBeVisible({ timeout: 20_000 })
+    await row.click()
+    await phone.click('.push-screen .back-btn')
+    await expect(row.locator('.session-bell')).toHaveCount(0)
+    // a cold start first, so no echo of that look is still in flight
+    await phone.reload()
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await desktop.evaluate((id) => window.hang4r.renameSession(id, 'legacy renamed'), ids[0])
+    const renamed = phone.locator('.session-row', { hasText: 'legacy renamed' })
+    await expect(renamed).toBeVisible({ timeout: 15_000 })
+    await expect(renamed.locator('.session-bell')).toHaveCount(0)
+    await phone.reload()
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await expect(renamed).toBeVisible()
+    await expect(renamed.locator('.session-bell')).toHaveCount(0)
+  } finally {
+    await teardown()
+  }
+})

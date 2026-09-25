@@ -156,22 +156,6 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
     timeout: 30_000
   })
 
-  // start a brand-new session from the phone
-  await phone.click('.push-screen .back-btn') // ‹ Back → home (panel slides out)
-  await phone.click('.topbar-new')
-  await expect(phone.locator('.form-screen')).toBeVisible()
-  await phone.selectOption('.form-field >> nth=0', project.id)
-  await phone.click('.segment-item:has-text("Local")')
-  await phone.fill('.form-textarea', 'second session from the phone')
-  await phone.click('.form-screen .btn-primary')
-  await expect(phone.locator('.msg-user')).toContainText('second session from the phone', {
-    timeout: 30_000
-  })
-  await expect
-    .poll(async () => (await desktop.evaluate(() => window.hang4r.listSessions())).length)
-    .toBe(2)
-
-  // attach an image: picked file downscales on-device and rides the prompt
   const pngPath = join(repo, 'tiny.png')
   writeFileSync(
     pngPath,
@@ -180,6 +164,36 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
       'base64'
     )
   )
+
+  // start a brand-new session from the phone, with an image on the first prompt
+  await phone.click('.push-screen .back-btn') // ‹ Back → home (panel slides out)
+  await phone.click('.topbar-new')
+  await expect(phone.locator('.form-screen')).toBeVisible()
+  await phone.selectOption('.form-field >> nth=0', project.id)
+  await phone.click('.segment-item:has-text("Local")')
+  await phone.fill('.form-textarea', 'second session from the phone')
+  await phone.setInputFiles('.form-screen .attach-btn input[type=file]', pngPath)
+  await expect(phone.locator('.form-screen .pending-image img')).toHaveCount(1, {
+    timeout: 10_000
+  })
+  await phone.click('.form-screen .btn-primary')
+  await expect(phone.locator('.msg-user')).toContainText('second session from the phone', {
+    timeout: 30_000
+  })
+  await expect(phone.locator('.msg-user .msg-images img')).toHaveCount(1)
+  await expect
+    .poll(async () => (await desktop.evaluate(() => window.hang4r.listSessions())).length)
+    .toBe(2)
+  const firstTurnImages = await desktop.evaluate(async () => {
+    const all = await window.hang4r.listSessions()
+    const s = all.find((x) => x.title.includes('second session')) ?? all[all.length - 1]
+    const evs = await window.hang4r.getSessionEvents(s.id)
+    const u = evs.find((e) => e.event.kind === 'user-text')?.event
+    return u && 'images' in u ? (u.images?.length ?? 0) : 0
+  })
+  expect(firstTurnImages).toBe(1)
+
+  // attach an image: picked file downscales on-device and rides the prompt
   await phone.setInputFiles('.attach-btn input[type=file]', pngPath)
   await expect(phone.locator('.pending-image img')).toHaveCount(1, { timeout: 10_000 })
   await phone.fill('.composer-input', 'look at this screenshot')

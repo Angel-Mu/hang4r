@@ -6,21 +6,8 @@ import { Markdown } from '../components/Markdown'
 import { useNav } from '../components/PushScreen'
 import { SessionInfoSheet } from '../components/SessionInfoSheet'
 import { DiffPanel } from './DiffPanel'
-
-type Img = { base64: string; mediaType: string }
-
-/** Photos are resized on-device (max 1600px, JPEG) — a raw 12MP capture is a
- *  ~7MB JSON frame through the relay; this keeps it a few hundred KB. */
-async function fileToImage(file: File): Promise<Img> {
-  const bmp = await createImageBitmap(file)
-  const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height))
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.round(bmp.width * scale)
-  canvas.height = Math.round(bmp.height * scale)
-  canvas.getContext('2d')!.drawImage(bmp, 0, 0, canvas.width, canvas.height)
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.82)
-  return { base64: dataUrl.split(',')[1], mediaType: 'image/jpeg' }
-}
+import { AttachButton, PendingImages } from '../components/ImageAttach'
+import { IMAGE_ONLY_PROMPT, useImageAttachments } from '../hooks/useImageAttachments'
 
 function ToolChip({ block }: { block: Extract<Block, { type: 'tool' }> }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -226,7 +213,8 @@ export function SessionScreen({
   const conn = useApp((s) => s.conn)
   const nav = useNav()
   const [draft, setDraft] = useState('')
-  const [pendingImages, setPendingImages] = useState<Img[]>([])
+  const attachments = useImageAttachments()
+  const pendingImages = attachments.images
   const [infoOpen, setInfoOpen] = useState(false)
   const [view, setView] = useState<'chat' | 'diff'>('chat')
   const [nearBottom, setNearBottom] = useState(true)
@@ -272,14 +260,8 @@ export function SessionScreen({
     if (!text && pendingImages.length === 0) return
     const images = pendingImages
     setDraft('')
-    setPendingImages([])
-    void sendPrompt(text || 'See the attached image.', images.length ? images : undefined)
-  }
-
-  const pickImages = async (files: FileList | null): Promise<void> => {
-    if (!files?.length) return
-    const imgs = await Promise.all([...files].slice(0, 4).map(fileToImage))
-    setPendingImages((prev) => [...prev, ...imgs].slice(0, 4))
+    attachments.clear()
+    void sendPrompt(text || IMAGE_ONLY_PROMPT, images.length ? images : undefined)
   }
 
   const scrollToTop = (): void => {
@@ -387,35 +369,9 @@ export function SessionScreen({
       )}
       {view === 'chat' && (
         <footer className="composer">
-          <label className="attach-btn" aria-label="Attach images">
-            <Icon name="paperclip" size={18} />
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={(e) => {
-                void pickImages(e.target.files)
-                e.target.value = ''
-              }}
-            />
-          </label>
+          <AttachButton onPick={attachments.pick} />
           <div className="composer-main">
-            {pendingImages.length > 0 && (
-              <div className="pending-images">
-                {pendingImages.map((img, i) => (
-                  <span key={i} className="pending-image">
-                    <img src={`data:${img.mediaType};base64,${img.base64}`} alt="" />
-                    <button
-                      className="pending-image-x"
-                      onClick={() => setPendingImages((p) => p.filter((_, j) => j !== i))}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+            <PendingImages images={pendingImages} onRemove={attachments.remove} />
             <textarea
             ref={inputRef}
             className="composer-input"

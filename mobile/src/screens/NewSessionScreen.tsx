@@ -3,6 +3,8 @@ import type { ModelChoice } from '@shared/protocol'
 import { CLAUDE_MODELS, CURRENT_CLAUDE_VERSIONS } from '@shared/claudeModels'
 import { bridge, useApp } from '../state/store'
 import { useNav } from '../components/PushScreen'
+import { AttachButton, PendingImages } from '../components/ImageAttach'
+import { IMAGE_ONLY_PROMPT, useImageAttachments } from '../hooks/useImageAttachments'
 
 const BACKENDS = ['claude', 'codex', 'cursor'] as const
 type Backend = (typeof BACKENDS)[number]
@@ -36,6 +38,7 @@ export function NewSessionScreen(): JSX.Element {
   const [permissionMode, setPermissionMode] = useState('acceptEdits')
   const [environment, setEnvironment] = useState<'worktree' | 'local'>('worktree')
   const [firstPrompt, setFirstPrompt] = useState('')
+  const attachments = useImageAttachments()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -69,6 +72,8 @@ export function NewSessionScreen(): JSX.Element {
   const start = async (): Promise<void> => {
     setBusy(true)
     setError(null)
+    const text = firstPrompt.trim()
+    const firstImages = attachments.images.length ? attachments.images : undefined
     try {
       await startSession({
         projectId,
@@ -76,7 +81,8 @@ export function NewSessionScreen(): JSX.Element {
         environment,
         permissionMode,
         model: model || undefined,
-        firstPrompt: firstPrompt.trim() || undefined
+        firstPrompt: text || (firstImages ? IMAGE_ONLY_PROMPT : undefined),
+        firstImages
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -163,6 +169,10 @@ export function NewSessionScreen(): JSX.Element {
           onChange={(e) => setFirstPrompt(e.target.value)}
           rows={4}
         />
+        <div className="form-attach">
+          <AttachButton onPick={attachments.pick} />
+          <PendingImages images={attachments.images} onRemove={attachments.remove} />
+        </div>
 
         {error && <p className="pair-error">{error}</p>}
         <button className="btn btn-primary" disabled={!projectId || busy} onClick={() => void start()}>

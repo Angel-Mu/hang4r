@@ -5,6 +5,14 @@ import {
   type BridgePairing
 } from '@shared/bridge'
 import type { SessionEvent, SessionMeta } from '@shared/protocol'
+import {
+  LINK_SILENCE_MS,
+  emptyDiagnostics,
+  linkIsSilent,
+  pairingLooksChanged,
+  pushLog,
+  type LinkDiagnostics
+} from '@shared/bridgeLink'
 import { decryptFrame, deriveKeys, encryptFrame, type BridgeKeys } from './crypto'
 
 export type ConnectionState = 'idle' | 'connecting' | 'relay' | 'online'
@@ -21,6 +29,8 @@ export interface BridgeCallbacks {
   onLiveWork(ids: string[]): void
   /** events were deleted from this session — refetch, don't append */
   onTranscriptReset(sessionId: string): void
+  /** the relay keeps refusing us, or the desktop speaks a key we don't hold */
+  onPairingChanged(changed: boolean): void
 }
 
 const PING_MS = 25_000
@@ -32,6 +42,20 @@ const PROBE_MS = 3_000
 const PROBE_BEHIND_HISTORY_MS = 20_000
 const BACKOFF_MIN_MS = 1_000
 const BACKOFF_MAX_MS = 15_000
+const WATCHDOG_TICK_MS = 10_000
+
+/** e2e: localStorage `h4.testLinkTiming` = `{"silence":4000,"tick":1000}` */
+function linkTiming(): { silence: number; tick: number } {
+  const t = { silence: LINK_SILENCE_MS, tick: WATCHDOG_TICK_MS }
+  try {
+    const o = JSON.parse(localStorage.getItem('h4.testLinkTiming') ?? '{}') as Partial<typeof t>
+    if (Number(o.silence) > 0) t.silence = Number(o.silence)
+    if (Number(o.tick) > 0) t.tick = Number(o.tick)
+  } catch {
+    // no override
+  }
+  return t
+}
 
 /**
  * The phone side of the bridge: relay ws + E2E frames + request/response.
@@ -53,6 +77,15 @@ export class BridgeClient {
   private pingTimer: number | null = null
   private stopped = true
   private lastRxAt = 0
+  private probing = false
+  private watchdogTimer: number | null = null
+  private timing = linkTiming()
+  private everConnected = false
+  private refusedStreak = 0
+  private undecryptable = 0
+  private relayReachable = false
+  private pairingChanged = false
+  private diag: LinkDiagnostics = emptyDiagnostics('phone')
   state: ConnectionState = 'idle'
 
   constructor(
@@ -67,11 +100,28 @@ export class BridgeClient {
 
   start(): void {
     this.stopped = false
+    // only a foreground app can be expected to hear the desktop's pings
+    this.watchdogTimer ??= window.setInterval(() => {
+      if (this.state !== 'online' || this.probing || document.visibilityState !== 'visible') return
+      if (!linkIsSilent(this.lastRxAt, Date.now(), this.timing.silence)) return
+      this.log(`nothing received for ${Math.round(this.timing.silence / 1000)}s — probing`)
+      this.checkAlive()
+    }, this.timing.tick)
     void this.connect()
+  }
+
+  diagnostics(): LinkDiagnostics {
+    return { ...this.diag, lastRxAt: this.lastRxAt || null, log: [...this.diag.log] }
+  }
+
+  private log(msg: string): void {
+    pushLog(this.diag.log, msg)
   }
 
   stop(): void {
     this.stopped = true
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer)
+    this.watchdogTimer = null
     this.teardown('idle')
     try {
       this.ws?.close()
@@ -137,23 +187,33 @@ export class BridgeClient {
   }
 
   /** Resume probe: iOS thaws the webview with the socket sometimes dead but
-   *  still reporting OPEN. Ping; if nothing at all arrives within 3s, close —
-   *  onclose then drives the normal reconnect + replay path. */
+   *  still reporting OPEN. Ping; if nothing at all arrives within 3s, abandon
+   *  it and reconnect + replay — a dead link's close handshake never lands. */
   checkAlive(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
     const before = this.lastRxAt
+    const ws = this.ws
+    this.probing = true
     void this.send({ t: 'ping' })
     // the pong queues behind a transcript frame still arriving
     const behindHistory = [...this.waiters.values()].some((w) => w.history)
-    window.setTimeout(() => {
-      if (this.lastRxAt === before && this.ws) {
+    window.setTimeout(
+      () => {
+        this.probing = false
+        if (this.lastRxAt !== before || this.ws !== ws) return
+        this.diag.lastClose = { code: 0, reason: 'probe unanswered', at: Date.now() }
+        this.log('probe unanswered — replacing the socket')
+        this.ws = null
+        this.teardown('connecting')
+        this.scheduleReconnect()
         try {
-          this.ws.close()
+          ws.close()
         } catch {
-          // close on an already-dead socket still fires onclose
+          // already dead
         }
-      }
-    }, behindHistory ? PROBE_BEHIND_HISTORY_MS : PROBE_MS)
+      },
+      behindHistory ? PROBE_BEHIND_HISTORY_MS : PROBE_MS
+    )
   }
 
   sub(sessionId: string): void {
@@ -169,7 +229,34 @@ export class BridgeClient {
   private setState(state: ConnectionState): void {
     if (this.state === state) return
     this.state = state
+    this.diag.state = state
+    this.diag.stateSince = Date.now()
     this.cb.onState(state)
+  }
+
+  private judgePairing(): void {
+    const changed = pairingLooksChanged({
+      refusedStreak: this.refusedStreak,
+      undecryptable: this.undecryptable,
+      relayReachable: this.relayReachable
+    })
+    if (changed === this.pairingChanged) return
+    this.pairingChanged = changed
+    this.log(changed ? 'pairing looks changed on the computer' : 'pairing accepted')
+    this.cb.onPairingChanged(changed)
+  }
+
+  /** A refused WebSocket hides its HTTP status; whether the relay answers a
+   *  plain request tells "no network" apart from "not let in". */
+  private async probeRelay(): Promise<void> {
+    const url = this.pairing.relay.replace(/^ws/, 'http') + '/health'
+    try {
+      await fetch(url, { mode: 'no-cors', cache: 'no-store' })
+      this.relayReachable = true
+    } catch {
+      this.relayReachable = false
+    }
+    this.judgePairing()
   }
 
   private async connect(): Promise<void> {
@@ -179,12 +266,20 @@ export class BridgeClient {
     const url = `${this.pairing.relay}/client/${this.pairing.deviceId}?t=${encodeURIComponent(
       this.keys.relayToken
     )}`
+    if (this.everConnected) this.diag.reconnects++
+    this.everConnected = true
     const ws = new WebSocket(url)
     ws.binaryType = 'arraybuffer'
     this.ws = ws
+    let opened = false
     ws.onopen = (): void => {
       if (this.ws !== ws) return
+      opened = true
+      this.log('relay socket open')
+      this.refusedStreak = 0
+      this.judgePairing()
       this.backoffMs = BACKOFF_MIN_MS
+      this.lastRxAt = Date.now()
       this.setState('relay')
       void this.send({ t: 'hello', role: 'client', appVersion: '0.1.0' })
       this.sendApnsToken()
@@ -196,7 +291,14 @@ export class BridgeClient {
         try {
           const ctl = JSON.parse(e.data) as { t?: string; connected?: boolean }
           if (ctl.t === 'peer') {
+            if (ctl.connected !== (this.state === 'online')) {
+              this.log(ctl.connected ? 'desktop connected' : 'desktop offline')
+            }
             if (ctl.connected) {
+              // a desktop that (re)connected after us never saw our hello
+              if (this.state !== 'online') {
+                void this.send({ t: 'hello', role: 'client', appVersion: '0.1.0' })
+              }
               this.setState('online')
               // re-subscribe: the desktop clears subs when it saw us drop
               for (const s of this.subs) void this.send({ t: 'sub', sessionId: s })
@@ -212,8 +314,18 @@ export class BridgeClient {
       }
       void this.onCipherFrame(e.data as ArrayBuffer)
     }
-    ws.onclose = (): void => {
+    ws.onclose = (e: CloseEvent): void => {
       if (this.ws !== ws) return
+      this.diag.lastClose = { code: e.code, reason: e.reason, at: Date.now() }
+      this.log(
+        opened
+          ? `relay socket closed: ${e.code}${e.reason ? ` ${e.reason}` : ''}`
+          : `relay refused the socket (${e.code})`
+      )
+      if (!opened) {
+        this.refusedStreak++
+        void this.probeRelay()
+      }
       this.ws = null
       this.teardown(this.stopped ? 'idle' : 'connecting')
       if (!this.stopped) this.scheduleReconnect()
@@ -252,7 +364,13 @@ export class BridgeClient {
     try {
       frame = JSON.parse(await decryptFrame(this.keys!.e2e, buf)) as BridgeDesktopFrame
     } catch {
+      this.undecryptable++
+      this.judgePairing()
       return
+    }
+    if (this.undecryptable) {
+      this.undecryptable = 0
+      this.judgePairing()
     }
     switch (frame.t) {
       case 'res': {
@@ -281,6 +399,7 @@ export class BridgeClient {
         this.cb.onTranscriptReset(frame.sessionId)
         break
       case 'hello':
+        this.diag.peerVersion = frame.appVersion
         this.setState('online')
         break
       case 'ping':
@@ -292,6 +411,7 @@ export class BridgeClient {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.keys) return
     try {
       this.ws.send(await encryptFrame(this.keys.e2e, JSON.stringify(frame)))
+      this.diag.lastSentAt = Date.now()
     } catch {
       // socket died mid-send; onclose reconnects
     }

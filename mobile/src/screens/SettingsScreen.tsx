@@ -1,7 +1,92 @@
 import { useEffect, useState, type JSX } from 'react'
 import { parsePairingUrl } from '@shared/bridge'
-import { bridge, useApp } from '../state/store'
+import { diagnosticsText, type LinkDiagnostics } from '@shared/bridgeLink'
+import { bridge, tryBridge, useApp } from '../state/store'
 import { useNav } from '../components/PushScreen'
+
+function ago(at: number | null, now: number): string {
+  if (at === null) return 'never'
+  const s = Math.max(0, Math.round((now - at) / 1000))
+  return s < 90 ? `${s}s ago` : `${Math.round(s / 60)}m ago`
+}
+
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
+  }
+}
+
+function ConnectionCard(): JSX.Element | null {
+  const [diag, setDiag] = useState<LinkDiagnostics | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    const read = (): void => {
+      setDiag(tryBridge()?.diagnostics() ?? null)
+      setNow(Date.now())
+    }
+    read()
+    const t = window.setInterval(read, 2000)
+    return () => clearInterval(t)
+  }, [])
+  if (!diag) return null
+  const close = diag.lastClose
+  return (
+    <section className="usage-card conn-diag">
+      <h2 className="usage-title">Connection</h2>
+      <dl className="conn-diag-grid">
+        <dt>State</dt>
+        <dd data-diag="state">
+          {diag.state}
+          {diag.stateSince ? ` · ${ago(diag.stateSince, now)}` : ''}
+        </dd>
+        <dt>Last sent</dt>
+        <dd>{ago(diag.lastSentAt, now)}</dd>
+        <dt>Last received</dt>
+        <dd>{ago(diag.lastRxAt, now)}</dd>
+        <dt>Last close</dt>
+        <dd data-diag="close">
+          {close
+            ? `${close.code ? `${close.code} ` : ''}${close.reason || '(no reason)'} · ${ago(close.at, now)}`
+            : 'none'}
+        </dd>
+        <dt>Reconnects</dt>
+        <dd data-diag="reconnects">{diag.reconnects}</dd>
+        <dt>Computer</dt>
+        <dd data-diag="peer">
+          {diag.peerVersion ? `hang4r ${diag.peerVersion}` : 'not heard yet'}
+        </dd>
+      </dl>
+      {diag.log.length > 0 && (
+        <ol className="conn-diag-log">
+          {diag.log.slice(-6).map((e, i) => (
+            <li key={`${e.at}-${i}`}>
+              {new Date(e.at).toLocaleTimeString()} {e.msg}
+            </li>
+          ))}
+        </ol>
+      )}
+      <button
+        className="btn"
+        onClick={() =>
+          void copyText(diagnosticsText(diag)).then(() => {
+            setCopied(true)
+            window.setTimeout(() => setCopied(false), 1500)
+          })
+        }
+      >
+        {copied ? 'Copied ✓' : 'Copy connection details'}
+      </button>
+    </section>
+  )
+}
 
 export function SettingsScreen(): JSX.Element {
   const nav = useNav()
@@ -53,6 +138,7 @@ export function SettingsScreen(): JSX.Element {
             </>
           )}
         </section>
+        <ConnectionCard />
         <section className="usage-card">
           <h2 className="usage-title">Appearance</h2>
           <div className="segment">

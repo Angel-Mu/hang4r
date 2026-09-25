@@ -86,6 +86,8 @@ export function HomeScreen(): JSX.Element {
   const openSession = useApp((s) => s.openSession)
   const setScreen = useApp((s) => s.setScreen)
   const error = useApp((s) => s.error)
+  const pairingChanged = useApp((s) => s.pairingChanged)
+  const unpair = useApp((s) => s.unpair)
   const pendingApprovals = useApp((s) => s.pendingApprovals)
   const pinned = useApp((s) => s.pinned)
   const seenAt = useApp((s) => s.seenAt)
@@ -176,12 +178,24 @@ export function HomeScreen(): JSX.Element {
         </button>
       </header>
       {error && <p className="banner banner-error">{error}</p>}
-      {conn !== 'online' && (
-        <p className="banner">
-          {conn === 'relay'
-            ? 'Your computer is offline — showing the last known sessions. Everything reconnects automatically.'
-            : 'Connecting… — showing the last known sessions.'}
-        </p>
+      {pairingChanged ? (
+        <div className="banner banner-error banner-pairing">
+          <p>
+            Pairing may have changed on your computer — scan the QR again. (On your computer:
+            Settings → Phone → Show pairing QR code.)
+          </p>
+          <button className="btn btn-primary" onClick={unpair}>
+            Scan QR again
+          </button>
+        </div>
+      ) : (
+        conn !== 'online' && (
+          <p className="banner">
+            {conn === 'relay'
+              ? 'Your computer is offline — showing the last known sessions. Everything reconnects automatically.'
+              : 'Connecting… — showing the last known sessions.'}
+          </p>
+        )
       )}
       <div className="home-search">
         <input

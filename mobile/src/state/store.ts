@@ -227,6 +227,8 @@ export type Screen = 'home' | 'new' | 'usage' | 'settings'
 interface AppState {
   pairingUrl: string | null
   conn: ConnectionState
+  /** the relay keeps refusing this phone — likely re-paired on the computer */
+  pairingChanged: boolean
   screen: Screen
   projects: Project[]
   sessions: SessionMeta[]
@@ -390,6 +392,7 @@ function startClient(url: string): BridgeClient | null {
         }
       }
     },
+    onPairingChanged: (pairingChanged) => useApp.setState({ pairingChanged }),
     onAgentEvent: (ev: SessionEvent) => {
       useApp.setState((s) => {
         const t = s.transcripts[ev.sessionId]
@@ -500,6 +503,7 @@ function noteFinished(ids: string[]): void {
 
 export const useApp = create<AppState>((set, get) => ({
   pairingUrl: localStorage.getItem(PAIRING_KEY),
+  pairingChanged: false,
   conn: 'idle',
   screen: 'home',
   projects: homeCache.projects,
@@ -726,7 +730,7 @@ export const useApp = create<AppState>((set, get) => ({
     client?.stop()
     client = c
     localStorage.setItem(PAIRING_KEY, url.trim())
-    set({ pairingUrl: url.trim(), error: null })
+    set({ pairingUrl: url.trim(), error: null, pairingChanged: false })
     return true
   },
 
@@ -753,6 +757,7 @@ export const useApp = create<AppState>((set, get) => ({
       liveWork: [],
       finishedAt: {},
       pairingUrl: null,
+      pairingChanged: false,
       conn: 'idle',
       projects: [],
       sessions: [],

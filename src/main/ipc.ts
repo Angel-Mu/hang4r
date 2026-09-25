@@ -315,6 +315,12 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
         win.webContents.send('session-updated', session)
       }
       bridgeService?.onSessionUpdated(session)
+    },
+    transcriptReset(sessionId: string) {
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send('session-transcript-reset', sessionId)
+      }
+      bridgeService?.sendTranscriptReset(sessionId)
     }
     },
     (sessionId: string) => browserControl!.sessionEnv(sessionId)
@@ -344,6 +350,12 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     archiveSession: (sessionId: string) => sessions.archive(sessionId),
     unarchiveSession: (sessionId: string) => store.updateSession(sessionId, { status: 'idle' }),
     retrySession: (sessionId: string) => sessions.retry(sessionId),
+    rewindSession: (
+      sessionId: string,
+      originalText: string,
+      occurrenceFromEnd: number,
+      newText: string
+    ) => sessions.rewind(sessionId, originalText, occurrenceFromEnd, newText),
     authStatus: () =>
       AuthService.status(
         settings.getSetting('codexBinaryPath'),

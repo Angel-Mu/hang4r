@@ -80,6 +80,14 @@ const isActive = (status: string | undefined): boolean =>
 const isUnknownMethod = (err: unknown): boolean =>
   err instanceof Error && err.message.includes('unknown method')
 
+/** a call this desktop doesn't know yet — say what fixes it */
+export function needsDesktop(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  return msg.includes('unknown method')
+    ? 'Needs a newer hang4r on your computer — update it and retry.'
+    : msg
+}
+
 function saveJson(key: string, value: unknown): void {
   try {
     if (value === null) localStorage.removeItem(key)
@@ -180,6 +188,19 @@ function saveTranscriptCache(id: string, t: Transcript): void {
   }
 }
 
+function dropTranscriptCache(id: string): void {
+  try {
+    const raw = localStorage.getItem(TRANSCRIPT_CACHE_KEY)
+    if (!raw) return
+    const cached = JSON.parse(raw) as CachedTranscripts
+    if (!(id in cached)) return
+    delete cached[id]
+    localStorage.setItem(TRANSCRIPT_CACHE_KEY, JSON.stringify(cached))
+  } catch {
+    // cache is best-effort
+  }
+}
+
 function loadHomeCache(): { projects: Project[]; sessions: SessionMeta[] } {
   try {
     const raw = localStorage.getItem(HOME_CACHE_KEY)
@@ -263,6 +284,8 @@ interface AppState {
   closeSession(): void
   sendPrompt(text: string, images?: { base64: string; mediaType: string }[]): Promise<void>
   interrupt(): Promise<void>
+  /** desktop's edit-a-sent-message: the desktop stops a running turn first */
+  rewind(originalText: string, occurrenceFromEnd: number, newText: string): Promise<void>
   startSession(req: {
     projectId: string
     backend: string
@@ -365,6 +388,21 @@ function startClient(url: string): BridgeClient | null {
       })
     },
     onLiveWork: (ids: string[]) => useApp.setState({ liveWork: ids }),
+    onTranscriptReset: (sessionId: string) => {
+      if (useApp.getState().openSessionId === sessionId) {
+        useApp.setState({ transcriptStale: true })
+        void useApp.getState().reloadOpenTranscript()
+        return
+      }
+      // not on screen: a stale copy must not come back from the cache
+      dropTranscriptCache(sessionId)
+      useApp.setState((s) => {
+        if (!s.transcripts[sessionId]) return {}
+        const transcripts = { ...s.transcripts }
+        delete transcripts[sessionId]
+        return { transcripts }
+      })
+    },
     onSessionUpdated: (session: SessionMeta) => {
       const prev = useApp.getState().sessions.find((x) => x.id === session.id)?.status
       if (isActive(session.status)) flushInFlight.delete(session.id)
@@ -835,6 +873,13 @@ export const useApp = create<AppState>((set, get) => ({
     const id = get().openSessionId
     if (!id) return
     await bridge().call('interrupt', id)
+  },
+
+  async rewind(originalText: string, occurrenceFromEnd: number, newText: string): Promise<void> {
+    const id = get().openSessionId
+    if (!id) return
+    await bridge().call('rewindSession', id, originalText, occurrenceFromEnd, newText)
+    await get().reloadOpenTranscript()
   },
 
   async respondPermission(sessionId: string, requestId: string, decision: string): Promise<void> {

@@ -66,6 +66,9 @@ export type BridgeDesktopFrame =
   /** sessions still working after their turn ended (async agents, background
    *  commands, Workflow, Monitor) — sent while a phone is connected, on change */
   | { t: 'live-work'; ids: string[] }
+  /** events were deleted from this session (an edited message rewound it) —
+   *  anything showing it must refetch; seq-gated replay can't drop items */
+  | { t: 'transcript-reset'; sessionId: string }
   | { t: 'ping' }
 
 /**
@@ -129,7 +132,8 @@ export const BRIDGE_METHODS = [
   'currentBranch',
   'resyncSession',
   'sidebarState',
-  'markUnseen'
+  'markUnseen',
+  'rewindSession'
 ] as const
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number]

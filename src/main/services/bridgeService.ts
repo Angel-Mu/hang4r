@@ -191,6 +191,10 @@ export class BridgeService {
     this.send({ t: 'unseen', sessionId })
   }
 
+  sendTranscriptReset(sessionId: string): void {
+    this.send({ t: 'transcript-reset', sessionId })
+  }
+
   /** Content-free push signal, sent on EVERY notify-worthy event. The relay
    *  decides whether to convert it to APNs based on proven client liveness —
    *  gating here on phoneConnected was wrong: iOS freezes the app's socket

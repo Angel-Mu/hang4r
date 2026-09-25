@@ -15,7 +15,13 @@ export type Block =
   | { type: 'tool'; call: ToolCall }
 
 export type Item =
-  | { kind: 'user'; text: string; images?: { base64: string; mediaType: string }[] }
+  | {
+      kind: 'user'
+      text: string
+      images?: { base64: string; mediaType: string }[]
+      /** typed in an outside CLI — no user-text event exists to rewind */
+      external?: boolean
+    }
   | { kind: 'assistant'; messageId: string; blocks: Block[] }
   | { kind: 'note'; text: string; isError?: boolean }
   | {
@@ -105,7 +111,7 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
       t.items.push({ kind: 'user', text: e.text, images: e.images })
       return true
     case 'external-turn':
-      if (e.role === 'user') t.items.push({ kind: 'user', text: e.text })
+      if (e.role === 'user') t.items.push({ kind: 'user', text: e.text, external: true })
       else
         t.items.push({
           kind: 'assistant',
@@ -228,4 +234,24 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
     default:
       return false
   }
+}
+
+/** The desktop's resume marker is a user-text but not a message you wrote. */
+export function canEditUser(item: Extract<Item, { kind: 'user' }>): boolean {
+  return !item.external && !/^— resumed: \d+ earlier message/.test(item.text)
+}
+
+/** Desktop ChatView's key: identical user messages AFTER each one, so the
+ *  desktop can find the same message among repeats. */
+export function userOccurrences(items: Item[]): Map<Item, number> {
+  const map = new Map<Item, number>()
+  const seenAfter = new Map<string, number>()
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]
+    if (it.kind !== 'user' || it.external) continue
+    const key = it.text.trim()
+    map.set(it, seenAfter.get(key) ?? 0)
+    seenAfter.set(key, (seenAfter.get(key) ?? 0) + 1)
+  }
+  return map
 }

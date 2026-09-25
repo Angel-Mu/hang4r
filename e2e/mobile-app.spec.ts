@@ -3,6 +3,13 @@ import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
+import {
+  applyEvent,
+  canEditUser,
+  emptyTranscript,
+  userOccurrences,
+  type Item
+} from '../mobile/src/state/transcript'
 
 // Real-relay, real-mobile-build full-system test (not part of the fake-agent
 // regression gate). It needs the mobile app built (vite preview serves its dist)
@@ -481,7 +488,7 @@ test('phone: a queue left behind is sent once, in turn, when the phone comes bac
 /** Desktop (fake agent, optional env) with one workspace and the given
  *  sessions, and a phone paired to it sitting on the home list. */
 async function pairedHome(
-  specs: { title: string; firstPrompt?: string; projectIndex?: number }[],
+  specs: { title: string; firstPrompt?: string; projectIndex?: number; backend?: string }[],
   opts: {
     env?: Record<string, string>
     projects?: number
@@ -513,10 +520,10 @@ async function pairedHome(
   const ids: string[] = []
   for (const spec of specs) {
     const s = await desktop.evaluate(
-      ({ projectId, title, firstPrompt }) =>
+      ({ projectId, title, firstPrompt, backend }) =>
         window.hang4r.createSession({
           projectId,
-          backend: 'claude',
+          backend: backend as 'claude',
           environment: 'local',
           permissionMode: 'acceptEdits',
           title,
@@ -525,7 +532,8 @@ async function pairedHome(
       {
         projectId: projectIds[spec.projectIndex ?? 0],
         title: spec.title,
-        firstPrompt: spec.firstPrompt
+        firstPrompt: spec.firstPrompt,
+        backend: spec.backend ?? 'claude'
       }
     )
     ids.push(s.id)
@@ -878,6 +886,128 @@ test('phone: status dots, times and rollups match the desktop sidebar', async ()
 
     await phone.setViewportSize({ width: 1024, height: 1366 })
     await phone.screenshot({ path: `${SHOTS}/9-ipad-status.png` })
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: edit keys match the desktop, and outside-CLI messages have none', () => {
+  const t = emptyTranscript()
+  const ev = (seq: number, event: Parameters<typeof applyEvent>[1]['event']): void => {
+    applyEvent(t, { sessionId: 's', seq, ts: seq, event })
+  }
+  ev(1, { kind: 'user-text', text: 'again' })
+  ev(2, { kind: 'external-turn', role: 'user', text: 'again', at: 2 })
+  ev(3, { kind: 'user-text', text: ' again ' })
+  ev(4, { kind: 'user-text', text: 'other' })
+  ev(5, { kind: 'user-text', text: '— resumed: 3 earlier messages' })
+  const users = t.items.filter((i): i is Extract<Item, { kind: 'user' }> => i.kind === 'user')
+  expect(users.map(canEditUser)).toEqual([true, false, true, true, false])
+  const occ = userOccurrences(t.items)
+  // only user-text events count — the desktop's rewind never matches the rest
+  expect(users.map((u) => occ.get(u))).toEqual([1, undefined, 0, 0, 0])
+})
+
+async function waitIdle(desktop: Page, id: string): Promise<void> {
+  await expect
+    .poll(
+      async () => (await desktop.evaluate(() => window.hang4r.listSessions())).find((x) => x.id === id)?.status,
+      { timeout: 20_000 }
+    )
+    .toBe('idle')
+}
+
+test('phone: edit a sent message — the conversation restarts from it, cache included', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { desktop, phone, ids, teardown } = await pairedHome(
+    [{ title: 'rewinder', firstPrompt: 'first message alpha', backend: 'codex' }],
+    {
+      beforePair: async (desktop, _pids, ids) => {
+        await desktop.evaluate((id) => window.hang4r.prompt(id, 'second message beta'), ids[0])
+        await waitIdle(desktop, ids[0])
+      }
+    }
+  )
+  try {
+    await phone.locator('.session-row', { hasText: 'rewinder' }).click()
+    const users = phone.locator('.msg-user')
+    await expect(users).toHaveCount(2, { timeout: 15_000 })
+    await expect(phone.locator('.msg-edit-btn')).toHaveCount(2)
+    await phone.screenshot({ path: `${SHOTS}/4-edit-affordance.png` })
+
+    await phone.locator('.msg-edit-btn').first().click()
+    const input = phone.locator('.msg-edit-input')
+    await expect(input).toHaveValue('first message alpha')
+    await expect(phone.locator('.msg-edit-hint')).toContainText('later messages are discarded')
+    await phone.getByRole('button', { name: 'Cancel' }).click()
+    await expect(input).toHaveCount(0)
+    await expect(users).toHaveCount(2)
+
+    await phone.locator('.msg-edit-btn').first().click()
+    await input.fill('edited first gamma')
+    await phone.screenshot({ path: `${SHOTS}/4-edit-editor.png` })
+    await phone.getByRole('button', { name: 'Send from here' }).click()
+
+    await expect(input).toHaveCount(0, { timeout: 15_000 })
+    await expect(users).toHaveText(['edited first gamma'], { timeout: 15_000 })
+    await expect(phone.locator('.turn-divider')).toHaveCount(1, { timeout: 15_000 })
+    await phone.screenshot({ path: `${SHOTS}/4-edit-result.png` })
+    const texts = async (): Promise<string[]> =>
+      (await desktop.evaluate((id) => window.hang4r.getSessionEvents(id), ids[0]))
+        .map((e) => e.event)
+        .filter((e) => e.kind === 'user-text')
+        .map((e) => (e as { text: string }).text)
+    expect(await texts()).toEqual(['edited first gamma'])
+
+    // edited on the desktop: the open phone is told, not left appending
+    await desktop.evaluate(
+      (id) => window.hang4r.rewindSession(id, 'edited first gamma', 0, 'desktop delta'),
+      ids[0]
+    )
+    await expect(users).toHaveText(['desktop delta'], { timeout: 15_000 })
+    await expect(phone.locator('.turn-divider')).toHaveCount(1, { timeout: 15_000 })
+    expect(await texts()).toEqual(['desktop delta'])
+
+    const cachedUsers = (): Promise<string[]> =>
+      phone.evaluate((id) => {
+        const cache = JSON.parse(localStorage.getItem('h4.transcripts.v1') ?? '{}') as Record<
+          string,
+          { items: { kind: string; text?: string }[] }
+        >
+        return (cache[id]?.items ?? []).filter((i) => i.kind === 'user').map((i) => i.text ?? '')
+      }, ids[0])
+    await expect.poll(cachedUsers).toEqual(['desktop delta'])
+    await phone.reload()
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await phone.locator('.session-row', { hasText: 'rewinder' }).click()
+    await expect(users).toHaveText(['desktop delta'], { timeout: 15_000 })
+    expect(await cachedUsers()).toEqual(['desktop delta'])
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: editing on an older desktop says what to update; Cursor resends as a new turn', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { phone, teardown } = await pairedHome(
+    [{ title: 'old desk', firstPrompt: 'first message alpha', backend: 'cursor' }],
+    { env: { HANG4R_TEST_BRIDGE_WITHOUT: 'rewindSession' } }
+  )
+  try {
+    await phone.locator('.session-row', { hasText: 'old desk' }).click()
+    await expect(phone.locator('.msg-user')).toHaveCount(1, { timeout: 15_000 })
+    await phone.locator('.msg-edit-btn').click()
+    await expect(phone.locator('.msg-edit-hint')).toContainText('as a new turn; the earlier messages stay')
+    await phone.locator('.msg-edit-input').fill('edited first gamma')
+    await phone.getByRole('button', { name: 'Resend as new turn' }).click()
+    await expect(phone.locator('.msg-edit-error')).toHaveText(
+      'Needs a newer hang4r on your computer — update it and retry.'
+    )
+    await phone.screenshot({ path: `${SHOTS}/4-edit-needs-desktop.png` })
+    await phone.getByRole('button', { name: 'Cancel' }).click()
+    await expect(phone.locator('.msg-user')).toHaveText(['first message alpha'])
   } finally {
     await teardown()
   }

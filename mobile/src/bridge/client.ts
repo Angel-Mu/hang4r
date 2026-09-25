@@ -19,6 +19,8 @@ export interface BridgeCallbacks {
   onUnseen(sessionId: string): void
   /** sessions still working after their turn ended */
   onLiveWork(ids: string[]): void
+  /** events were deleted from this session — refetch, don't append */
+  onTranscriptReset(sessionId: string): void
 }
 
 const PING_MS = 25_000
@@ -253,6 +255,9 @@ export class BridgeClient {
         break
       case 'live-work':
         this.cb.onLiveWork(frame.ids)
+        break
+      case 'transcript-reset':
+        this.cb.onTranscriptReset(frame.sessionId)
         break
       case 'hello':
         this.setState('online')

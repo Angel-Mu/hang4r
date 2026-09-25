@@ -39,6 +39,11 @@ const api: Hang4rApi = {
     ipcRenderer.on('session-seen', handler)
     return () => ipcRenderer.removeListener('session-seen', handler)
   },
+  onTranscriptReset: (cb) => {
+    const handler = (_e: unknown, sessionId: string): void => cb(sessionId)
+    ipcRenderer.on('session-transcript-reset', handler)
+    return () => ipcRenderer.removeListener('session-transcript-reset', handler)
+  },
   onMarkUnseen: (cb) => {
     const handler = (_e: unknown, sessionId: string): void => cb(sessionId)
     ipcRenderer.on('session-mark-unseen', handler)

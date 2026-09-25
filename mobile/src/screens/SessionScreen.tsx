@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { Icon } from '@shared/icons'
 import { quickReplies, type QuickQuestion } from '@shared/quickReplies'
-import { useApp } from '../state/store'
-import type { Block, Item } from '../state/transcript'
+import { needsDesktop, useApp } from '../state/store'
+import { canEditUser, userOccurrences, type Block, type Item } from '../state/transcript'
 import { Markdown } from '../components/Markdown'
 import { useNav } from '../components/PushScreen'
 import { SessionInfoSheet } from '../components/SessionInfoSheet'
@@ -179,21 +179,120 @@ function QuestionCard({ item, sessionId }: { item: Extract<Item, { kind: 'questi
   )
 }
 
-function TranscriptItem({ item, sessionId }: { item: Item; sessionId: string }): JSX.Element | null {
+/** Desktop's UserMessageCard: the wording is honest per backend — Claude and
+ *  Codex truncate, Cursor can only resend as a new turn. */
+function UserMessage({
+  item,
+  occurrenceFromEnd
+}: {
+  item: Extract<Item, { kind: 'user' }>
+  occurrenceFromEnd: number
+}): JSX.Element {
+  const backend = useApp((s) => s.sessions.find((x) => x.id === s.openSessionId)?.backend)
+  const online = useApp((s) => s.conn === 'online')
+  const rewind = useApp((s) => s.rewind)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(item.text)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const appendOnly = backend === 'cursor'
+  const copy = appendOnly
+    ? {
+        hint: 'Cursor can’t rewind history — this asks again as a new turn; the earlier messages stay',
+        send: 'Resend as new turn',
+        busy: 'Sending…'
+      }
+    : {
+        hint: 'Restarts the conversation from here — later messages are discarded',
+        send: 'Send from here',
+        busy: 'Rewinding…'
+      }
+
+  const send = async (): Promise<void> => {
+    const text = draft.trim()
+    if (!text || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await rewind(item.text, occurrenceFromEnd, text)
+      setEditing(false)
+    } catch (e) {
+      setError(needsDesktop(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="msg-edit">
+        <textarea
+          className="msg-edit-input"
+          value={draft}
+          autoFocus
+          rows={Math.min(8, Math.max(2, draft.split('\n').length))}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <p className="msg-edit-hint">{copy.hint}</p>
+        {error && <p className="sheet-error msg-edit-error">{error}</p>}
+        <div className="msg-edit-actions">
+          <button className="btn btn-ghost" disabled={busy} onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={busy || !draft.trim() || !online}
+            onClick={() => void send()}
+          >
+            {busy ? copy.busy : copy.send}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="msg-user-row">
+      {canEditUser(item) && (
+        <button
+          className="msg-edit-btn"
+          aria-label={appendOnly ? 'Edit and resend as a new turn' : 'Edit message'}
+          disabled={!online}
+          onClick={() => {
+            setDraft(item.text)
+            setError(null)
+            setEditing(true)
+          }}
+        >
+          <Icon name="pencil" size={14} />
+        </button>
+      )}
+      <div className="msg msg-user">
+        {item.images && item.images.length > 0 && (
+          <div className="msg-images">
+            {item.images.map((img, i) => (
+              <img key={i} src={`data:${img.mediaType};base64,${img.base64}`} alt="" />
+            ))}
+          </div>
+        )}
+        {item.text}
+      </div>
+    </div>
+  )
+}
+
+function TranscriptItem({
+  item,
+  sessionId,
+  occurrenceFromEnd
+}: {
+  item: Item
+  sessionId: string
+  occurrenceFromEnd?: number
+}): JSX.Element | null {
   switch (item.kind) {
     case 'user':
-      return (
-        <div className="msg msg-user">
-          {item.images && item.images.length > 0 && (
-            <div className="msg-images">
-              {item.images.map((img, i) => (
-                <img key={i} src={`data:${img.mediaType};base64,${img.base64}`} alt="" />
-              ))}
-            </div>
-          )}
-          {item.text}
-        </div>
-      )
+      return <UserMessage item={item} occurrenceFromEnd={occurrenceFromEnd ?? 0} />
     case 'assistant':
       return (
         <div className="msg msg-assistant">
@@ -321,6 +420,7 @@ export function SessionScreen({
   const running = session?.status === 'running' || session?.status === 'starting'
   // dismissed per QUESTION, so skipping one does not silence the next
   const [choicesDismissed, setChoicesDismissed] = useState<string | null>(null)
+  const occurrences = useMemo(() => userOccurrences(transcript?.items ?? []), [transcript])
   const choices = useMemo(
     () => (running ? null : lastQuickQuestion(transcript?.items)),
     [transcript, running]
@@ -428,7 +528,12 @@ export function SessionScreen({
               </p>
             )}
             {transcript?.items.map((item, i) => (
-              <TranscriptItem key={i} item={item} sessionId={id} />
+              <TranscriptItem
+                key={i}
+                item={item}
+                sessionId={id}
+                occurrenceFromEnd={occurrences.get(item)}
+              />
             ))}
             {running && <div className="working-note">agent is working…</div>}
           </div>

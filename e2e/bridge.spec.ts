@@ -294,4 +294,62 @@ test.describe('mobile bridge', () => {
     expect(frame).toEqual({ t: 'live-work', ids: [s.id] })
     expect((await phone.call<BridgeSidebarState>('sidebarState')).liveWork).toEqual([s.id])
   })
+  test('a phone edits a sent message: every view restarts from it', async () => {
+    test.setTimeout(120_000)
+    launched = await launchApp()
+    const { page } = launched
+    const project = await createProject(page, makeScratchRepo())
+    await page.reload()
+    await page.waitForSelector('.app')
+    phone = await pairPhone(page)
+    const idle = async (id: string): Promise<void> => {
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.hang4r.listSessions())).find((x) => x.id === id)
+              ?.status,
+          { timeout: 20_000 }
+        )
+        .toBe('idle')
+    }
+    // codex: the fake agent can only truly truncate on the rollback path
+    const s = await page.evaluate(
+      (pid) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'codex',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          title: 'rewind me',
+          firstPrompt: 'first message alpha'
+        }),
+      project.id
+    )
+    await idle(s.id)
+    await page.evaluate((id) => window.hang4r.prompt(id, 'second message beta'), s.id)
+    await idle(s.id)
+    await page.locator('.session-row', { hasText: 'rewind me' }).click()
+    const cards = page.locator('.tile').first().locator('.msg-user-card')
+    await expect(cards).toHaveCount(2)
+
+    phone.sub(s.id)
+    phone.clearEvents()
+    await phone.call('rewindSession', s.id, 'first message alpha', 0, 'edited first gamma')
+    await phone.nextEvent((f) => f.t === 'transcript-reset' && f.sessionId === s.id)
+    await phone.nextEvent(
+      (f) =>
+        f.t === 'event' &&
+        f.channel === 'agent-event' &&
+        (f.payload as SessionEvent).event.kind === 'turn-complete'
+    )
+    const userTexts = (await phone.call<SessionEvent[]>('getSessionEvents', s.id))
+      .map((e) => e.event)
+      .filter((e) => e.kind === 'user-text')
+      .map((e) => (e as { text: string }).text)
+    expect(userTexts).toEqual(['edited first gamma'])
+
+    // the desktop window had it open and was never told anything else
+    await expect(cards).toHaveCount(1)
+    await expect(cards).toContainText('edited first gamma')
+  })
 })

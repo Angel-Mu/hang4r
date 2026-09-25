@@ -1,11 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { Icon } from '@shared/icons'
+import { quickReplies, type QuickQuestion } from '@shared/quickReplies'
 import { useApp } from '../state/store'
 import type { Block, Item } from '../state/transcript'
 import { Markdown } from '../components/Markdown'
 import { useNav } from '../components/PushScreen'
 import { SessionInfoSheet } from '../components/SessionInfoSheet'
 import { DiffPanel } from './DiffPanel'
+import { TaskProgress } from '../components/TaskProgress'
 import { AttachButton, PendingImages } from '../components/ImageAttach'
 import { IMAGE_ONLY_PROMPT, useImageAttachments } from '../hooks/useImageAttachments'
 
@@ -41,7 +43,13 @@ function PermissionCard({ item, sessionId }: { item: Extract<Item, { kind: 'perm
         <span>
           {item.tool}: {item.summary}
         </span>
-        <b>{item.decision.startsWith('allow') ? 'Allowed' : 'Denied'}</b>
+        <b>
+          {item.decision === 'cancelled'
+            ? 'Cancelled'
+            : item.decision.startsWith('allow')
+              ? 'Allowed'
+              : 'Denied'}
+        </b>
       </div>
     )
   }
@@ -80,58 +88,93 @@ function PermissionCard({ item, sessionId }: { item: Extract<Item, { kind: 'perm
   )
 }
 
+/** Desktop's QuestionCard: a single single-choice question answers on tap;
+ *  anything multi toggles then submits. Once settled it shows what was picked,
+ *  or that the turn ended before anyone answered. */
 function QuestionCard({ item, sessionId }: { item: Extract<Item, { kind: 'question' }>; sessionId: string }): JSX.Element {
   const respond = useApp((s) => s.respondQuestion)
   const [picked, setPicked] = useState<Record<string, string[]>>({})
-  if (item.answered) {
-    return <div className="perm-card perm-resolved">Question answered ✓</div>
-  }
+  const live = !item.answered && !item.cancelled
+  const oneShot = item.questions.length === 1 && !item.questions[0].allowMultiple
   const allPicked = item.questions.every((q) => (picked[q.id] ?? []).length > 0)
+  const chosen = (qId: string): string => {
+    const q = item.questions.find((x) => x.id === qId)
+    const ids = item.answers?.find((a) => a.questionId === qId)?.optionIds ?? []
+    return ids.map((id) => q?.options.find((o) => o.id === id)?.label ?? id).join(', ')
+  }
   return (
-    <div className="perm-card">
-      <p className="perm-title">{item.title ?? 'The agent has a question'}</p>
+    <div className={'perm-card question-card' + (live ? '' : ' question-decided')}>
+      <p className="perm-title">
+        {item.title ?? 'The agent has a question'}
+        {item.cancelled && <span className="question-status"> · cancelled</span>}
+      </p>
       {item.questions.map((q) => (
         <div key={q.id} className="question-block">
           <p className="perm-summary">{q.prompt}</p>
-          <div className="question-options">
-            {q.options.map((o) => {
-              const selected = (picked[q.id] ?? []).includes(o.id)
-              return (
-                <button
-                  key={o.id}
-                  className={'btn btn-option' + (selected ? ' btn-selected' : '')}
-                  onClick={() =>
-                    setPicked((p) => {
-                      const cur = p[q.id] ?? []
-                      const next = q.allowMultiple
-                        ? selected
-                          ? cur.filter((x) => x !== o.id)
-                          : [...cur, o.id]
-                        : [o.id]
-                      return { ...p, [q.id]: next }
-                    })
-                  }
-                >
-                  {o.label}
-                </button>
-              )
-            })}
-          </div>
+          {live ? (
+            <div className="question-options">
+              {q.options.map((o) => {
+                const selected = (picked[q.id] ?? []).includes(o.id)
+                if (oneShot) {
+                  return (
+                    <button
+                      key={o.id}
+                      className="btn btn-option"
+                      onClick={() =>
+                        void respond(sessionId, item.requestId, [{ questionId: q.id, optionIds: [o.id] }])
+                      }
+                    >
+                      {o.label}
+                    </button>
+                  )
+                }
+                return (
+                  <button
+                    key={o.id}
+                    className={'btn btn-option' + (selected ? ' btn-selected' : '')}
+                    onClick={() =>
+                      setPicked((p) => {
+                        const cur = p[q.id] ?? []
+                        const next = q.allowMultiple
+                          ? selected
+                            ? cur.filter((x) => x !== o.id)
+                            : [...cur, o.id]
+                          : [o.id]
+                        return { ...p, [q.id]: next }
+                      })
+                    }
+                  >
+                    {o.label}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="question-answer">
+              {item.cancelled
+                ? 'Cancelled — the turn ended before an answer'
+                : item.answers
+                  ? `Answered: ${chosen(q.id) || '(no answer)'}`
+                  : 'Answered'}
+            </p>
+          )}
         </div>
       ))}
-      <button
-        className="btn btn-primary"
-        disabled={!allPicked}
-        onClick={() =>
-          void respond(
-            sessionId,
-            item.requestId,
-            item.questions.map((q) => ({ questionId: q.id, optionIds: picked[q.id] }))
-          )
-        }
-      >
-        Answer
-      </button>
+      {live && !oneShot && (
+        <button
+          className="btn btn-primary"
+          disabled={!allPicked}
+          onClick={() =>
+            void respond(
+              sessionId,
+              item.requestId,
+              item.questions.map((q) => ({ questionId: q.id, optionIds: picked[q.id] ?? [] }))
+            )
+          }
+        >
+          Answer
+        </button>
+      )}
     </div>
   )
 }
@@ -180,6 +223,22 @@ function TranscriptItem({ item, sessionId }: { item: Item; sessionId: string }):
     default:
       return null
   }
+}
+
+/** Options offered in the agent's LAST words — the desktop's rule: anything
+ *  said after them (a tool call, a note) means they are no longer the question. */
+function lastQuickQuestion(items: Item[] | undefined): QuickQuestion | null {
+  if (!items) return null
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]
+    if (it.kind === 'turn-end') continue
+    if (it.kind !== 'assistant') return null
+    const last = [...it.blocks].reverse().find((b) => b)
+    if (last?.type !== 'text') return null
+    const found = quickReplies(last.text)
+    return found.options.length ? found : null
+  }
+  return null
 }
 
 function TranscriptSkeleton(): JSX.Element {
@@ -254,6 +313,12 @@ export function SessionScreen({
   useEffect(() => () => document.documentElement.classList.remove('kb-composer'), [view])
 
   const running = session?.status === 'running' || session?.status === 'starting'
+  // dismissed per QUESTION, so skipping one does not silence the next
+  const [choicesDismissed, setChoicesDismissed] = useState<string | null>(null)
+  const choices = useMemo(
+    () => (running ? null : lastQuickQuestion(transcript?.items)),
+    [transcript, running]
+  )
 
   const send = (): void => {
     const text = draft.trim()
@@ -364,6 +429,35 @@ export function SessionScreen({
             >
               <Icon name="arrow-down" size={17} />
             </button>
+          )}
+        </div>
+      )}
+      {view === 'chat' && (
+        <div className="composer-extras">
+          <TaskProgress transcript={transcript} />
+          {choices && choices.question !== choicesDismissed && (
+            <div className="quick-replies">
+              <div className="quick-replies-head">
+                <span className="quick-replies-title">{choices.question}</span>
+                <button
+                  className="quick-replies-skip"
+                  onClick={() => setChoicesDismissed(choices.question)}
+                >
+                  Skip
+                </button>
+              </div>
+              {choices.options.map((c) => (
+                <button
+                  key={c.value}
+                  className="quick-reply"
+                  disabled={conn !== 'online'}
+                  onClick={() => void sendPrompt(c.value)}
+                >
+                  <span className="quick-reply-key">{c.value}</span>
+                  <span className="quick-reply-text">{c.text}</span>
+                </button>
+              ))}
+            </div>
           )}
         </div>
       )}

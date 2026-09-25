@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { quickReplies } from '../src/renderer/src/quickReplies'
+import { quickReplies } from '../src/shared/quickReplies'
 import { launchApp, makeScratchRepo, createProject } from './helpers'
 
 /**

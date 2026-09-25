@@ -1,4 +1,4 @@
-import type { AgentQuestion, SessionEvent } from '@shared/protocol'
+import type { AgentQuestion, QuestionAnswer, SessionEvent } from '@shared/protocol'
 
 export interface ToolCall {
   id: string
@@ -33,6 +33,10 @@ export type Item =
       title?: string
       questions: AgentQuestion[]
       answered?: boolean
+      /** what was picked (absent on transcripts cached before it was kept) */
+      answers?: QuestionAnswer[]
+      /** the turn ended before anyone answered — the request is dead */
+      cancelled?: boolean
     }
   | { kind: 'turn-end'; isError: boolean; errorMessage?: string; costUsd?: number }
 
@@ -57,6 +61,30 @@ function lastAssistant(t: Transcript, messageId: string): Extract<Item, { kind: 
   const fresh: Extract<Item, { kind: 'assistant' }> = { kind: 'assistant', messageId, blocks: [] }
   t.items.push(fresh)
   return fresh
+}
+
+/**
+ * A permission/question still open when its turn ends (or the agent exits) can
+ * never be answered — same rule as the desktop's cancelStalePending.
+ */
+function cancelStalePending(t: Transcript): void {
+  t.items.forEach((item, i) => {
+    if (item.kind === 'permission' && item.decision === undefined) {
+      t.items[i] = { ...item, decision: 'cancelled' }
+    }
+    if (item.kind === 'question' && !item.answered && !item.cancelled) {
+      t.items[i] = { ...item, cancelled: true }
+    }
+  })
+}
+
+/** Unresolved permission/question requests — the "needs you" count. */
+export function countPending(t: Transcript): number {
+  return t.items.filter(
+    (it) =>
+      (it.kind === 'permission' && !it.decision) ||
+      (it.kind === 'question' && !it.answered && !it.cancelled)
+  ).length
 }
 
 /**
@@ -165,11 +193,13 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
         const item = t.items[i]
         if (item.kind === 'question' && item.requestId === e.requestId) {
           item.answered = true
+          item.answers = e.answers
           return true
         }
       }
       return false
     case 'turn-complete':
+      cancelStalePending(t)
       if (e.contextTokens) t.ctxTokens = e.contextTokens
       if (e.contextWindowTokens) t.ctxWindow = e.contextWindowTokens
       t.items.push({
@@ -188,6 +218,9 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
     case 'init':
       t.initModel = e.model
       return false
+    case 'exit':
+      cancelStalePending(t)
+      return true
     case 'usage':
       if (e.contextTokens) t.ctxTokens = e.contextTokens
       if (e.contextWindowTokens) t.ctxWindow = e.contextWindowTokens

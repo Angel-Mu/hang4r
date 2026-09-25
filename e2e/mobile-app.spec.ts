@@ -240,3 +240,117 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   await phone.click('.drawer [aria-label="Settings"]')
   await expect(phone.locator('.usage-card').first()).toContainText('online', { timeout: 15_000 })
 })
+
+/** Desktop (fake agent) + phone paired through the relay, one session started
+ *  with `firstPrompt` and opened on the phone. Closed by the test's teardown. */
+async function pairedSession(
+  firstPrompt: string
+): Promise<{ desktop: Page; phone: Page; teardown: () => Promise<void> }> {
+  const app = await launchApp()
+  const desktop = app.page
+  await desktop.evaluate(() => window.hang4r.bridgeSetEnabled(true))
+  const pairing = await desktop.evaluate(() => window.hang4r.bridgePairing())
+  await expect
+    .poll(async () => (await desktop.evaluate(() => window.hang4r.bridgeStatus())).relayConnected, {
+      timeout: 15_000
+    })
+    .toBe(true)
+  const project = await createProject(desktop, makeScratchRepo())
+  await desktop.evaluate(
+    ({ projectId, firstPrompt }) =>
+      window.hang4r.createSession({
+        projectId,
+        backend: 'claude',
+        environment: 'local',
+        permissionMode: 'default',
+        firstPrompt
+      }),
+    { projectId: project.id, firstPrompt }
+  )
+  const b = await chromium.launch()
+  const phone = await b.newPage({ viewport: { width: 390, height: 844 } })
+  await phone.goto(`http://localhost:${PREVIEW_PORT}/`)
+  await phone.fill('.pair-input', pairing.url)
+  await phone.click('button:has-text("Pair with this computer")')
+  await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+  await expect(phone.locator('.session-row')).toHaveCount(1, { timeout: 15_000 })
+  await phone.locator('.session-row').click()
+  await expect(phone.locator('.msg-user').first()).toContainText(firstPrompt, { timeout: 15_000 })
+  return {
+    desktop,
+    phone,
+    teardown: async () => {
+      await b.close().catch(() => {})
+      await app.app.close().catch(() => {})
+    }
+  }
+}
+
+test('phone: prose options become quick replies that send the letter', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(120_000)
+  const { phone, teardown } = await pairedSession('offer me options')
+  try {
+    const card = phone.locator('.quick-replies')
+    await expect(card).toBeVisible({ timeout: 15_000 })
+    await expect(card.locator('.quick-replies-title')).toHaveText('Which scope should the sweep use?')
+    await expect(card.locator('.quick-reply')).toHaveCount(3)
+    await card.locator('.quick-reply', { hasText: 'Only addresses on the dashboard' }).click()
+    await expect(phone.locator('.msg-user').nth(1)).toHaveText('B', { timeout: 15_000 })
+    // the next turn's last words are not a question — the options go away
+    await expect(card).toHaveCount(0, { timeout: 15_000 })
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: the task list shows progress above the composer and opens as a sheet', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(120_000)
+  const { phone, teardown } = await pairedSession('write a checklist')
+  try {
+    const pill = phone.locator('.task-progress')
+    await expect(pill).toBeVisible({ timeout: 15_000 })
+    await expect(pill.locator('.task-progress-count')).toHaveText('Tasks 2/4')
+    await pill.click()
+    const sheet = phone.locator('.task-sheet')
+    await expect(sheet.locator('.todo-row')).toHaveCount(4)
+    await expect(sheet.locator('.todo-completed')).toHaveCount(2)
+    await expect(sheet.locator('.todo-row').nth(2)).toContainText('3. Approval API')
+    await phone.click('.sheet-scrim')
+    await expect(sheet).toHaveCount(0)
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: questions answer in one tap, and a turn ending kills an open one', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(120_000)
+  const { phone, teardown } = await pairedSession('ask a question')
+  try {
+    // single single-choice question: tapping an option IS the answer
+    const first = phone.locator('.question-card').first()
+    await expect(first.locator('.btn-option')).toHaveCount(2, { timeout: 15_000 })
+    await expect(first.locator('button', { hasText: 'Answer' })).toHaveCount(0)
+    await first.locator('.btn-option', { hasText: 'Blue' }).click()
+    await expect(first.locator('.question-answer')).toHaveText('Answered: Blue', { timeout: 15_000 })
+    await expect(first.locator('.btn-option')).toHaveCount(0)
+
+    // a second question, then Stop: the turn ends, the card must go dead
+    await expect(phone.locator('.composer .btn-primary')).toBeVisible({ timeout: 15_000 })
+    await phone.fill('.composer-input', 'ask a question again')
+    await phone.click('.composer .btn-primary')
+    const second = phone.locator('.question-card').nth(1)
+    await expect(second.locator('.btn-option')).toHaveCount(2, { timeout: 15_000 })
+    await phone.click('.composer .btn-danger')
+    await expect(second.locator('.question-answer')).toContainText('Cancelled', { timeout: 15_000 })
+    await expect(second.locator('button')).toHaveCount(0)
+    // and the list stops claiming the session needs you
+    await phone.click('.push-screen .back-btn')
+    await expect(phone.locator('.session-row')).toHaveCount(1)
+    await expect(phone.locator('.session-row .needs-you')).toHaveCount(0)
+  } finally {
+    await teardown()
+  }
+})

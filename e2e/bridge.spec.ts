@@ -352,4 +352,54 @@ test.describe('mobile bridge', () => {
     await expect(cards).toHaveCount(1)
     await expect(cards).toContainText('edited first gamma')
   })
+  test('a phone edit keeps the earlier turns the desktop loaded', async () => {
+    test.setTimeout(120_000)
+    launched = await launchApp()
+    const { page } = launched
+    const project = await createProject(page, makeScratchRepo())
+    await page.evaluate(() => window.hang4r.setSetting('openTurns', '1'))
+    phone = await pairPhone(page)
+    const s = await page.evaluate(
+      (pid) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'codex',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          title: 'windowed',
+          firstPrompt: 'turn 1'
+        }),
+      project.id
+    )
+    const idle = async (): Promise<void> => {
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.hang4r.listSessions())).find((x) => x.id === s.id)
+              ?.status,
+          { timeout: 20_000 }
+        )
+        .toBe('idle')
+    }
+    await idle()
+    for (const n of [2, 3]) {
+      await page.evaluate(([id, t]) => window.hang4r.prompt(id as string, `turn ${t}`), [s.id, n])
+      await idle()
+    }
+    await page.reload()
+    await page.waitForSelector('.app')
+    await page.locator('.session-row', { hasText: 'windowed' }).click()
+    const tile = page.locator('.tile').first()
+    const earlier = tile.locator('.chat-load-earlier')
+    await earlier.click({ timeout: 20_000 })
+    const cards = tile.locator('.msg-user-card')
+    await expect(cards).toHaveCount(3)
+
+    await phone.call('rewindSession', s.id, 'turn 3', 0, 'turn 3 edited')
+    await idle()
+    // the card also holds its edit button's glyph
+    const want = ['turn 1', 'turn 2', 'turn 3 edited'].map((t) => new RegExp(`${t}$`))
+    await expect(cards).toHaveText(want)
+    await expect(earlier).toHaveCount(0)
+  })
 })

@@ -128,4 +128,62 @@ test.describe('edit a sent message — honest per-backend resend', () => {
     await expect(tile.locator('.msg-user-card')).not.toContainText('second message beta')
     await page.screenshot({ path: `${SHOTS}/codex-rollback-result.png`, fullPage: true })
   })
+  test('an edit keeps the earlier turns you loaded', async () => {
+    launched = await launchApp()
+    const { page } = launched
+    const project = await createProject(page, makeScratchRepo())
+    await page.evaluate(() => window.hang4r.setSetting('openTurns', '1'))
+    const s = await page.evaluate(
+      (pid) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'codex',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          title: 'windowed',
+          firstPrompt: 'turn 1'
+        }),
+      project.id
+    )
+    const idle = async (): Promise<void> => {
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.hang4r.listSessions())).find((x) => x.id === s.id)
+              ?.status,
+          { timeout: 20_000 }
+        )
+        .toBe('idle')
+    }
+    await idle()
+    for (const n of [2, 3, 4]) {
+      await page.evaluate(([id, t]) => window.hang4r.prompt(id as string, `turn ${t}`), [s.id, n])
+      await idle()
+    }
+    await page.reload()
+    await page.waitForSelector('.app')
+    await page.locator('.session-row', { hasText: 'windowed' }).click()
+    const tile = page.locator('.tile').first()
+    const earlier = tile.locator('.chat-load-earlier')
+    await earlier.click({ timeout: 20_000 })
+    const cards = tile.locator('.msg-user-card')
+    await expect(cards).toHaveCount(4)
+
+    const last = cards.last()
+    await last.hover()
+    await last.locator('.msg-edit-btn').click()
+    await tile.locator('.msg-edit-input').fill('turn 4 edited')
+    await tile.getByRole('button', { name: 'Send from here' }).click()
+    await expect(tile.locator('.msg-edit-input')).toHaveCount(0, { timeout: 20_000 })
+    await idle()
+
+    // the card also holds its edit button's glyph
+    const want = ['turn 1', 'turn 2', 'turn 3', 'turn 4 edited'].map((t) => new RegExp(`${t}$`))
+    await expect(cards).toHaveText(want)
+    await expect(earlier).toHaveCount(0)
+    // settled: no late reload swaps in a shorter window
+    await page.waitForTimeout(1500)
+    await expect(cards).toHaveText(want)
+    await expect(earlier).toHaveCount(0)
+  })
 })

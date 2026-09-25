@@ -15,6 +15,8 @@ export interface BridgeCallbacks {
   onSessionUpdated(session: SessionMeta): void
   /** seen somewhere else (desktop or another phone) — clear local markers */
   onSeen(sessionId: string): void
+  /** the desktop flagged this session finished-unseen */
+  onUnseen(sessionId: string): void
 }
 
 const PING_MS = 25_000
@@ -243,6 +245,9 @@ export class BridgeClient {
         break
       case 'seen':
         this.cb.onSeen(frame.sessionId)
+        break
+      case 'unseen':
+        this.cb.onUnseen(frame.sessionId)
         break
       case 'hello':
         this.setState('online')

@@ -181,6 +181,11 @@ export class BridgeService {
     }
   }
 
+  /** the desktop flagged this session finished-unseen — phones light its bell */
+  sendUnseen(sessionId: string): void {
+    this.send({ t: 'unseen', sessionId })
+  }
+
   /** Content-free push signal, sent on EVERY notify-worthy event. The relay
    *  decides whether to convert it to APNs based on proven client liveness —
    *  gating here on phoneConnected was wrong: iOS freezes the app's socket

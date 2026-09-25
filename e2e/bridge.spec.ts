@@ -2,7 +2,31 @@ import { test, expect } from '@playwright/test'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
 import { FakePhone } from './bridgeClient'
 import type { SessionEvent, SessionMeta, Project } from '../src/shared/protocol'
-import type { BridgeDesktopFrame } from '../src/shared/bridge'
+import type { BridgeDesktopFrame, BridgeSidebarState } from '../src/shared/bridge'
+import type { Page } from '@playwright/test'
+
+async function pairPhone(page: Page): Promise<FakePhone> {
+  await page.evaluate(() => window.hang4r.bridgeSetEnabled(true))
+  const pairing = await page.evaluate(() => window.hang4r.bridgePairing())
+  await expect
+    .poll(async () => (await page.evaluate(() => window.hang4r.bridgeStatus())).relayConnected, {
+      timeout: 15_000
+    })
+    .toBe(true)
+  const p = new FakePhone(pairing.url)
+  await p.connectWithRetry()
+  await expect
+    .poll(async () => (await page.evaluate(() => window.hang4r.bridgeStatus())).phoneConnected, {
+      timeout: 15_000
+    })
+    .toBe(true)
+  return p
+}
+
+const frameFor =
+  (t: 'seen' | 'unseen', sessionId: string) =>
+  (f: BridgeDesktopFrame): boolean =>
+    f.t === t && f.sessionId === sessionId
 
 // Talks to the DEPLOYED relay (network required) — the point is proving the
 // real desktop↔relay↔phone loop, not a loopback simulation.
@@ -106,5 +130,113 @@ test.describe('mobile bridge', () => {
     await expect(phone.call('writeFile', session.id, 'x.txt', 'nope')).rejects.toThrow(
       /unknown method/
     )
+  })
+
+  test('the desktop bell reaches the phone: flagged, seen on open/focus/watch, marked read/unread', async () => {
+    test.setTimeout(120_000)
+    launched = await launchApp()
+    const { page } = launched
+    const project = await createProject(page, makeScratchRepo())
+    await page.reload()
+    await page.waitForSelector('.app')
+    phone = await pairPhone(page)
+    const unseenNow = async (): Promise<string[]> =>
+      (await phone.call<BridgeSidebarState>('sidebarState')).unseen
+
+    // finishes while nobody looks → the desktop flags it, the phone hears it
+    const s = await page.evaluate(
+      (pid) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'claude',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          title: 'bell one',
+          firstPrompt: 'do the thing'
+        }),
+      project.id
+    )
+    await phone.nextEvent(frameFor('unseen', s.id))
+    expect(await unseenNow()).toEqual([s.id])
+
+    // opened on the desktop → seen everywhere, and gone from the snapshot
+    const row = page.locator('.session-row', { hasText: 'bell one' })
+    await row.click()
+    await phone.nextEvent(frameFor('seen', s.id))
+    await expect.poll(unseenNow).toEqual([])
+
+    // "Mark as unread" / "Mark as read" on the desktop travel too
+    await row.click({ button: 'right' })
+    await page.locator('.ctx-menu .ctx-item', { hasText: 'Mark as unread' }).click()
+    await phone.nextEvent(frameFor('unseen', s.id))
+    await expect.poll(unseenNow).toEqual([s.id])
+    phone.clearEvents()
+    await row.click({ button: 'right' })
+    await page.locator('.ctx-menu .ctx-item', { hasText: 'Mark as read' }).click()
+    await phone.nextEvent(frameFor('seen', s.id))
+    await expect.poll(unseenNow).toEqual([])
+
+    // a turn that settles while you watch it was seen — the phone must not
+    // keep the bell it would light from hearing the turn end
+    phone.clearEvents()
+    await page.evaluate((id) => window.hang4r.prompt(id, 'another turn'), s.id)
+    await phone.nextEvent(
+      (f) =>
+        f.t === 'event' &&
+        f.channel === 'agent-event' &&
+        (f.payload as SessionEvent).sessionId === s.id &&
+        (f.payload as SessionEvent).event.kind === 'turn-complete'
+    )
+    await test.step('watched turn → seen', () => phone.nextEvent(frameFor('seen', s.id)))
+    expect(await unseenNow()).toEqual([])
+
+    // focusing a session that is already open (the other split pane) is a look
+    const t = await page.evaluate(
+      (pid) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'claude',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          title: 'bell two'
+        }),
+      project.id
+    )
+    await page.locator('.session-row', { hasText: 'bell two' }).click({ modifiers: ['Meta'] })
+    await expect(page.locator('.tile')).toHaveCount(2)
+    phone.clearEvents()
+    await page.locator('.tile').first().dispatchEvent('mousedown')
+    await test.step('focus → seen', () => phone.nextEvent(frameFor('seen', s.id)))
+    expect(t.id).toBeTruthy()
+  })
+
+  test('a flagged session is still flagged after the desktop restarts', async () => {
+    test.setTimeout(90_000)
+    launched = await launchApp()
+    const { page, userDataDir } = launched
+    const project = await createProject(page, makeScratchRepo())
+    await page.reload()
+    await page.waitForSelector('.app')
+    const s = await page.evaluate(
+      (pid) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'claude',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          title: 'survives',
+          firstPrompt: 'do the thing'
+        }),
+      project.id
+    )
+    const row = page.locator('.session-row', { hasText: 'survives' })
+    await expect(row.locator('.session-flag-finished')).toBeVisible({ timeout: 20_000 })
+    await launched.app.close()
+
+    launched = await launchApp({ userDataDir })
+    const again = launched.page.locator('.session-row', { hasText: 'survives' })
+    await expect(again.locator('.session-flag-finished')).toBeVisible({ timeout: 20_000 })
+    phone = await pairPhone(launched.page)
+    expect((await phone.call<BridgeSidebarState>('sidebarState')).unseen).toEqual([s.id])
   })
 })

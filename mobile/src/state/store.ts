@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Project, QuestionAnswer, SessionEvent, SessionMeta } from '@shared/protocol'
+import type { BridgeSidebarState } from '@shared/bridge'
 import { BridgeClient, type ConnectionState } from '../bridge/client'
 import { applyEvent, countPending, emptyTranscript, type Transcript } from './transcript'
 import { IMAGE_ONLY_PROMPT } from '../hooks/useImageAttachments'
@@ -9,6 +10,9 @@ const APNS_KEY = 'h4.apnsToken'
 const TEXT_KEY = 'h4.textScale'
 const PINS_KEY = 'h4.pinnedSessions'
 const SEEN_KEY = 'h4.seenAt'
+const DESKTOP_UNSEEN_KEY = 'h4.desktopUnseen'
+const PENDING_SEEN_KEY = 'h4.pendingSeen'
+const FINISHED_KEY = 'h4.finishedAt'
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -68,6 +72,29 @@ function saveQueues(queues: Record<string, QueuedMessage[]>): void {
 
 const isActive = (status: string | undefined): boolean =>
   status === 'running' || status === 'starting'
+
+const isUnknownMethod = (err: unknown): boolean =>
+  err instanceof Error && err.message.includes('unknown method')
+
+function saveJson(key: string, value: unknown): void {
+  try {
+    if (value === null) localStorage.removeItem(key)
+    else localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // quota — the in-memory copy still drives this run
+  }
+}
+
+/** The sidebar bell. A desktop that reports its finished-unseen set is the
+ *  truth (it clears when the session is seen anywhere); an older desktop
+ *  leaves the phone to its own record of turns that ended since it looked. */
+export function isFinishedUnseen(
+  s: Pick<AppState, 'desktopUnseen' | 'attention' | 'finishedAt' | 'seenAt'>,
+  id: string
+): boolean {
+  if (s.desktopUnseen) return s.desktopUnseen.includes(id)
+  return !!s.attention[id] || (s.finishedAt[id] ?? 0) > (s.seenAt[id] ?? 0)
+}
 
 /** sessions whose flushed prompt hasn't been seen running yet — both flush
  *  triggers (turn settled, refresh while idle) can fire for the same idle
@@ -187,6 +214,13 @@ interface AppState {
    *  away marker even when the app heard no events (iOS had it frozen) */
   seenAt: Record<string, number>
   markSeen(sessionId: string): void
+  /** markSeen here AND on the desktop (which fans it out to other phones);
+   *  retried from refresh() when the desktop can't be told right now */
+  markSeenEverywhere(sessionId: string): void
+  /** the desktop's finished-unseen set; null = desktop too old to say */
+  desktopUnseen: string[] | null
+  /** when this phone learned a session's turn ended (old-desktop fallback) */
+  finishedAt: Record<string, number>
   error: string | null
   /** push registration outcome, surfaced in Settings so failures aren't silent */
   pushStatus: string
@@ -300,9 +334,25 @@ function startClient(url: string): BridgeClient | null {
       app.markSeen(sessionId)
       useApp.setState((s) => ({ attention: { ...s.attention, [sessionId]: false } }))
     },
+    onUnseen: (sessionId: string) => {
+      const app = useApp.getState()
+      // looking at it right now: seen here is seen everywhere
+      if (app.openSessionId === sessionId && document.visibilityState === 'visible') {
+        app.markSeenEverywhere(sessionId)
+        return
+      }
+      useApp.setState((s) => {
+        const base = s.desktopUnseen ?? []
+        if (base.includes(sessionId)) return {}
+        const desktopUnseen = [...base, sessionId]
+        saveJson(DESKTOP_UNSEEN_KEY, desktopUnseen)
+        return { desktopUnseen }
+      })
+    },
     onSessionUpdated: (session: SessionMeta) => {
       const prev = useApp.getState().sessions.find((x) => x.id === session.id)?.status
       if (isActive(session.status)) flushInFlight.delete(session.id)
+      if (isActive(prev) && !isActive(session.status)) noteFinished([session.id])
       useApp.setState((s) => ({
         sessions: s.sessions.some((x) => x.id === session.id)
           ? s.sessions.map((x) => (x.id === session.id ? session : x))
@@ -323,6 +373,19 @@ function startClient(url: string): BridgeClient | null {
 
 const homeCache = loadHomeCache()
 
+/** turns that ended: the open one was watched, the rest wait for a look */
+function noteFinished(ids: string[]): void {
+  const app = useApp.getState()
+  const now = Date.now()
+  const finishedAt = { ...app.finishedAt }
+  for (const id of ids) {
+    if (id === app.openSessionId && document.visibilityState === 'visible') app.markSeen(id)
+    else finishedAt[id] = now
+  }
+  saveJson(FINISHED_KEY, finishedAt)
+  useApp.setState({ finishedAt })
+}
+
 export const useApp = create<AppState>((set, get) => ({
   pairingUrl: localStorage.getItem(PAIRING_KEY),
   conn: 'idle',
@@ -338,6 +401,8 @@ export const useApp = create<AppState>((set, get) => ({
   sessionInit: loadJson<SessionInit>(SESSION_INIT_KEY, {}),
   pinned: loadJson<string[]>(PINS_KEY, []),
   seenAt: loadJson<Record<string, number>>(SEEN_KEY, {}),
+  desktopUnseen: loadJson<string[] | null>(DESKTOP_UNSEEN_KEY, null),
+  finishedAt: loadJson<Record<string, number>>(FINISHED_KEY, {}),
   error: null,
   queues: loadQueues(),
 
@@ -416,10 +481,25 @@ export const useApp = create<AppState>((set, get) => ({
 
   markSeen(sessionId: string): void {
     set((s) => {
-      const session = s.sessions.find((x) => x.id === sessionId)
-      const seenAt = { ...s.seenAt, [sessionId]: Math.max(session?.updatedAt ?? 0, Date.now()) }
-      localStorage.setItem(SEEN_KEY, JSON.stringify(seenAt))
-      return { seenAt }
+      const seenAt = { ...s.seenAt, [sessionId]: Date.now() }
+      saveJson(SEEN_KEY, seenAt)
+      if (!s.desktopUnseen?.includes(sessionId)) return { seenAt }
+      const desktopUnseen = s.desktopUnseen.filter((id) => id !== sessionId)
+      saveJson(DESKTOP_UNSEEN_KEY, desktopUnseen)
+      return { seenAt, desktopUnseen }
+    })
+  },
+
+  markSeenEverywhere(sessionId: string): void {
+    get().markSeen(sessionId)
+    const remember = (): void => {
+      const pending = loadJson<string[]>(PENDING_SEEN_KEY, [])
+      if (!pending.includes(sessionId)) saveJson(PENDING_SEEN_KEY, [...pending, sessionId])
+    }
+    const c = tryBridge()
+    if (!c) return remember()
+    c.call('markSeen', sessionId).catch((err) => {
+      if (!isUnknownMethod(err)) remember()
     })
   },
   pushStatus: 'not requested',
@@ -526,7 +606,10 @@ export const useApp = create<AppState>((set, get) => ({
     localStorage.removeItem(PAIRING_KEY)
     localStorage.removeItem(HOME_CACHE_KEY)
     localStorage.removeItem(QUEUE_KEY)
+    for (const k of [DESKTOP_UNSEEN_KEY, PENDING_SEEN_KEY, FINISHED_KEY]) localStorage.removeItem(k)
     set({
+      desktopUnseen: null,
+      finishedAt: {},
       pairingUrl: null,
       conn: 'idle',
       projects: [],
@@ -542,22 +625,48 @@ export const useApp = create<AppState>((set, get) => ({
   async refresh(): Promise<void> {
     set({ refreshing: true })
     try {
-      const [projects, sessions] = await Promise.all([
+      // seen here while the desktop couldn't hear it: tell it first, so the
+      // snapshot below already reflects it
+      const pendingSeen = loadJson<string[]>(PENDING_SEEN_KEY, [])
+      if (pendingSeen.length) {
+        const told = await Promise.all(
+          pendingSeen.map((id) =>
+            bridge()
+              .call('markSeen', id)
+              .then(() => true)
+              .catch((err) => isUnknownMethod(err))
+          )
+        )
+        saveJson(PENDING_SEEN_KEY, pendingSeen.filter((_, i) => !told[i]))
+      }
+      const requestedAt = Date.now()
+      const [projects, sessions, sidebar] = await Promise.all([
         bridge().call<Project[]>('listProjects'),
-        bridge().call<SessionMeta[]>('listSessions')
+        bridge().call<SessionMeta[]>('listSessions'),
+        bridge()
+          .call<BridgeSidebarState>('sidebarState')
+          .catch((err): BridgeSidebarState | null | undefined =>
+            // null = old desktop (fall back); undefined = keep what we have
+            isUnknownMethod(err) ? null : undefined
+          )
       ])
+      const before = new Map(get().sessions.map((x) => [x.id, x.status]))
+      const settled = sessions
+        .filter((x) => isActive(before.get(x.id)) && !isActive(x.status))
+        .map((x) => x.id)
       set((s) => {
-        const seenAt = { ...s.seenAt }
-        let changed = false
-        for (const sess of sessions) {
-          if (!(sess.id in seenAt)) {
-            seenAt[sess.id] = sess.updatedAt
-            changed = true
-          }
+        const next: Partial<AppState> = { projects, sessions, error: null }
+        if (sidebar === null) {
+          next.desktopUnseen = null
+          saveJson(DESKTOP_UNSEEN_KEY, null)
+        } else if (sidebar) {
+          // a look on this phone after the snapshot was taken wins over it
+          next.desktopUnseen = sidebar.unseen.filter((id) => (s.seenAt[id] ?? 0) < requestedAt)
+          saveJson(DESKTOP_UNSEEN_KEY, next.desktopUnseen)
         }
-        if (changed) localStorage.setItem(SEEN_KEY, JSON.stringify(seenAt))
-        return { projects, sessions, error: null, seenAt }
+        return next
       })
+      if (settled.length) noteFinished(settled)
       // queued while the app was frozen or offline: the settle that would have
       // flushed it was never heard
       for (const sess of sessions) {
@@ -595,11 +704,8 @@ export const useApp = create<AppState>((set, get) => ({
       attention: { ...s.attention, [id]: false },
       transcripts: cached ? s.transcripts : { ...s.transcripts, [id]: emptyTranscript() }
     }))
-    get().markSeen(id)
     // clear the desktop's bell/badge/banners too (older desktops: no-op)
-    void bridge()
-      .call('markSeen', id)
-      .catch(() => {})
+    get().markSeenEverywhere(id)
     bridge().sub(id)
     // offline: show what we have; the 'online' transition replays via
     // reloadOpenTranscript, so this open self-heals without user action
@@ -641,11 +747,7 @@ export const useApp = create<AppState>((set, get) => ({
     const id = get().openSessionId
     if (id) {
       bridge().unsub(id)
-      get().markSeen(id)
-    // clear the desktop's bell/badge/banners too (older desktops: no-op)
-    void bridge()
-      .call('markSeen', id)
-      .catch(() => {})
+      get().markSeenEverywhere(id)
     }
     set({ openSessionId: null })
   },

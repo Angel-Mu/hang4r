@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { SessionMeta } from '@shared/protocol'
 import { Icon } from '@shared/icons'
-import { useApp } from '../state/store'
+import { isFinishedUnseen, useApp } from '../state/store'
 import { Drawer } from '../components/Drawer'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 
@@ -66,6 +66,8 @@ export function HomeScreen(): JSX.Element {
   const projects = useApp((s) => s.projects)
   const sessions = useApp((s) => s.sessions)
   const attention = useApp((s) => s.attention)
+  const desktopUnseen = useApp((s) => s.desktopUnseen)
+  const finishedAt = useApp((s) => s.finishedAt)
   const refresh = useApp((s) => s.refresh)
   const refreshing = useApp((s) => s.refreshing)
   const openSession = useApp((s) => s.openSession)
@@ -75,6 +77,8 @@ export function HomeScreen(): JSX.Element {
   const pinned = useApp((s) => s.pinned)
   const togglePin = useApp((s) => s.togglePin)
   const seenAt = useApp((s) => s.seenAt)
+  const unseenOf = (id: string): boolean =>
+    isFinishedUnseen({ desktopUnseen, attention, finishedAt, seenAt }, id)
   // long-press pins; the synthetic click that follows must not open the row
   const suppressClick = useRef(false)
   const pressTimer = useRef<number | null>(null)
@@ -212,7 +216,7 @@ export function HomeScreen(): JSX.Element {
                         className={dotClass(
                           s,
                           pendingApprovals[s.id] ?? 0,
-                          !!attention[s.id] || s.updatedAt > (seenAt[s.id] ?? s.updatedAt)
+                          unseenOf(s.id)
                         )}
                       />
                       <span className={`backend-glyph backend-${s.backend}`} title={s.backend}>
@@ -227,7 +231,7 @@ export function HomeScreen(): JSX.Element {
                       <RowState
                         session={s}
                         pending={pendingApprovals[s.id] ?? 0}
-                        unseen={!!attention[s.id] || s.updatedAt > (seenAt[s.id] ?? s.updatedAt)}
+                        unseen={unseenOf(s.id)}
                       />
                     </button>
                   ))}

@@ -35,6 +35,7 @@ import type {
 } from '../shared/protocol'
 import { SessionManager } from './services/sessionManager'
 import { BridgeService } from './services/bridgeService'
+import type { BridgeSidebarState } from '../shared/bridge'
 import { BrowserControlService } from './services/browserControlService'
 import QRCode from 'qrcode'
 import { CursorImport } from './services/cursorImport'
@@ -68,6 +69,8 @@ export function getBrowserControl(): BrowserControlService | null {
 }
 
 let bridgeService: BridgeService | null = null
+/** renderer's finished-unseen set (JSON id array), hydrated on boot */
+const UNSEEN_KEY = 'finishedUnseenV1'
 export function getBridge(): BridgeService | null {
   return bridgeService
 }
@@ -116,6 +119,28 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     else bridgeService?.cancelNotify(sessionId)
   }
   ipcMain.handle('sessions:opened', (_e, sessionId: string) => seenOnDesktop(sessionId, true))
+  // the renderer's finished-unseen set, persisted so a restart keeps its bells
+  // and mirrored to the phones: ids that left were seen, ids that arrived
+  // (a turn settled unwatched, or "Mark as unread") want a look
+  const readIds = (key: string): string[] => {
+    try {
+      const v = JSON.parse(settings.getSetting(key) ?? '[]')
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+    } catch {
+      return []
+    }
+  }
+  let desktopUnseen = new Set(readIds(UNSEEN_KEY))
+  const setDesktopUnseen = (ids: string[]): void => {
+    const next = new Set(ids)
+    const gone = [...desktopUnseen].filter((id) => !next.has(id))
+    const added = [...next].filter((id) => !desktopUnseen.has(id))
+    desktopUnseen = next
+    settings.setSetting(UNSEEN_KEY, JSON.stringify([...next]))
+    for (const id of gone) seenOnDesktop(id, true)
+    for (const id of added) bridgeService?.sendUnseen(id)
+  }
+  ipcMain.handle('sessions:unseen-sync', (_e, ids: string[]) => setDesktopUnseen(ids))
   const maybeNotify = (ev: SessionEvent): void => {
     // notify on finished turns AND on permission requests — a blocked agent
     // waiting for approval while hang4r is in the background is the worst
@@ -302,57 +327,63 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     get: (k: string) => settings.getSetting(k),
     set: (k: string, v: string) => settings.setSetting(k, v)
   }
+  const bridgeApi: Record<string, (...args: never[]) => unknown> = {
+    listProjects: () => store.listProjects(),
+    listSessions: () => store.listSessions(),
+    listArchivedSessions: () => store.listArchivedSessions(),
+    getSessionEvents: (sessionId: string) => store.getEvents(sessionId),
+    prompt: (sessionId: string, text: string, images?: PromptImage[]) =>
+      sessions.prompt(sessionId, text, images),
+    interrupt: (sessionId: string) => sessions.interrupt(sessionId),
+    createSession: (req: NewSessionRequest) => sessions.createSession(req),
+    respondPermission: (sessionId: string, requestId: string, decision: string) =>
+      sessions.respondPermission(sessionId, requestId, decision),
+    respondQuestion: (sessionId: string, requestId: string, answers: QuestionAnswer[]) =>
+      sessions.respondQuestion(sessionId, requestId, answers),
+    renameSession: (sessionId: string, title: string) => void sessions.rename(sessionId, title),
+    archiveSession: (sessionId: string) => sessions.archive(sessionId),
+    unarchiveSession: (sessionId: string) => store.updateSession(sessionId, { status: 'idle' }),
+    retrySession: (sessionId: string) => sessions.retry(sessionId),
+    authStatus: () =>
+      AuthService.status(
+        settings.getSetting('codexBinaryPath'),
+        settings.getSetting('cursorBinaryPath')
+      ),
+    listCodexModels: () => CodexModelService.list(settings.getSetting('codexBinaryPath')),
+    listCursorModels: () => CursorModelService.list(settings.getSetting('cursorBinaryPath')),
+    resolveAgentDefault: (backend: BackendId, field: 'model' | 'permissionMode', projectId?: string) =>
+      settings.resolveAgentDefault(backend, field, projectId),
+    scopeSummary: (sessionId: string) => sessions.scopeSummary(sessionId),
+    scopedFiles: (sessionId: string, scope: DiffScope) => sessions.scopedFiles(sessionId, scope),
+    scopedDiff: (sessionId: string, scope: DiffScope, path: string, ignoreWs?: boolean) =>
+      sessions.scopedDiff(sessionId, scope, path, ignoreWs),
+    submitReview: (sessionId: string, comments: ReviewComment[]) =>
+      sessions.submitReview(sessionId, comments),
+    claudeUsage: (force?: boolean) =>
+      UsageService.claudeUsage(settings.getSetting('claudeBinaryPath'), force, usagePersist),
+    codexUsage: (force?: boolean) =>
+      UsageService.codexUsage(settings.getSetting('codexBinaryPath'), force, usagePersist),
+    cursorUsage: (force?: boolean) =>
+      UsageService.cursorUsage(settings.getSetting('cursorBinaryPath'), force, usagePersist),
+    appVersion: () => app.getVersion(),
+    agentAlive: (sessionId: string) => sessions.agentAlive(sessionId),
+    currentBranch: (sessionId: string) => sessions.currentBranch(sessionId),
+    resyncSession: (sessionId: string) => sessions.resyncAndRecover(sessionId),
+    // the phone opened this session — clear every "come look" signal here:
+    // dock badge, sidebar bell, and the macOS notification banners
+    setSessionModel: (sessionId: string, model: string) => sessions.setModel(sessionId, model),
+    setSessionPermissionMode: (sessionId: string, mode: PermissionMode) =>
+      sessions.setPermissionMode(sessionId, mode),
+    markSeen: (sessionId: string) => seenOnDesktop(sessionId, true),
+    sidebarState: (): BridgeSidebarState => ({ unseen: [...desktopUnseen] })
+  }
+  // e2e: impersonate an older desktop that predates some methods
+  for (const m of (process.env.HANG4R_TEST_BRIDGE_WITHOUT ?? '').split(',')) {
+    if (m) delete bridgeApi[m]
+  }
   bridgeService = new BridgeService(
     settings,
-    {
-      listProjects: () => store.listProjects(),
-      listSessions: () => store.listSessions(),
-      listArchivedSessions: () => store.listArchivedSessions(),
-      getSessionEvents: (sessionId: string) => store.getEvents(sessionId),
-      prompt: (sessionId: string, text: string, images?: PromptImage[]) =>
-        sessions.prompt(sessionId, text, images),
-      interrupt: (sessionId: string) => sessions.interrupt(sessionId),
-      createSession: (req: NewSessionRequest) => sessions.createSession(req),
-      respondPermission: (sessionId: string, requestId: string, decision: string) =>
-        sessions.respondPermission(sessionId, requestId, decision),
-      respondQuestion: (sessionId: string, requestId: string, answers: QuestionAnswer[]) =>
-        sessions.respondQuestion(sessionId, requestId, answers),
-      renameSession: (sessionId: string, title: string) => void sessions.rename(sessionId, title),
-      archiveSession: (sessionId: string) => sessions.archive(sessionId),
-      unarchiveSession: (sessionId: string) => store.updateSession(sessionId, { status: 'idle' }),
-      retrySession: (sessionId: string) => sessions.retry(sessionId),
-      authStatus: () =>
-        AuthService.status(
-          settings.getSetting('codexBinaryPath'),
-          settings.getSetting('cursorBinaryPath')
-        ),
-      listCodexModels: () => CodexModelService.list(settings.getSetting('codexBinaryPath')),
-      listCursorModels: () => CursorModelService.list(settings.getSetting('cursorBinaryPath')),
-      resolveAgentDefault: (backend: BackendId, field: 'model' | 'permissionMode', projectId?: string) =>
-        settings.resolveAgentDefault(backend, field, projectId),
-      scopeSummary: (sessionId: string) => sessions.scopeSummary(sessionId),
-      scopedFiles: (sessionId: string, scope: DiffScope) => sessions.scopedFiles(sessionId, scope),
-      scopedDiff: (sessionId: string, scope: DiffScope, path: string, ignoreWs?: boolean) =>
-        sessions.scopedDiff(sessionId, scope, path, ignoreWs),
-      submitReview: (sessionId: string, comments: ReviewComment[]) =>
-        sessions.submitReview(sessionId, comments),
-      claudeUsage: (force?: boolean) =>
-        UsageService.claudeUsage(settings.getSetting('claudeBinaryPath'), force, usagePersist),
-      codexUsage: (force?: boolean) =>
-        UsageService.codexUsage(settings.getSetting('codexBinaryPath'), force, usagePersist),
-      cursorUsage: (force?: boolean) =>
-        UsageService.cursorUsage(settings.getSetting('cursorBinaryPath'), force, usagePersist),
-      appVersion: () => app.getVersion(),
-      agentAlive: (sessionId: string) => sessions.agentAlive(sessionId),
-      currentBranch: (sessionId: string) => sessions.currentBranch(sessionId),
-      resyncSession: (sessionId: string) => sessions.resyncAndRecover(sessionId),
-      // the phone opened this session — clear every "come look" signal here:
-      // dock badge, sidebar bell, and the macOS notification banners
-      setSessionModel: (sessionId: string, model: string) => sessions.setModel(sessionId, model),
-      setSessionPermissionMode: (sessionId: string, mode: PermissionMode) =>
-        sessions.setPermissionMode(sessionId, mode),
-      markSeen: (sessionId: string) => seenOnDesktop(sessionId, true)
-    },
+    bridgeApi,
     app.getVersion(),
     (s) => {
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send('bridge:status', s)

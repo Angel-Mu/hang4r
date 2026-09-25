@@ -574,6 +574,9 @@ export interface Hang4rApi {
   onSessionSeen(cb: (sessionId: string) => void): () => void
   /** renderer opened a session — clear its come-look signals everywhere */
   notifySessionOpened(sessionId: string): Promise<void>
+  /** the renderer's finished-unseen set changed — main persists it and tells
+   *  the phones what came and went */
+  syncUnseen(sessionIds: string[]): Promise<void>
   pickProjectFolder(): Promise<string | null>
   createProject(path: string): Promise<Project>
   listProjects(): Promise<Project[]>

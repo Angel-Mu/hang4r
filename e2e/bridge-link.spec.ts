@@ -16,12 +16,20 @@ test('a link is silent only after a full window without frames', () => {
 })
 
 test('refused sockets mean a changed pairing only while the relay itself answers', () => {
-  expect(pairingLooksChanged({ refusedStreak: 2, undecryptable: 0, relayReachable: true })).toBe(false)
-  expect(pairingLooksChanged({ refusedStreak: 3, undecryptable: 0, relayReachable: true })).toBe(true)
+  expect(pairingLooksChanged({ refusedStreak: 2, undecryptable: 0, relayReachable: true })).toBe(
+    false
+  )
+  expect(pairingLooksChanged({ refusedStreak: 3, undecryptable: 0, relayReachable: true })).toBe(
+    true
+  )
   // offline phone: every socket fails, but so does the relay — not a re-pair
-  expect(pairingLooksChanged({ refusedStreak: 9, undecryptable: 0, relayReachable: false })).toBe(false)
+  expect(pairingLooksChanged({ refusedStreak: 9, undecryptable: 0, relayReachable: false })).toBe(
+    false
+  )
   // frames under a key we don't hold are proof on their own
-  expect(pairingLooksChanged({ refusedStreak: 0, undecryptable: 3, relayReachable: false })).toBe(true)
+  expect(pairingLooksChanged({ refusedStreak: 0, undecryptable: 3, relayReachable: false })).toBe(
+    true
+  )
 })
 
 test('the connection log keeps the newest entries and copies as text', () => {

@@ -536,7 +536,9 @@ test.describe('mobile bridge', () => {
     })
     const { page } = launched
     await page.evaluate(() => window.hang4r.bridgeSetEnabled(true))
-    await expect.poll(async () => (await diag(page)).reconnects, { timeout: 30_000 }).toBeGreaterThan(0)
+    await expect
+      .poll(async () => (await diag(page)).reconnects, { timeout: 30_000 })
+      .toBeGreaterThan(0)
     const d = await diag(page)
     expect(d.lastClose?.reason).toBe('no frames for 5s')
     expect(d.log.map((e) => e.msg)).toContain('dropped the relay socket: no frames for 5s')
@@ -545,7 +547,7 @@ test.describe('mobile bridge', () => {
     expect(await phone.call('listProjects')).toEqual([])
   })
 
-  test('an idle desktop with no phone stays up on the relay\'s pongs alone', async () => {
+  test("an idle desktop with no phone stays up on the relay's pongs alone", async () => {
     test.setTimeout(60_000)
     launched = await launchApp({ env: { HANG4R_TEST_BRIDGE_TIMING: 'ping=1000,silence=5000' } })
     const { page } = launched

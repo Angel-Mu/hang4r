@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { test, expect, chromium, type Browser, type Page } from '@playwright/test'
+import { test, expect, chromium, type Browser, type Locator, type Page } from '@playwright/test'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
 import {
   applyEvent,
@@ -136,14 +136,14 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   // drive a new turn from the phone and watch it stream
   await phone.fill('.composer-input', 'stream me something\nover two lines')
   await expect.poll(composerH).toBeGreaterThan(oneLineH)
-  await phone.click('.composer .btn-primary')
+  await composerBtn(phone, 'Send').click()
   await expect.poll(composerH).toBe(oneLineH)
   await expect(phone.locator('.msg-user').nth(1)).toContainText('stream me something')
   await expect(phone.locator('.turn-divider')).toHaveCount(2, { timeout: 30_000 })
 
   // permission approval from the phone
   await phone.fill('.composer-input', 'now ask permission please')
-  await phone.click('.composer .btn-primary')
+  await composerBtn(phone, 'Send').click()
   const permCard = phone.locator('.perm-card', { hasText: 'Approval needed' })
   await expect(permCard).toBeVisible({ timeout: 30_000 })
   await permCard.locator('.btn-primary', { hasText: 'Allow' }).click()
@@ -221,7 +221,7 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
   await phone.setInputFiles('.attach-btn input[type=file]', pngPath)
   await expect(phone.locator('.pending-image img')).toHaveCount(1, { timeout: 10_000 })
   await phone.fill('.composer-input', 'look at this screenshot')
-  await phone.click('.composer .btn-primary')
+  await composerBtn(phone, 'Send').click()
   await expect(phone.locator('.msg-user .msg-images img').first()).toBeVisible({
     timeout: 30_000
   })
@@ -250,6 +250,10 @@ test('phone app pairs, sees sessions, drives a conversation, approves', async ()
 
 /** Desktop (fake agent) + phone paired through the relay, one session started
  *  with `firstPrompt` and opened on the phone. Closed by the test's teardown. */
+/** the composer's icon buttons, by their accessible names (Send / Queue / Stop) */
+const composerBtn = (page: Page, name: string): Locator =>
+  page.locator('.composer').getByRole('button', { name, exact: true })
+
 async function pairedSession(
   firstPrompt: string
 ): Promise<{ desktop: Page; phone: Page; teardown: () => Promise<void> }> {
@@ -345,12 +349,12 @@ test('phone: questions answer in one tap, and a turn ending kills an open one', 
     await expect(first.locator('.btn-option')).toHaveCount(0)
 
     // a second question, then Stop: the turn ends, the card must go dead
-    await expect(phone.locator('.composer .btn-primary')).toBeVisible({ timeout: 15_000 })
+    await expect(composerBtn(phone, 'Send')).toBeVisible({ timeout: 15_000 })
     await phone.fill('.composer-input', 'ask a question again')
-    await phone.click('.composer .btn-primary')
+    await composerBtn(phone, 'Send').click()
     const second = phone.locator('.question-card').nth(1)
     await expect(second.locator('.btn-option')).toHaveCount(2, { timeout: 15_000 })
-    await phone.click('.composer .btn-danger')
+    await composerBtn(phone, 'Stop').click()
     await expect(second.locator('.question-answer')).toContainText('Cancelled', { timeout: 15_000 })
     await expect(second.locator('button')).toHaveCount(0)
     // and the list stops claiming the session needs you
@@ -371,9 +375,9 @@ test('phone: follow-ups queue while the agent works and go one per turn', async 
     await expect(phone.locator('.perm-card', { hasText: 'Approval needed' })).toBeVisible({
       timeout: 15_000
     })
-    const queueBtn = phone.locator('.composer .btn-primary')
-    await expect(queueBtn).toHaveText('Queue')
-    await expect(phone.locator('.composer .btn-danger')).toHaveText('Stop')
+    const queueBtn = composerBtn(phone, 'Queue')
+    await expect(composerBtn(phone, 'Stop')).toBeVisible()
+    await expect(queueBtn).toHaveCount(0)
     for (const text of ['QUEUED ALPHA', 'QUEUED BETA', 'QUEUED GAMMA']) {
       await phone.fill('.composer-input', text)
       await queueBtn.click()
@@ -417,7 +421,7 @@ test('phone: follow-ups queue while the agent works and go one per turn', async 
 
     // Send now: interrupts the live turn and delivers straight away
     await phone.fill('.composer-input', 'ask permission again')
-    await phone.locator('.composer .btn-primary').click()
+    await composerBtn(phone, 'Send').click()
     const held = phone.locator('.perm-card', { hasText: 'Approval needed' })
     await expect(held).toBeVisible({ timeout: 15_000 })
     await phone.fill('.composer-input', 'SEND ME NOW')
@@ -448,7 +452,7 @@ test('phone: a queue left behind is sent once, in turn, when the phone comes bac
     })
     for (const text of ['LATER ONE', 'LATER TWO']) {
       await phone.fill('.composer-input', text)
-      await phone.locator('.composer .btn-primary').click()
+      await composerBtn(phone, 'Queue').click()
     }
     await expect(phone.locator('.queue-row')).toHaveCount(2)
 
@@ -480,6 +484,85 @@ test('phone: a queue left behind is sent once, in turn, when the phone comes bac
     await expect
       .poll(flow, { timeout: 30_000 })
       .toEqual(['ask permission to start', '|', 'LATER ONE', '|', 'LATER TWO', '|'])
+  } finally {
+    await teardown()
+  }
+})
+
+const COMPOSER_SHOTS = '/private/tmp/claude-501/composer-icons-shots'
+
+test('phone: composer actions are compact icons that leave the input its width', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { phone, teardown } = await pairedSession('ask permission to start')
+  const btn = (name: string): Locator => composerBtn(phone, name)
+  const shoot = async (state: string): Promise<void> => {
+    for (const theme of ['dark', 'light']) {
+      await phone.evaluate((t) => (document.documentElement.dataset.theme = t), theme)
+      await phone.screenshot({ path: `${COMPOSER_SHOTS}/${state}-${theme}.png` })
+    }
+    await phone.evaluate(() => (document.documentElement.dataset.theme = 'dark'))
+  }
+  try {
+    await expect(phone.locator('.perm-card', { hasText: 'Approval needed' })).toBeVisible({
+      timeout: 15_000
+    })
+    // working, text typed: Stop + Queue, and the input keeps most of the row
+    await phone.fill('.composer-input', 'a follow-up that needs room to breathe')
+    await expect(btn('Stop')).toBeVisible()
+    await expect(btn('Queue')).toBeVisible()
+    const ratio = await phone.evaluate(() => {
+      const row = document.querySelector('.composer') as HTMLElement
+      const input = document.querySelector('.composer-input') as HTMLElement
+      const cs = getComputedStyle(row)
+      const content = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+      return input.getBoundingClientRect().width / content
+    })
+    expect(ratio).toBeGreaterThanOrEqual(0.6)
+    for (const name of ['Stop', 'Queue']) {
+      const box = (await btn(name).boundingBox())!
+      expect(box.width).toBeGreaterThanOrEqual(44)
+      expect(box.height).toBeGreaterThanOrEqual(44)
+      await expect(btn(name)).toHaveAttribute('title', name)
+      await expect(btn(name).locator('svg')).toHaveCount(1)
+    }
+    await shoot('3-working-typed')
+
+    await btn('Queue').click()
+    await expect(phone.locator('.queue-row')).toHaveCount(1)
+
+    // working, nothing typed: Stop alone
+    await expect(btn('Stop')).toBeVisible()
+    await expect(btn('Queue')).toHaveCount(0)
+    await expect(btn('Send')).toHaveCount(0)
+    await shoot('2-working-empty')
+
+    // iPad split view, working with text typed
+    await phone.setViewportSize({ width: 1024, height: 1366 })
+    await expect(phone.locator('.split')).toBeVisible()
+    await phone.fill('.composer-input', 'a follow-up that needs room to breathe')
+    await expect(btn('Queue')).toBeVisible()
+    await phone.screenshot({ path: `${COMPOSER_SHOTS}/4-ipad-working-typed.png` })
+    await phone.setViewportSize({ width: 390, height: 844 })
+    await phone.fill('.composer-input', '')
+    // a queued message would start the next turn the moment Stop settles this one
+    await phone.getByLabel('Remove from queue').click()
+    await expect(phone.locator('.queue-row')).toHaveCount(0)
+
+    // Stop ends the turn; idle shows Send alone, dimmed until there is something
+    await btn('Stop').click()
+    await expect(btn('Send')).toBeVisible({ timeout: 15_000 })
+    await expect(btn('Stop')).toHaveCount(0)
+    await expect(btn('Queue')).toHaveCount(0)
+    await expect(btn('Send')).toBeDisabled()
+    await shoot('1-idle-empty')
+    await phone.fill('.composer-input', 'SENT BY ICON')
+    await expect(btn('Send')).toBeEnabled()
+    await shoot('1-idle-typed')
+    await btn('Send').click()
+    await expect(phone.locator('.msg-user').filter({ hasText: 'SENT BY ICON' })).toHaveCount(1, {
+      timeout: 15_000
+    })
   } finally {
     await teardown()
   }

@@ -262,6 +262,9 @@ export function SessionScreen({
     el.style.height = `${el.scrollHeight}px`
   }, [draft, view])
 
+  // the textarea unmounting while focused (back-swipe, diff view) skips onBlur
+  useEffect(() => () => document.documentElement.classList.remove('kb-composer'), [view])
+
   const running = session?.status === 'running' || session?.status === 'starting'
 
   const send = (): void => {
@@ -421,7 +424,11 @@ export function SessionScreen({
             value={draft}
             rows={1}
             onChange={(e) => setDraft(e.target.value)}
-            onFocus={() => setTimeout(() => scrollToBottom(false), 250)}
+            onFocus={() => {
+              document.documentElement.classList.add('kb-composer')
+              setTimeout(() => scrollToBottom(false), 250)
+            }}
+            onBlur={() => document.documentElement.classList.remove('kb-composer')}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()
             }}

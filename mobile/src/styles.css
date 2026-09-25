@@ -760,6 +760,12 @@ body,
 html.kb-open .screen {
   padding-bottom: 0;
 }
+/* resize=body shrinks only the body; the full-height webview's html canvas
+   is what shows through the keyboard's rounded top corners — match it to
+   the composer while that's what the keyboard is typing into */
+html.kb-open.kb-composer {
+  background: var(--bg-raise);
+}
 
 .topbar-title-btn {
   background: none;

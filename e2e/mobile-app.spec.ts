@@ -733,3 +733,84 @@ test('phone: an older desktop keeps the activity order, empty workspaces hidden'
     await teardown()
   }
 })
+
+/** hold a row the way a finger does: the sheet opens on the timer, not on release */
+async function longPress(phone: Page, text: string): Promise<void> {
+  const row = phone.locator('.session-row', { hasText: text })
+  await row.dispatchEvent('touchstart')
+  await expect(phone.locator('.session-actions-sheet')).toBeVisible()
+  await row.dispatchEvent('touchend')
+}
+
+test('phone: long-press opens row actions — read, unread and pin, mirrored on the desktop', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { desktop, phone, teardown } = await pairedHome([
+    { title: 'gamma', firstPrompt: 'do the thing' }
+  ])
+  try {
+    const row = phone.locator('.session-row', { hasText: 'gamma' })
+    const desktopFlag = desktop
+      .locator('.session-row', { hasText: 'gamma' })
+      .locator('.session-flag-finished')
+    await expect(row.locator('.session-bell')).toBeVisible({ timeout: 15_000 })
+    await expect(desktopFlag).toBeVisible()
+
+    await longPress(phone, 'gamma')
+    const sheet = phone.locator('.session-actions-sheet')
+    await expect(sheet.locator('.sheet-action')).toHaveText(['Pin to top', 'Mark as read'])
+    // the click a long-press release can produce is not a choice
+    await phone.locator('.sheet-scrim').dispatchEvent('click')
+    await expect(sheet).toBeVisible()
+    await sheet.locator('.sheet-action').first().dispatchEvent('click')
+    await expect(sheet).toBeVisible()
+    await expect(row.locator('.session-pin')).toHaveCount(0)
+    await phone.screenshot({ path: `${SHOTS}/8-row-actions.png` })
+    await sheet.locator('.sheet-action', { hasText: 'Mark as read' }).click()
+    await expect(sheet).toHaveCount(0)
+    await expect(row.locator('.session-bell')).toHaveCount(0)
+    await expect(desktopFlag).toHaveCount(0, { timeout: 15_000 })
+
+    await longPress(phone, 'gamma')
+    await sheet.locator('.sheet-action', { hasText: 'Mark as unread' }).click()
+    await expect(row.locator('.session-bell')).toBeVisible()
+    await expect(desktopFlag).toBeVisible({ timeout: 15_000 })
+
+    await longPress(phone, 'gamma')
+    await sheet.locator('.sheet-action', { hasText: 'Pin to top' }).click()
+    await expect(row.locator('.session-pin')).toBeVisible()
+    // a tap after a long-press opens the row again
+    await row.click()
+    await expect(phone.locator('.msg-user').first()).toContainText('do the thing', {
+      timeout: 15_000
+    })
+    await expect(desktopFlag).toHaveCount(0, { timeout: 15_000 })
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: an older desktop can still be marked unread, on the phone alone', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { phone, teardown } = await pairedHome([{ title: 'delta' }], {
+    env: { HANG4R_TEST_BRIDGE_WITHOUT: 'sidebarState,markUnseen' }
+  })
+  try {
+    const row = phone.locator('.session-row', { hasText: 'delta' })
+    const sheet = phone.locator('.session-actions-sheet')
+    await expect(row.locator('.session-bell')).toHaveCount(0)
+    await longPress(phone, 'delta')
+    await sheet.locator('.sheet-action', { hasText: 'Mark as unread' }).click()
+    await expect(row.locator('.session-bell')).toBeVisible()
+    await phone.reload()
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await expect(row.locator('.session-bell')).toBeVisible()
+    await longPress(phone, 'delta')
+    await sheet.locator('.sheet-action', { hasText: 'Mark as read' }).click()
+    await expect(row.locator('.session-bell')).toHaveCount(0)
+    await expect(phone.locator('.banner-error')).toHaveCount(0)
+  } finally {
+    await teardown()
+  }
+})

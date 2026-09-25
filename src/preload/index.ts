@@ -39,6 +39,11 @@ const api: Hang4rApi = {
     ipcRenderer.on('session-seen', handler)
     return () => ipcRenderer.removeListener('session-seen', handler)
   },
+  onMarkUnseen: (cb) => {
+    const handler = (_e: unknown, sessionId: string): void => cb(sessionId)
+    ipcRenderer.on('session-mark-unseen', handler)
+    return () => ipcRenderer.removeListener('session-mark-unseen', handler)
+  },
   pickProjectFolder: () => ipcRenderer.invoke('projects:pick-folder'),
   createProject: (path: string) => ipcRenderer.invoke('projects:create', path),
   listProjects: () => ipcRenderer.invoke('projects:list'),

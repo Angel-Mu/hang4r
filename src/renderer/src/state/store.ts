@@ -1137,6 +1137,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         return { finishedUnseen }
       })
     })
+    window.hang4r.onMarkUnseen((sessionId) => get().setSessionUnseen(sessionId, true))
     window.hang4r.onFocusSession((sessionId) => {
       void get().openSession(sessionId)
     })

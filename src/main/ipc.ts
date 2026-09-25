@@ -375,6 +375,12 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     setSessionPermissionMode: (sessionId: string, mode: PermissionMode) =>
       sessions.setPermissionMode(sessionId, mode),
     markSeen: (sessionId: string) => seenOnDesktop(sessionId, true),
+    // the renderer owns the set; with no window open, main keeps it alone
+    markUnseen: (sessionId: string) => {
+      const wins = BrowserWindow.getAllWindows()
+      for (const win of wins) win.webContents.send('session-mark-unseen', sessionId)
+      if (!wins.length) setDesktopUnseen([...desktopUnseen, sessionId])
+    },
     sidebarState: (): BridgeSidebarState => ({
       layout: {
         pinnedProjects: readIds('pinnedProjects'),

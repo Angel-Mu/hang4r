@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Project, QuestionAnswer, SessionEvent, SessionMeta } from '@shared/protocol'
 import { BridgeClient, type ConnectionState } from '../bridge/client'
-import { applyEvent, emptyTranscript, type Transcript } from './transcript'
+import { applyEvent, countPending, emptyTranscript, type Transcript } from './transcript'
 
 const PAIRING_KEY = 'h4.pairing'
 const APNS_KEY = 'h4.apnsToken'
@@ -239,6 +239,9 @@ function startClient(url: string): BridgeClient | null {
             ...s.pendingApprovals,
             [ev.sessionId]: Math.max(0, (s.pendingApprovals[ev.sessionId] ?? 0) - 1)
           }
+        } else if (kind === 'turn-complete' || kind === 'exit') {
+          // the turn's leftover requests are dead (applyEvent cancelled them)
+          next.pendingApprovals = { ...s.pendingApprovals, [ev.sessionId]: t ? countPending(t) : 0 }
         }
         return next
       })
@@ -366,6 +369,7 @@ export const useApp = create<AppState>((set, get) => ({
           transcripts: { ...s.transcripts, [id]: t },
           transcriptLoading: false,
           transcriptStale: false,
+          pendingApprovals: { ...s.pendingApprovals, [id]: countPending(t) },
           ...(init && { sessionInit: init })
         }
       })
@@ -483,10 +487,7 @@ export const useApp = create<AppState>((set, get) => ({
         if (s.openSessionId !== id) return {}
         const t = emptyTranscript()
         for (const ev of events) applyEvent(t, ev)
-        const pending = t.items.filter(
-          (it) =>
-            (it.kind === 'permission' && !it.decision) || (it.kind === 'question' && !it.answered)
-        ).length
+        const pending = countPending(t)
         saveTranscriptCache(id, t)
         const init = withInitModel(s.sessionInit, id, t.initModel)
         return {

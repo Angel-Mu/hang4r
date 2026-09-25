@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState, type JSX } from 'react'
 import { useHang4r } from '../state/store'
 import { onForgetSession } from '../sessionUiMemos'
 import type { TranscriptItem } from '../state/store'
+import {
+  collectAgentTodos as sharedCollectAgentTodos,
+  type AgentTodo,
+  type TodoSource
+} from '../../../shared/agentTodos'
 
 /** which task rows are expanded, per session — so switching panels (which
  *  unmounts this panel) doesn't collapse every open task row (Angel). */
@@ -111,75 +116,17 @@ export function collectTasks(items: TranscriptItem[]): BgTask[] {
   }))
 }
 
-export interface AgentTodo {
-  id: string
-  subject: string
-  status: string
-}
-
-/**
- * The agent's structured task list (TaskCreate/TaskUpdate tools — the modern
- * successor to TodoWrite). Reconstructed from the transcript: creations bind
- * ids from the tool RESULT ("Created task #3"), updates patch status/subject.
- * Angel's report: the conversation showed these tools running while this
- * panel claimed "no background tasks" — the list rendered nowhere.
- */
-/**
- * The agent's checklist written as markdown, when there is no tool to read.
- *
- * TaskCreate/TaskUpdate were retired from the CLI around 2026-08-14 — Angel's
- * store has not seen one since, and a current session's tool list does not
- * contain them. The agent still writes the board as `- [ ]` / `- [x]` lines, so
- * that is what this reads.
- *
- * Only the LAST message carrying a checklist counts: the board is a running
- * restatement, not an append-only log.
- */
-function todosFromMarkdown(items: TranscriptItem[]): AgentTodo[] {
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i]
-    if (it.type !== 'block' || it.blockType !== 'text' || it.parentToolUseId) continue
-    const rows = [...(it.text ?? '').matchAll(/^[ \t]*[-*]\s+\[([ xX])\]\s+(.+)$/gm)]
-    if (rows.length < 2) continue // one stray checkbox is not a board
-    return rows.map((m, n) => ({
-      id: `md-${n}`,
-      subject: m[2].trim(),
-      status: m[1].toLowerCase() === 'x' ? 'completed' : 'pending'
-    }))
-  }
-  return []
-}
-
 export function collectAgentTodos(items: TranscriptItem[]): AgentTodo[] {
-  const todos = new Map<string, AgentTodo>()
-  for (const item of items) {
-    if (item.type !== 'block' || item.blockType !== 'tool_use') continue
-    const res =
-      typeof item.toolResult === 'string' ? item.toolResult : JSON.stringify(item.toolResult ?? '')
-    if (item.toolName === 'TaskCreate') {
-      const input =
-        (item.toolInput as { subject?: string; description?: string; tasks?: { subject?: string }[] }) ?? {}
-      const ids = [...res.matchAll(/#(\d+)/g)].map((m) => m[1])
-      const subjects = input.tasks?.map((t) => t.subject ?? '') ?? [
-        input.subject ?? input.description ?? ''
-      ]
-      ids.forEach((id, i) =>
-        todos.set(id, { id, subject: subjects[i] || subjects[0] || `task #${id}`, status: 'pending' })
-      )
-    } else if (item.toolName === 'TaskUpdate') {
-      const input = (item.toolInput as { taskId?: string; status?: string; subject?: string }) ?? {}
-      const id = String(input.taskId ?? '')
-      if (!id) continue
-      const cur = todos.get(id) ?? { id, subject: `task #${id}`, status: 'pending' }
-      todos.set(id, {
-        ...cur,
-        subject: input.subject ?? cur.subject,
-        status: input.status ?? cur.status
-      })
+  const sources: TodoSource[] = []
+  for (const it of items) {
+    if (it.type !== 'block') continue
+    if (it.blockType === 'tool_use') {
+      sources.push({ kind: 'tool', name: it.toolName ?? '', input: it.toolInput, result: it.toolResult })
+    } else if (it.blockType === 'text' && !it.parentToolUseId) {
+      sources.push({ kind: 'text', text: it.text })
     }
   }
-  const fromTools = [...todos.values()].filter((t) => t.status !== 'deleted')
-  return fromTools.length ? fromTools : todosFromMarkdown(items)
+  return sharedCollectAgentTodos(sources)
 }
 
 const TODO_GLYPH: Record<string, string> = {

@@ -229,6 +229,9 @@ interface LoadedTranscript {
   init: SessionInit | undefined
 }
 
+/** in-flight transcript-reset reloads, so a local rewind can wait on its own */
+const resetReloads = new Map<string, Promise<void>>()
+
 /**
  * Resync + replay a session's persisted events into a transcript and its
  * derived usage summary. Shared by openSession (always refreshes) and
@@ -1140,14 +1143,22 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     window.hang4r.onMarkUnseen((sessionId) => get().setSessionUnseen(sessionId, true))
     // a rewind (possibly from a phone) deleted events: nothing live says so
     window.hang4r.onTranscriptReset((sessionId) => {
-      if (!get().transcripts[sessionId]) return
-      void loadTranscriptData(sessionId).then((loaded) => {
-        set((s) =>
-          s.transcripts[sessionId]
-            ? { transcripts: { ...s.transcripts, [sessionId]: loaded.transcript } }
-            : {}
-        )
-      })
+      const current = get().transcripts[sessionId]
+      if (!current) return
+      // keep earlier turns the user already loaded
+      const reload = loadTranscriptData(sessionId, !current.truncated)
+        .then((loaded) => {
+          set((s) =>
+            s.transcripts[sessionId]
+              ? { transcripts: { ...s.transcripts, [sessionId]: loaded.transcript } }
+              : {}
+          )
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (resetReloads.get(sessionId) === reload) resetReloads.delete(sessionId)
+        })
+      resetReloads.set(sessionId, reload)
     })
     window.hang4r.onFocusSession((sessionId) => {
       void get().openSession(sessionId)
@@ -1581,15 +1592,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
   async rewindAndResend(sessionId, originalText, occurrenceFromEnd, newText) {
     await window.hang4r.rewindSession(sessionId, originalText, occurrenceFromEnd, newText)
-    // main truncated the persisted events and re-prompted — rebuild the
-    // transcript from what remains (same replay openSession does)
-    const events = await window.hang4r.getSessionEvents(sessionId)
-    const t = emptyTranscript()
-    for (const e of events) {
-      applyEvent(t, e.event)
-      t.lastSeq = Math.max(t.lastSeq, e.seq)
-    }
-    set((s) => ({ transcripts: { ...s.transcripts, [sessionId]: t } }))
+    // a truncating rewind sent transcript-reset before replying; its reload
+    // is the only one, so a second load can't race it with a different window
+    await resetReloads.get(sessionId)
   },
   openSearch() {
     const sessionId = get().focusedSessionId

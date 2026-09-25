@@ -158,6 +158,7 @@ interface AppState {
     permissionMode: string
     model?: string
     firstPrompt?: string
+    firstImages?: { base64: string; mediaType: string }[]
   }): Promise<void>
   respondPermission(sessionId: string, requestId: string, decision: string): Promise<void>
   respondQuestion(sessionId: string, requestId: string, answers: QuestionAnswer[]): Promise<void>

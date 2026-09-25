@@ -1430,6 +1430,11 @@ html.kb-open .split-master {
   display: flex;
   gap: 8px;
 }
+.form-attach {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .pending-image {
   position: relative;
 }

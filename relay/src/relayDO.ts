@@ -26,6 +26,13 @@ export interface RelayEnv {
 type Role = 'desktop' | 'client'
 
 const MAX_CLIENTS = 4
+// awake peers ping every 25s; silence past these means the socket is a corpse
+const DESKTOP_STALE_MS = 40_000
+const CLIENT_STALE_MS = 90_000
+
+interface SocketMeta {
+  seenAt: number
+}
 
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
@@ -50,18 +57,26 @@ export class RelayDO extends DurableObject {
     } else {
       if (!stored) return new Response('desktop has never connected', { status: 409 })
       if (stored !== tokenHash) return new Response('token mismatch', { status: 403 })
-      if (this.sockets('client').length >= MAX_CLIENTS) {
-        return new Response('too many clients', { status: 429 })
-      }
     }
 
     if (role === 'desktop') {
       for (const ws of this.sockets('desktop')) ws.close(4000, 'replaced by newer desktop connection')
+    } else {
+      const pruned = this.pruneClients()
+      // a full house is usually frozen iOS sockets from past sessions; the
+      // newcomer is the one proving it's alive, so evict the quietest instead
+      // (closed sockets can still be listed until their close event runs)
+      const clients = this.sockets('client').filter((c) => !pruned.includes(c))
+      if (clients.length >= MAX_CLIENTS) {
+        const quietest = clients.reduce((a, b) => (this.seenAt(a) <= this.seenAt(b) ? a : b))
+        console.log('relay: evicting quietest client to admit a new one')
+        this.closeQuietly(quietest, 4002, 'evicted for a newer client')
+      }
     }
 
     const pair = new WebSocketPair()
     this.ctx.acceptWebSocket(pair[1], [role])
-    if (role === 'desktop') await this.ctx.storage.put('desktopSeenAt', Date.now())
+    pair[1].serializeAttachment({ seenAt: Date.now() } satisfies SocketMeta)
     this.notifyPresence()
     // while phones are watching, wake periodically to catch a desktop that
     // died without a TCP goodbye (power-off, kernel panic, network yank)
@@ -71,17 +86,17 @@ export class RelayDO extends DurableObject {
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const role = this.roleOf(ws)
-    // liveness watermarks: a frozen phone OR an abruptly powered-off desktop
-    // leaves an "open" socket that sends nothing — only frames prove life.
-    // The desktop pings every 25s, awake phones every 25s.
-    if (role === 'client') {
-      await this.ctx.storage.put('clientSeenAt', Date.now())
-      await this.checkDesktopStale()
-    } else {
-      await this.ctx.storage.put('desktopSeenAt', Date.now())
-    }
+    // liveness lives on the socket attachment, not in storage: a storage put
+    // per frame burns the DO's daily row-write quota, and once that's spent
+    // every put throws — which used to abort forwarding.
+    ws.serializeAttachment({ seenAt: Date.now() } satisfies SocketMeta)
+    if (role === 'client') this.checkDesktopStale()
     if (typeof message === 'string') {
-      await this.onControlFrame(role, message)
+      try {
+        await this.onControlFrame(role, message)
+      } catch (err) {
+        console.log('relay: control frame failed', String(err))
+      }
       return
     }
     for (const target of this.sockets(role === 'desktop' ? 'client' : 'desktop')) {
@@ -121,8 +136,7 @@ export class RelayDO extends DurableObject {
       const title = typeof frame.title === 'string' ? frame.title.slice(0, 80) : undefined
       // a phone counts as "watching" only when it PROVED liveness recently
       // (awake phones ping every 25s); a merely-open socket is not enough
-      const seenAt = (await this.ctx.storage.get<number>('clientSeenAt')) ?? 0
-      const clientLive = this.sockets('client').length > 0 && Date.now() - seenAt < 40_000
+      const clientLive = this.sockets('client').some((c) => Date.now() - this.seenAt(c) < 40_000)
       if (clientLive) return
       await this.pushNotify(frame.kind, sessionId, title)
     }
@@ -230,42 +244,56 @@ export class RelayDO extends DurableObject {
     return jwt
   }
 
-  webSocketClose(ws: WebSocket): void {
+  webSocketClose(ws: WebSocket, code: number, reason: string): void {
+    console.log(`relay: ${this.roleOf(ws)} closed ${code} ${reason}`)
     this.notifyPresence(ws)
   }
 
   async alarm(): Promise<void> {
-    await this.checkDesktopStale()
+    this.checkDesktopStale()
+    this.pruneClients()
     if (this.sockets('client').length > 0) {
       await this.ctx.storage.setAlarm(Date.now() + 35_000)
     }
   }
 
+  /** Frozen iOS sockets never close on their own and would hold client slots
+   *  forever; an awake phone reconnects on resume anyway. */
+  private pruneClients(): WebSocket[] {
+    const stale = this.sockets('client').filter((ws) => Date.now() - this.seenAt(ws) > CLIENT_STALE_MS)
+    for (const ws of stale) this.closeQuietly(ws, 4003, `no frames for ${CLIENT_STALE_MS / 1000}s`)
+    return stale
+  }
+
+  private seenAt(ws: WebSocket): number {
+    return (ws.deserializeAttachment() as SocketMeta | null)?.seenAt ?? 0
+  }
+
+  private closeQuietly(ws: WebSocket, code: number, reason: string): void {
+    try {
+      ws.close(code, reason)
+    } catch {
+      // already closed
+    }
+  }
+
   /** A desktop socket that hasn't produced a frame in 40s is a corpse: tell
    *  the phones the truth and close it so a live desktop can reconnect. */
-  private async checkDesktopStale(): Promise<void> {
+  private checkDesktopStale(): void {
     const desktops = this.sockets('desktop')
     if (desktops.length === 0) return
-    const seenAt = (await this.ctx.storage.get<number>('desktopSeenAt')) ?? 0
-    if (Date.now() - seenAt < 40_000) return
-    for (const ws of desktops) {
-      try {
-        ws.close(4001, 'no frames for 40s — presumed dead')
-      } catch {
-        // closing a corpse still fires webSocketClose → presence update
-      }
-    }
+    if (desktops.some((ws) => Date.now() - this.seenAt(ws) < DESKTOP_STALE_MS)) return
+    console.log('relay: closing silent desktop')
+    // closing a corpse still fires webSocketClose → presence update
+    for (const ws of desktops) this.closeQuietly(ws, 4001, 'no frames for 40s — presumed dead')
     for (const ws of this.sockets('client')) {
       this.sendText(ws, { t: 'peer', connected: false })
     }
   }
 
-  webSocketError(ws: WebSocket): void {
-    try {
-      ws.close(1011, 'error')
-    } catch {
-      // already closed
-    }
+  webSocketError(ws: WebSocket, err: unknown): void {
+    console.log(`relay: ${this.roleOf(ws)} socket error`, String(err))
+    this.closeQuietly(ws, 1011, 'error')
     this.notifyPresence(ws)
   }
 

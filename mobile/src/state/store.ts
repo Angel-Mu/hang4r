@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Project, QuestionAnswer, SessionEvent, SessionMeta } from '@shared/protocol'
 import { BridgeClient, type ConnectionState } from '../bridge/client'
 import { applyEvent, countPending, emptyTranscript, type Transcript } from './transcript'
+import { IMAGE_ONLY_PROMPT } from '../hooks/useImageAttachments'
 
 const PAIRING_KEY = 'h4.pairing'
 const APNS_KEY = 'h4.apnsToken'
@@ -33,6 +34,46 @@ const TRANSCRIPT_CACHE_KEY = 'h4.transcripts.v1'
 const TRANSCRIPT_CACHE_MAX_SESSIONS = 10
 const TRANSCRIPT_CACHE_MAX_ITEMS = 150
 const SESSION_INIT_KEY = 'h4.sessionInit'
+const QUEUE_KEY = 'h4.queue.v1'
+
+/** a follow-up typed while the agent was working; images stay in memory only */
+export interface QueuedMessage {
+  id: string
+  text: string
+  images?: { base64: string; mediaType: string }[]
+}
+
+function loadQueues(): Record<string, QueuedMessage[]> {
+  const raw = loadJson<Record<string, QueuedMessage[]>>(QUEUE_KEY, {})
+  const out: Record<string, QueuedMessage[]> = {}
+  for (const [id, q] of Object.entries(raw)) {
+    const kept = Array.isArray(q) ? q.filter((m) => m?.id && m.text) : []
+    if (kept.length) out[id] = kept
+  }
+  return out
+}
+
+function saveQueues(queues: Record<string, QueuedMessage[]>): void {
+  const out: Record<string, { id: string; text: string }[]> = {}
+  for (const [id, q] of Object.entries(queues)) {
+    const kept = q.filter((m) => m.text).map((m) => ({ id: m.id, text: m.text }))
+    if (kept.length) out[id] = kept
+  }
+  try {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(out))
+  } catch {
+    // quota — the in-memory queue still sends
+  }
+}
+
+const isActive = (status: string | undefined): boolean =>
+  status === 'running' || status === 'starting'
+
+/** sessions whose flushed prompt hasn't been seen running yet — both flush
+ *  triggers (turn settled, refresh while idle) can fire for the same idle
+ *  window, and the second must not send the next message into a live turn */
+const flushInFlight = new Map<string, number>()
+const FLUSH_GUARD_MS = 15_000
 const SESSION_INIT_MAX = 100
 
 /** per-session CLI-resolved model id, persisted so the model pickers keep the
@@ -184,6 +225,14 @@ interface AppState {
   }): Promise<void>
   respondPermission(sessionId: string, requestId: string, decision: string): Promise<void>
   respondQuestion(sessionId: string, requestId: string, answers: QuestionAnswer[]): Promise<void>
+  /** per-session follow-ups submitted while the agent was running (desktop's
+   *  messageQueue): one is sent each time a turn settles, oldest first */
+  queues: Record<string, QueuedMessage[]>
+  queueMessage(sessionId: string, text: string, images?: QueuedMessage['images']): void
+  removeQueued(sessionId: string, id: string): void
+  /** interrupt the running turn and send this one next */
+  sendQueuedNow(sessionId: string, id: string): Promise<void>
+  flushQueue(sessionId: string): Promise<void>
 }
 
 let client: BridgeClient | null = null
@@ -252,11 +301,19 @@ function startClient(url: string): BridgeClient | null {
       useApp.setState((s) => ({ attention: { ...s.attention, [sessionId]: false } }))
     },
     onSessionUpdated: (session: SessionMeta) => {
+      const prev = useApp.getState().sessions.find((x) => x.id === session.id)?.status
+      if (isActive(session.status)) flushInFlight.delete(session.id)
       useApp.setState((s) => ({
         sessions: s.sessions.some((x) => x.id === session.id)
           ? s.sessions.map((x) => (x.id === session.id ? session : x))
           : [...s.sessions, session]
       }))
+      // turn settled (running/starting → idle|error): send the next queued
+      // message — 'error' too, since a send-now interrupt ends claude's turn
+      // with an is_error result
+      if (isActive(prev) && (session.status === 'idle' || session.status === 'error')) {
+        void useApp.getState().flushQueue(session.id)
+      }
     }
   })
   if (c && savedToken) c.setApnsToken(savedToken)
@@ -282,6 +339,70 @@ export const useApp = create<AppState>((set, get) => ({
   pinned: loadJson<string[]>(PINS_KEY, []),
   seenAt: loadJson<Record<string, number>>(SEEN_KEY, {}),
   error: null,
+  queues: loadQueues(),
+
+  queueMessage(sessionId, text, images): void {
+    const msg: QueuedMessage = {
+      id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      text,
+      ...(images?.length && { images })
+    }
+    set((s) => {
+      const queues = { ...s.queues, [sessionId]: [...(s.queues[sessionId] ?? []), msg] }
+      saveQueues(queues)
+      return { queues }
+    })
+  },
+
+  removeQueued(sessionId, id): void {
+    set((s) => {
+      const queues = { ...s.queues, [sessionId]: (s.queues[sessionId] ?? []).filter((m) => m.id !== id) }
+      saveQueues(queues)
+      return { queues }
+    })
+  },
+
+  async sendQueuedNow(sessionId, id): Promise<void> {
+    const q = get().queues[sessionId] ?? []
+    const target = q.find((m) => m.id === id)
+    if (!target) return
+    set((s) => {
+      const queues = { ...s.queues, [sessionId]: [target, ...q.filter((m) => m.id !== id)] }
+      saveQueues(queues)
+      return { queues }
+    })
+    const status = get().sessions.find((x) => x.id === sessionId)?.status
+    // prompting into a live turn would race it: interrupt, and the turn
+    // settling flushes this message first
+    if (isActive(status)) await bridge().call('interrupt', sessionId)
+    else await get().flushQueue(sessionId)
+  },
+
+  async flushQueue(sessionId): Promise<void> {
+    const guard = flushInFlight.get(sessionId)
+    if (guard && Date.now() - guard < FLUSH_GUARD_MS) return
+    const [next, ...rest] = get().queues[sessionId] ?? []
+    if (!next) return
+    flushInFlight.set(sessionId, Date.now())
+    set((s) => {
+      const queues = { ...s.queues, [sessionId]: rest }
+      saveQueues(queues)
+      return { queues }
+    })
+    try {
+      const text = next.text || IMAGE_ONLY_PROMPT
+      if (next.images?.length) await bridge().call('prompt', sessionId, text, next.images)
+      else await bridge().call('prompt', sessionId, text)
+    } catch {
+      // not delivered — put it back at the front for the next settle/refresh
+      flushInFlight.delete(sessionId)
+      set((s) => {
+        const queues = { ...s.queues, [sessionId]: [next, ...(s.queues[sessionId] ?? [])] }
+        saveQueues(queues)
+        return { queues }
+      })
+    }
+  },
 
   togglePin(sessionId: string): void {
     set((s) => {
@@ -404,6 +525,7 @@ export const useApp = create<AppState>((set, get) => ({
     client = null
     localStorage.removeItem(PAIRING_KEY)
     localStorage.removeItem(HOME_CACHE_KEY)
+    localStorage.removeItem(QUEUE_KEY)
     set({
       pairingUrl: null,
       conn: 'idle',
@@ -412,7 +534,8 @@ export const useApp = create<AppState>((set, get) => ({
       openSessionId: null,
       transcripts: {},
       attention: {},
-      pendingApprovals: {}
+      pendingApprovals: {},
+      queues: {}
     })
   },
 
@@ -435,6 +558,12 @@ export const useApp = create<AppState>((set, get) => ({
         if (changed) localStorage.setItem(SEEN_KEY, JSON.stringify(seenAt))
         return { projects, sessions, error: null, seenAt }
       })
+      // queued while the app was frozen or offline: the settle that would have
+      // flushed it was never heard
+      for (const sess of sessions) {
+        const settled = sess.status === 'idle' || sess.status === 'error'
+        if (settled && get().queues[sess.id]?.length) void get().flushQueue(sess.id)
+      }
       try {
         localStorage.setItem(HOME_CACHE_KEY, JSON.stringify({ projects, sessions }))
       } catch {

@@ -354,3 +354,126 @@ test('phone: questions answer in one tap, and a turn ending kills an open one', 
     await teardown()
   }
 })
+
+test('phone: follow-ups queue while the agent works and go one per turn', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  // a held permission keeps the turn running — a stable window to queue into
+  const { desktop, phone, teardown } = await pairedSession('ask permission to start')
+  try {
+    await expect(phone.locator('.perm-card', { hasText: 'Approval needed' })).toBeVisible({
+      timeout: 15_000
+    })
+    const queueBtn = phone.locator('.composer .btn-primary')
+    await expect(queueBtn).toHaveText('Queue')
+    await expect(phone.locator('.composer .btn-danger')).toHaveText('Stop')
+    for (const text of ['QUEUED ALPHA', 'QUEUED BETA', 'QUEUED GAMMA']) {
+      await phone.fill('.composer-input', text)
+      await queueBtn.click()
+    }
+    const rows = phone.locator('.queue-row')
+    await expect(rows).toHaveCount(3)
+    await expect(phone.locator('.queue-count')).toHaveText('3 Queued')
+    await expect(phone.locator('.composer-input')).toHaveValue('')
+
+    await rows.filter({ hasText: 'QUEUED GAMMA' }).getByLabel('Remove from queue').click()
+    await expect(rows).toHaveCount(2)
+    // edit pulls the text back into the composer; queueing it again puts it last
+    await rows.filter({ hasText: 'QUEUED ALPHA' }).getByLabel('Edit queued message').click()
+    await expect(phone.locator('.composer-input')).toHaveValue('QUEUED ALPHA')
+    await expect(rows).toHaveCount(1)
+    await queueBtn.click()
+    await expect(rows.nth(0)).toContainText('QUEUED BETA')
+    await expect(rows.nth(1)).toContainText('QUEUED ALPHA')
+
+    // the queue survives a reload
+    await phone.reload()
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await phone.locator('.session-row').click()
+    await expect(rows).toHaveCount(2, { timeout: 15_000 })
+    await expect(phone.locator('.msg-user')).toHaveCount(1)
+
+    // the turn settles → one message per turn, oldest first, exactly once each
+    await phone.locator('.perm-card .btn-primary', { hasText: 'Allow' }).click()
+    await expect(rows).toHaveCount(0, { timeout: 30_000 })
+    await expect(phone.locator('.msg-user')).toHaveCount(3, { timeout: 30_000 })
+    await expect(phone.locator('.msg-user').nth(1)).toHaveText('QUEUED BETA')
+    await expect(phone.locator('.msg-user').nth(2)).toHaveText('QUEUED ALPHA')
+    await expect(phone.locator('.turn-divider')).toHaveCount(3, { timeout: 30_000 })
+    const userTexts = async (): Promise<string[]> =>
+      desktop.evaluate(async () => {
+        const [s] = await window.hang4r.listSessions()
+        const evs = await window.hang4r.getSessionEvents(s.id)
+        return evs.flatMap((e) => (e.event.kind === 'user-text' ? [e.event.text] : []))
+      })
+    expect(await userTexts()).toEqual(['ask permission to start', 'QUEUED BETA', 'QUEUED ALPHA'])
+
+    // Send now: interrupts the live turn and delivers straight away
+    await phone.fill('.composer-input', 'ask permission again')
+    await phone.locator('.composer .btn-primary').click()
+    const held = phone.locator('.perm-card', { hasText: 'Approval needed' })
+    await expect(held).toBeVisible({ timeout: 15_000 })
+    await phone.fill('.composer-input', 'SEND ME NOW')
+    await queueBtn.click()
+    await rows.filter({ hasText: 'SEND ME NOW' }).getByLabel('Send now').click()
+    await expect(phone.locator('.msg-user').last()).toHaveText('SEND ME NOW', { timeout: 30_000 })
+    await expect(rows).toHaveCount(0)
+    await expect(held).toHaveCount(0)
+    await expect.poll(userTexts, { timeout: 15_000 }).toEqual([
+      'ask permission to start',
+      'QUEUED BETA',
+      'QUEUED ALPHA',
+      'ask permission again',
+      'SEND ME NOW'
+    ])
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: a queue left behind is sent once, in turn, when the phone comes back', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { desktop, phone, teardown } = await pairedSession('ask permission to start')
+  try {
+    await expect(phone.locator('.perm-card', { hasText: 'Approval needed' })).toBeVisible({
+      timeout: 15_000
+    })
+    for (const text of ['LATER ONE', 'LATER TWO']) {
+      await phone.fill('.composer-input', text)
+      await phone.locator('.composer .btn-primary').click()
+    }
+    await expect(phone.locator('.queue-row')).toHaveCount(2)
+
+    // the phone goes away; the turn ends on the desktop without it
+    await phone.goto('about:blank')
+    const sessionId = await desktop.evaluate(async () => (await window.hang4r.listSessions())[0].id)
+    await desktop.evaluate(async (id) => {
+      const evs = await window.hang4r.getSessionEvents(id)
+      const req = evs.find((e) => e.event.kind === 'permission-request')?.event
+      if (req && 'requestId' in req) await window.hang4r.respondPermission(id, req.requestId, 'allow')
+    }, sessionId)
+    await expect
+      .poll(async () => (await desktop.evaluate(() => window.hang4r.listSessions()))[0].status, {
+        timeout: 15_000
+      })
+      .toBe('idle')
+
+    // back: the settle was never heard, so coming online flushes — one message
+    // per turn, never two into the same one
+    await phone.goto(`http://localhost:${PREVIEW_PORT}/`)
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    const flow = async (): Promise<string[]> =>
+      desktop.evaluate(async (id) => {
+        const evs = await window.hang4r.getSessionEvents(id)
+        return evs.flatMap((e) =>
+          e.event.kind === 'user-text' ? [e.event.text] : e.event.kind === 'turn-complete' ? ['|'] : []
+        )
+      }, sessionId)
+    await expect
+      .poll(flow, { timeout: 30_000 })
+      .toEqual(['ask permission to start', '|', 'LATER ONE', '|', 'LATER TWO', '|'])
+  } finally {
+    await teardown()
+  }
+})

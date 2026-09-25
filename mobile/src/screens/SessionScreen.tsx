@@ -341,6 +341,20 @@ function lastQuickQuestion(items: Item[] | undefined): QuickQuestion | null {
 }
 
 const NO_QUEUE: never[] = []
+/** start fetching the older page this far before the top is reached */
+const LOAD_OLDER_PX = 400
+
+/** Stable per item, so a prepended page doesn't remount everything below it;
+ *  cached transcripts predate keys and fall back to position. */
+function itemKeys(items: Item[]): string[] {
+  const seen = new Set<string>()
+  return items.map((it, i) => {
+    let k = it.key ?? `i${i}`
+    if (seen.has(k)) k = `${k}#${i}`
+    seen.add(k)
+    return k
+  })
+}
 
 function TranscriptSkeleton(): JSX.Element {
   return (
@@ -385,6 +399,24 @@ export function SessionScreen({
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const itemCount = transcript?.items.length ?? 0
+  const loadingOlder = useApp((s) => s.loadingOlder)
+  const olderFailed = useApp((s) => s.olderFailed)
+  const loadOlder = useApp((s) => s.loadOlder)
+  const hasOlder = typeof transcript?.cursor === 'number'
+  const keys = useMemo(() => itemKeys(transcript?.items ?? []), [transcript])
+  const scrollHeightRef = useRef(0)
+  const olderLoadsRef = useRef(0)
+
+  // an older page landed above: hold what the reader was looking at in place
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    const loads = transcript?.olderLoads ?? 0
+    if (el && loads > olderLoadsRef.current) {
+      el.scrollTop += el.scrollHeight - scrollHeightRef.current
+    }
+    olderLoadsRef.current = loads
+    if (el) scrollHeightRef.current = el.scrollHeight
+  })
 
   const scrollToBottom = (smooth = false): void => {
     const el = scrollRef.current
@@ -393,8 +425,13 @@ export function SessionScreen({
 
   // follow the stream only while the user is at the bottom — jumping them
   // mid-read on every delta is what the nearBottom check prevents
+  const followLoadsRef = useRef(0)
   useEffect(() => {
-    if (nearBottom) scrollToBottom()
+    // growth at the TOP: nearBottom may predate a scroll whose event hasn't fired
+    const loads = transcript?.olderLoads ?? 0
+    const prepended = loads > followLoadsRef.current
+    followLoadsRef.current = loads
+    if (nearBottom && !prepended) scrollToBottom()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemCount, transcript, loading])
 
@@ -402,6 +439,11 @@ export function SessionScreen({
     const el = scrollRef.current
     if (!el) return
     setNearBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120)
+    // layout can change with no render (fonts, reflow): re-measure at the trigger
+    scrollHeightRef.current = el.scrollHeight
+    if (hasOlder && !loadingOlder && !olderFailed && conn === 'online' && el.scrollTop < LOAD_OLDER_PX) {
+      void loadOlder()
+    }
   }
 
   // Slack-style auto-grow: content height up to the CSS max-height cap. Keyed
@@ -527,9 +569,24 @@ export function SessionScreen({
                 history syncs in the next time the agent takes a turn.
               </p>
             )}
+            {hasOlder && (
+              <div className="older-loader">
+                {loadingOlder ? (
+                  <span className="older-loading">Loading earlier messages…</span>
+                ) : (
+                  <button
+                    className="btn btn-ghost older-btn"
+                    disabled={conn !== 'online'}
+                    onClick={() => void loadOlder()}
+                  >
+                    {olderFailed ? 'Couldn’t load — try again' : 'Load earlier messages'}
+                  </button>
+                )}
+              </div>
+            )}
             {transcript?.items.map((item, i) => (
               <TranscriptItem
-                key={i}
+                key={keys[i]}
                 item={item}
                 sessionId={id}
                 occurrenceFromEnd={occurrences.get(item)}

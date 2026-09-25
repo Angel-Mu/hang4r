@@ -24,6 +24,12 @@ export interface BridgeCallbacks {
 }
 
 const PING_MS = 25_000
+const CALL_TIMEOUT_MS = 20_000
+/** a big transcript page arrives as one frame; nothing else is heard until it
+ *  lands, so it gets far longer than a normal call before giving up */
+const HISTORY_TIMEOUT_MS = 90_000
+const PROBE_MS = 3_000
+const PROBE_BEHIND_HISTORY_MS = 20_000
 const BACKOFF_MIN_MS = 1_000
 const BACKOFF_MAX_MS = 15_000
 
@@ -39,7 +45,7 @@ export class BridgeClient {
   private nextId = 1
   private waiters = new Map<
     number,
-    { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: number }
+    { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: number; history: boolean }
   >()
   private subs = new Set<string>()
   private backoffMs = BACKOFF_MIN_MS
@@ -75,18 +81,31 @@ export class BridgeClient {
     this.ws = null
   }
 
-  async call<T = unknown>(method: string, ...params: unknown[]): Promise<T> {
+  call<T = unknown>(method: string, ...params: unknown[]): Promise<T> {
+    return this.request<T>(method, params, false)
+  }
+
+  /** Transcript downloads: a slow one is a big frame in flight, not a dead
+   *  link — its timeout doesn't probe the connection. */
+  callHistory<T = unknown>(method: string, ...params: unknown[]): Promise<T> {
+    return this.request<T>(method, params, true)
+  }
+
+  private async request<T>(method: string, params: unknown[], history: boolean): Promise<T> {
     if (this.state !== 'online') throw new Error('desktop is offline')
     const id = this.nextId++
     const frame: BridgeClientFrame = { t: 'req', id, method, params }
     await this.send(frame)
     return new Promise<T>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        this.waiters.delete(id)
-        this.checkAlive()
-        reject(new Error(`${method} timed out`))
-      }, 20_000)
-      this.waiters.set(id, { resolve: resolve as (v: unknown) => void, reject, timer })
+      const timer = window.setTimeout(
+        () => {
+          this.waiters.delete(id)
+          if (!history) this.checkAlive()
+          reject(new Error(`${method} timed out`))
+        },
+        history ? HISTORY_TIMEOUT_MS : CALL_TIMEOUT_MS
+      )
+      this.waiters.set(id, { resolve: resolve as (v: unknown) => void, reject, timer, history })
     })
   }
 
@@ -124,6 +143,8 @@ export class BridgeClient {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
     const before = this.lastRxAt
     void this.send({ t: 'ping' })
+    // the pong queues behind a transcript frame still arriving
+    const behindHistory = [...this.waiters.values()].some((w) => w.history)
     window.setTimeout(() => {
       if (this.lastRxAt === before && this.ws) {
         try {
@@ -132,7 +153,7 @@ export class BridgeClient {
           // close on an already-dead socket still fires onclose
         }
       }
-    }, 3000)
+    }, behindHistory ? PROBE_BEHIND_HISTORY_MS : PROBE_MS)
   }
 
   sub(sessionId: string): void {

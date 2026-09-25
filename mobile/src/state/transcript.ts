@@ -14,7 +14,9 @@ export type Block =
   | { type: 'thinking'; text: string }
   | { type: 'tool'; call: ToolCall }
 
-export type Item =
+/** `key` is stable across prepends and reloads (derived from the creating
+ *  event); absent on transcripts cached before it existed. */
+export type Item = (
   | {
       kind: 'user'
       text: string
@@ -45,6 +47,7 @@ export type Item =
       cancelled?: boolean
     }
   | { kind: 'turn-end'; isError: boolean; errorMessage?: string; costUsd?: number }
+) & { key?: string }
 
 export interface Transcript {
   items: Item[]
@@ -55,16 +58,33 @@ export interface Transcript {
   ctxWindow?: number
   /** the model id the CLI resolved at session init (`claude-opus-…`) */
   initModel?: string
+  /** `before` for the next older page; null = loaded from the start;
+   *  undefined = not paged (cache, or a desktop without paging) */
+  cursor?: number | null
+  /** results whose tool_use is in an older, not yet loaded page — a page cut
+   *  mid-turn (one huge turn) separates them */
+  orphans?: Record<string, { content: unknown; isError: boolean }>
+  /** bumped per older page loaded, so the view can keep its scroll position */
+  olderLoads?: number
 }
 
 export function emptyTranscript(): Transcript {
   return { items: [], lastSeq: 0, plan: [] }
 }
 
-function lastAssistant(t: Transcript, messageId: string): Extract<Item, { kind: 'assistant' }> {
+function lastAssistant(
+  t: Transcript,
+  messageId: string,
+  seq: number
+): Extract<Item, { kind: 'assistant' }> {
   const last = t.items[t.items.length - 1]
   if (last?.kind === 'assistant' && last.messageId === messageId) return last
-  const fresh: Extract<Item, { kind: 'assistant' }> = { kind: 'assistant', messageId, blocks: [] }
+  const fresh: Extract<Item, { kind: 'assistant' }> = {
+    kind: 'assistant',
+    messageId,
+    blocks: [],
+    key: seq ? `e${seq}` : `m${messageId}`
+  }
   t.items.push(fresh)
   return fresh
 }
@@ -108,20 +128,22 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
   const e = ev.event
   switch (e.kind) {
     case 'user-text':
-      t.items.push({ kind: 'user', text: e.text, images: e.images })
+      t.items.push({ kind: 'user', text: e.text, images: e.images, key: `e${ev.seq}` })
       return true
     case 'external-turn':
-      if (e.role === 'user') t.items.push({ kind: 'user', text: e.text, external: true })
+      if (e.role === 'user')
+        t.items.push({ kind: 'user', text: e.text, external: true, key: `e${ev.seq}` })
       else
         t.items.push({
           kind: 'assistant',
           messageId: `ext-${ev.seq}`,
-          blocks: [{ type: 'text', text: e.text }]
+          blocks: [{ type: 'text', text: e.text }],
+          key: `e${ev.seq}`
         })
       return true
     case 'block-start': {
       if (e.parentToolUseId) return false
-      const msg = lastAssistant(t, e.messageId)
+      const msg = lastAssistant(t, e.messageId, ev.seq)
       if (!msg.blocks[e.blockIndex]) {
         msg.blocks[e.blockIndex] =
           e.blockType === 'tool_use'
@@ -134,14 +156,14 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
     }
     case 'block-delta': {
       if (e.parentToolUseId) return false
-      const msg = lastAssistant(t, e.messageId)
+      const msg = lastAssistant(t, e.messageId, ev.seq)
       const block = (msg.blocks[e.blockIndex] ??= { type: 'text', text: '' })
       if (block.type === 'text' || block.type === 'thinking') block.text += e.text
       return true
     }
     case 'block-final': {
       if (e.parentToolUseId) return false
-      const msg = lastAssistant(t, e.messageId)
+      const msg = lastAssistant(t, e.messageId, ev.seq)
       const b = e.block
       msg.blocks[e.blockIndex] =
         b.type === 'tool_use'
@@ -165,6 +187,7 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
           }
         }
       }
+      ;(t.orphans ??= {})[e.toolUseId] = { content: e.content, isError: e.isError }
       return false
     }
     case 'permission-request':
@@ -174,7 +197,8 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
         tool: e.tool,
         summary: e.summary,
         detail: e.detail,
-        options: e.options
+        options: e.options,
+        key: `e${ev.seq}`
       })
       return true
     case 'permission-resolved':
@@ -191,7 +215,8 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
         kind: 'question',
         requestId: e.requestId,
         title: e.title,
-        questions: e.questions
+        questions: e.questions,
+        key: `e${ev.seq}`
       })
       return true
     case 'question-resolved':
@@ -212,11 +237,12 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
         kind: 'turn-end',
         isError: e.isError,
         errorMessage: e.errorMessage,
-        costUsd: e.costUsd
+        costUsd: e.costUsd,
+        key: `e${ev.seq}`
       })
       return true
     case 'setup-note':
-      t.items.push({ kind: 'note', text: e.text, isError: e.isError })
+      t.items.push({ kind: 'note', text: e.text, isError: e.isError, key: `e${ev.seq}` })
       return true
     case 'plan':
       t.plan = e.entries
@@ -233,6 +259,35 @@ export function applyEvent(t: Transcript, ev: SessionEvent): boolean {
       return true
     default:
       return false
+  }
+}
+
+/**
+ * An older page folded in front of what is loaded. Its plan and context
+ * numbers are older than the ones on screen, so only its items are kept.
+ */
+export function prependPage(t: Transcript, events: SessionEvent[], cursor: number | null): Transcript {
+  const older = emptyTranscript()
+  for (const ev of events) applyEvent(older, ev)
+  const orphans = { ...t.orphans }
+  for (const item of older.items) {
+    if (item.kind !== 'assistant') continue
+    for (const block of item.blocks) {
+      const r = block?.type === 'tool' ? orphans[block.call.id] : undefined
+      if (block?.type !== 'tool' || !r) continue
+      block.call.result = r.content
+      block.call.isError = r.isError
+      block.call.done = true
+      delete orphans[block.call.id]
+    }
+  }
+  Object.assign(orphans, older.orphans)
+  return {
+    ...t,
+    items: [...older.items, ...t.items],
+    cursor,
+    orphans,
+    initModel: t.initModel ?? older.initModel
   }
 }
 

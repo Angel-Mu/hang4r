@@ -270,6 +270,21 @@ body,
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* prepends restore the scroll position by hand (WebKit has no anchoring) */
+  overflow-anchor: none;
+}
+.older-loader {
+  display: flex;
+  justify-content: center;
+  min-height: 32px;
+  align-items: center;
+}
+.older-loading {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.older-btn {
+  font-size: 13px;
 }
 .msg {
   max-width: 92%;

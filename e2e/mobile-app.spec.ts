@@ -1012,3 +1012,140 @@ test('phone: editing on an older desktop says what to update; Cursor resends as 
     await teardown()
   }
 })
+
+/** a session with `turns` prompts ('turn 1'…), all finished before the phone pairs */
+function longSession(turns: number): Parameters<typeof pairedHome>[1]['beforePair'] {
+  return async (desktop, _pids, ids) => {
+    for (let n = 2; n <= turns; n++) {
+      await desktop.evaluate(([id, t]) => window.hang4r.prompt(id, t), [ids[0], `turn ${n}`])
+      await waitIdle(desktop, ids[0])
+    }
+  }
+}
+
+test('phone: a long conversation opens on its latest turns and loads older ones scrolling up', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(240_000)
+  const turns = 10
+  const { phone, teardown } = await pairedHome(
+    [{ title: 'long one', firstPrompt: 'turn 1' }],
+    { env: { HANG4R_TEST_BRIDGE_PAGE_BYTES: '6000' }, beforePair: longSession(turns) }
+  )
+  try {
+    await phone.locator('.session-row', { hasText: 'long one' }).click()
+    const users = phone.locator('.msg-user')
+    await expect(users.last()).toHaveText(`turn ${turns}`, { timeout: 15_000 })
+    const firstCount = await users.count()
+    expect(firstCount).toBeLessThan(turns)
+    await expect(phone.locator('.older-loader')).toBeVisible()
+    await phone.screenshot({ path: `${SHOTS}/6-paged-open.png` })
+
+    // the newest message's element must survive every prepend (stable keys)
+    await users.last().evaluate((el) => el.setAttribute('data-probe', 'newest'))
+    const transcript = phone.locator('.transcript')
+    let count = firstCount
+    while (count < turns) {
+      const firstText = await users.first().innerText()
+      // at the top: where the first loaded message sits on screen
+      const before = await transcript.evaluate((el, text) => {
+        el.scrollTop = 0
+        const m = [...el.querySelectorAll('.msg-user')].find((x) => x.textContent === text)!
+        return m.getBoundingClientRect().top
+      }, firstText)
+      await expect.poll(() => users.count(), { timeout: 20_000 }).toBeGreaterThan(count)
+      count = await users.count()
+      // …and it is still there after the older page landed above it
+      const after = await transcript.evaluate((el, text) => {
+        const m = [...el.querySelectorAll('.msg-user')].find((x) => x.textContent === text)!
+        return m.getBoundingClientRect().top
+      }, firstText)
+      expect(Math.abs(after - before)).toBeLessThan(4)
+    }
+    await expect(users).toHaveText(Array.from({ length: turns }, (_, i) => `turn ${i + 1}`))
+    await expect(phone.locator('.older-loader')).toHaveCount(0)
+    await expect(phone.locator('[data-probe="newest"]')).toHaveText(`turn ${turns}`)
+    await transcript.evaluate((el) => (el.scrollTop = 0))
+    await phone.screenshot({ path: `${SHOTS}/6-paged-all.png` })
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: a reconnect keeps the older turns already scrolled in', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(240_000)
+  const turns = 8
+  const { desktop, phone, ids, teardown } = await pairedHome(
+    [{ title: 'long one', firstPrompt: 'turn 1' }],
+    { env: { HANG4R_TEST_BRIDGE_PAGE_BYTES: '6000' }, beforePair: longSession(turns) }
+  )
+  try {
+    await phone.locator('.session-row', { hasText: 'long one' }).click()
+    const users = phone.locator('.msg-user')
+    await expect(users.last()).toHaveText(`turn ${turns}`, { timeout: 15_000 })
+    const firstCount = await users.count()
+    const more = phone.getByRole('button', { name: 'Load earlier messages' })
+    await more.click({ timeout: 10_000 })
+    await expect.poll(() => users.count(), { timeout: 20_000 }).toBeGreaterThan(firstCount)
+    const loaded = await users.allInnerTexts()
+    expect(loaded.length).toBeLessThan(turns)
+
+    const savedAt = (): Promise<number> =>
+      phone.evaluate(
+        (id) =>
+          (JSON.parse(localStorage.getItem('h4.transcripts.v1') ?? '{}') as Record<
+            string,
+            { savedAt: number }
+          >)[id]?.savedAt ?? 0,
+        ids[0]
+      )
+    const before = await savedAt()
+    // the desktop drops off and comes back: the phone replays the transcript
+    const offline = phone.locator('.composer-input[placeholder="desktop offline"]')
+    await desktop.evaluate(() => window.hang4r.bridgeSetEnabled(false))
+    await expect(offline).toBeVisible({ timeout: 30_000 })
+    await desktop.evaluate(() => window.hang4r.bridgeSetEnabled(true))
+    await expect(offline).toHaveCount(0, { timeout: 45_000 })
+    await expect.poll(savedAt, { timeout: 30_000 }).toBeGreaterThan(before)
+    expect(await users.allInnerTexts()).toEqual(loaded)
+    await expect(more).toBeVisible()
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: an older desktop without paging still opens the whole conversation', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { phone, teardown } = await pairedHome([{ title: 'old desk', firstPrompt: 'turn 1' }], {
+    env: { HANG4R_TEST_BRIDGE_WITHOUT: 'getSessionEventsPage' },
+    beforePair: longSession(3)
+  })
+  try {
+    await phone.locator('.session-row', { hasText: 'old desk' }).click()
+    await expect(phone.locator('.msg-user')).toHaveText(['turn 1', 'turn 2', 'turn 3'], {
+      timeout: 15_000
+    })
+    await expect(phone.locator('.older-loader')).toHaveCount(0)
+    await expect(phone.locator('.stale-note')).toHaveCount(0)
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: a slow history download is waited for, not called a dead link', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { phone, teardown } = await pairedHome([{ title: 'slow', firstPrompt: 'turn 1' }], {
+    env: { HANG4R_TEST_BRIDGE_DELAY: 'getSessionEventsPage=25000,getSessionEvents=25000' }
+  })
+  try {
+    await phone.locator('.session-row', { hasText: 'slow' }).click()
+    await expect(phone.locator('.skeleton-stack')).toBeVisible()
+    await expect(phone.locator('.msg-user')).toHaveText(['turn 1'], { timeout: 60_000 })
+    await expect(phone.locator('.stale-note')).toHaveCount(0)
+    await expect(phone.locator('.conn-online')).toBeVisible()
+  } finally {
+    await teardown()
+  }
+})

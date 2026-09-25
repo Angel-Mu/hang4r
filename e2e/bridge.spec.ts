@@ -3,6 +3,7 @@ import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './h
 import { FakePhone } from './bridgeClient'
 import type { SessionEvent, SessionMeta, Project } from '../src/shared/protocol'
 import type { BridgeDesktopFrame, BridgeEventPage, BridgeSidebarState } from '../src/shared/bridge'
+import type { LinkDiagnostics } from '../src/shared/bridgeLink'
 import type { Page } from '@playwright/test'
 
 async function pairPhone(page: Page): Promise<FakePhone> {
@@ -22,6 +23,8 @@ async function pairPhone(page: Page): Promise<FakePhone> {
     .toBe(true)
   return p
 }
+
+const SHOTS = '/private/tmp/claude-501/mobile-round-18-shots'
 
 const frameFor =
   (t: 'seen' | 'unseen', sessionId: string) =>
@@ -520,5 +523,91 @@ test.describe('mobile bridge', () => {
     const kinds = (evs: SessionEvent[]): string[] =>
       evs.filter((e) => !['plan', 'usage'].includes(e.event.kind)).map((e) => `${e.seq}`)
     expect(kinds(paged)).toEqual(kinds(whole))
+  })
+
+  const diag = (page: Page): Promise<LinkDiagnostics> =>
+    page.evaluate(() => window.hang4r.bridgeDiagnostics())
+
+  test('a relay link that goes silent is replaced, with no phone around to notice', async () => {
+    test.setTimeout(90_000)
+    // the first socket hears nothing: a link that died without a close
+    launched = await launchApp({
+      env: { HANG4R_TEST_BRIDGE_DEAF: '1', HANG4R_TEST_BRIDGE_TIMING: 'ping=1000,silence=5000' }
+    })
+    const { page } = launched
+    await page.evaluate(() => window.hang4r.bridgeSetEnabled(true))
+    await expect.poll(async () => (await diag(page)).reconnects, { timeout: 30_000 }).toBeGreaterThan(0)
+    const d = await diag(page)
+    expect(d.lastClose?.reason).toBe('no frames for 5s')
+    expect(d.log.map((e) => e.msg)).toContain('dropped the relay socket: no frames for 5s')
+    // the replacement socket is healthy: a phone gets through
+    phone = await pairPhone(page)
+    expect(await phone.call('listProjects')).toEqual([])
+  })
+
+  test('an idle desktop with no phone stays up on the relay\'s pongs alone', async () => {
+    test.setTimeout(60_000)
+    launched = await launchApp({ env: { HANG4R_TEST_BRIDGE_TIMING: 'ping=1000,silence=5000' } })
+    const { page } = launched
+    await page.evaluate(() => window.hang4r.bridgeSetEnabled(true))
+    await expect.poll(async () => (await diag(page)).state, { timeout: 15_000 }).toBe('open')
+    // three silence windows with nobody on the other end
+    await page.waitForTimeout(15_000)
+    const d = await diag(page)
+    expect(d.reconnects).toBe(0)
+    expect(d.state).toBe('open')
+    expect(Date.now() - (d.lastRxAt ?? 0)).toBeLessThan(3_000)
+  })
+
+  test('Reconnect replaces the socket and keeps the pairing; Re-pair says phones must rescan', async () => {
+    test.setTimeout(90_000)
+    launched = await launchApp()
+    const { page } = launched
+    await page.waitForSelector('.app')
+    phone = await pairPhone(page)
+    const before = await page.evaluate(() => window.hang4r.bridgePairing())
+    await expect.poll(async () => (await diag(page)).peerVersion).toBe('e2e')
+
+    await page.keyboard.press('Meta+k')
+    await page.locator('.palette-input').fill('settings')
+    await page.locator('.palette-input').press('Enter')
+    await page.locator('.settings-nav-item', { hasText: 'Phone' }).click()
+    await page.getByRole('button', { name: 'Reconnect' }).click()
+
+    await expect.poll(async () => (await diag(page)).reconnects, { timeout: 15_000 }).toBe(1)
+    expect((await diag(page)).lastClose?.reason).toBe('Reconnect clicked')
+    await expect
+      .poll(async () => (await page.evaluate(() => window.hang4r.bridgeStatus())).phoneConnected, {
+        timeout: 15_000
+      })
+      .toBe(true)
+    // same secret: the phone already paired keeps working without a rescan
+    expect((await page.evaluate(() => window.hang4r.bridgePairing())).url).toBe(before.url)
+    expect(await phone.call('listProjects')).toEqual([])
+
+    const panel = page.locator('.bridge-diag')
+    await expect(panel.locator('[data-diag="reconnects"]')).toHaveText('1')
+    await expect(panel.locator('[data-diag="close"]')).toContainText('Reconnect clicked')
+    await page.getByRole('button', { name: 'Show pairing QR code' }).click()
+    await expect(page.locator('.settings-page')).toContainText(
+      'every phone paired now is cut off and must scan the new QR code'
+    )
+    await page.locator('.bridge-diag').scrollIntoViewIfNeeded()
+    await page.locator('.settings-page').screenshot({ path: `${SHOTS}/10-desktop-connection.png` })
+
+    const copied = await page.evaluate(async () => {
+      let text = ''
+      navigator.clipboard.writeText = async (t: string): Promise<void> => {
+        text = t
+      }
+      ;[...document.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Copy connection details')!
+        .click()
+      await new Promise((r) => setTimeout(r, 200))
+      return text
+    })
+    expect(copied).toContain('hang4r bridge — desktop')
+    expect(copied).toContain('reconnects: 1')
+    expect(copied).toContain('Reconnect clicked')
   })
 })

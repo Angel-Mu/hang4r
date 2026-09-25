@@ -92,7 +92,7 @@ export function diagnosticsText(d: LinkDiagnostics, now = Date.now()): string {
     `last frame received: ${ago(d.lastRxAt, now)}`,
     `last close: ${
       d.lastClose
-        ? `${d.lastClose.code}${d.lastClose.reason ? ` ${d.lastClose.reason}` : ''} — ${ago(d.lastClose.at, now)}`
+        ? `${d.lastClose.code ? `${d.lastClose.code} ` : ''}${d.lastClose.reason || '(no reason)'} — ${ago(d.lastClose.at, now)}`
         : 'none'
     }`,
     `reconnects: ${d.reconnects}`,

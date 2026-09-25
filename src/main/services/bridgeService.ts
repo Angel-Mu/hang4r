@@ -492,6 +492,10 @@ export class BridgeService {
             this.phoneConnected = frame.connected === true
             if (was !== this.phoneConnected) {
               this.log(this.phoneConnected ? 'phone connected' : 'no phone connected')
+              // our hello went out before this phone arrived
+              if (this.phoneConnected) {
+                this.send({ t: 'hello', role: 'desktop', appVersion: this.appVersion })
+              }
             }
             if (!this.phoneConnected) this.subs.clear()
             this.syncLiveWorkPolling()

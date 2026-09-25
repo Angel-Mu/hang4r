@@ -494,6 +494,8 @@ async function pairedHome(
     projects?: number
     /** runs on the desktop after the sessions exist, before the phone pairs */
     beforePair?: (desktop: Page, projectIds: string[], ids: string[]) => Promise<void>
+    /** runs on the phone page before the app loads */
+    phoneSetup?: (phone: Page) => Promise<void>
   } = {}
 ): Promise<{
   desktop: Page
@@ -552,6 +554,7 @@ async function pairedHome(
   await opts.beforePair?.(desktop, projectIds, ids)
   const b = await chromium.launch()
   const phone = await b.newPage({ viewport: { width: 390, height: 844 } })
+  await opts.phoneSetup?.(phone)
   await phone.goto(`http://localhost:${PREVIEW_PORT}/`)
   await phone.fill('.pair-input', pairing.url)
   await phone.click('button:has-text("Pair with this computer")')
@@ -1145,6 +1148,86 @@ test('phone: a slow history download is waited for, not called a dead link', asy
     await expect(phone.locator('.msg-user')).toHaveText(['turn 1'], { timeout: 60_000 })
     await expect(phone.locator('.stale-note')).toHaveCount(0)
     await expect(phone.locator('.conn-online')).toBeVisible()
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: a link that goes quiet while in the foreground is probed and replaced', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(120_000)
+  let deafSocket = 0
+  let sockets = 0
+  const { phone, teardown } = await pairedHome([{ title: 'quiet one' }], {
+    phoneSetup: async (p) => {
+      await p.addInitScript(() =>
+        localStorage.setItem('h4.testLinkTiming', JSON.stringify({ silence: 4000, tick: 1000 }))
+      )
+      // a proxy that can stop delivering: the socket stays OPEN, nothing arrives
+      await p.routeWebSocket(/\/client\//, (ws) => {
+        const id = ++sockets
+        const server = ws.connectToServer()
+        server.onMessage((m) => {
+          if (id !== deafSocket) ws.send(m)
+        })
+      })
+    }
+  })
+  try {
+    await phone.click('.brand-btn')
+    await phone.click('.drawer [aria-label="Settings"]')
+    const card = phone.locator('.conn-diag')
+    await expect(card.locator('[data-diag="state"]')).toContainText('online')
+    const before = sockets
+    deafSocket = sockets
+    await expect.poll(() => sockets, { timeout: 30_000 }).toBeGreaterThan(before)
+    await expect(card.locator('[data-diag="state"]')).toContainText('online', { timeout: 20_000 })
+    await expect(card).toContainText('nothing received for 4s — probing')
+    await expect(card.locator('[data-diag="close"]')).toContainText('probe unanswered')
+    await expect(card.locator('[data-diag="reconnects"]')).not.toHaveText('0')
+    // the desktop's hello reaches a phone that arrived after it
+    await expect(card.locator('[data-diag="peer"]')).toHaveText(/^hang4r \S+$/)
+    await phone.screenshot({ path: `${SHOTS}/10-phone-connection.png`, fullPage: true })
+    const copied = await phone.evaluate(async () => {
+      let text = ''
+      navigator.clipboard.writeText = async (t: string): Promise<void> => {
+        text = t
+      }
+      ;[...document.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Copy connection details')!
+        .click()
+      await new Promise((r) => setTimeout(r, 200))
+      return text
+    })
+    expect(copied).toContain('hang4r bridge — phone')
+    expect(copied).toContain('probe unanswered')
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: after a re-pair on the computer, the old pairing says to scan the QR again', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(120_000)
+  const { desktop, phone, teardown } = await pairedHome([{ title: 'repair one' }], {
+    env: { HANG4R_TEST_BRIDGE_TIMING: 'ping=1000' }
+  })
+  try {
+    const banner = phone.locator('.banner-pairing')
+    const fresh = await desktop.evaluate(() => window.hang4r.bridgeRepair())
+    // still connected: the desktop now speaks a key this phone doesn't hold
+    await expect(banner).toBeVisible({ timeout: 30_000 })
+    await expect(banner).toContainText('Pairing may have changed on your computer — scan the QR again')
+    // a cold start with the stale pairing: the relay refuses every socket
+    await phone.reload()
+    await expect(phone.locator('.session-row').first()).toBeVisible()
+    await expect(banner).toBeVisible({ timeout: 45_000 })
+    await phone.screenshot({ path: `${SHOTS}/10-phone-repair.png` })
+    await banner.getByRole('button', { name: 'Scan QR again' }).click()
+    await phone.fill('.pair-input', fresh.url)
+    await phone.click('button:has-text("Pair with this computer")')
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await expect(banner).toHaveCount(0)
   } finally {
     await teardown()
   }

@@ -17,6 +17,8 @@ export interface BridgeCallbacks {
   onSeen(sessionId: string): void
   /** the desktop flagged this session finished-unseen */
   onUnseen(sessionId: string): void
+  /** sessions still working after their turn ended */
+  onLiveWork(ids: string[]): void
 }
 
 const PING_MS = 25_000
@@ -248,6 +250,9 @@ export class BridgeClient {
         break
       case 'unseen':
         this.cb.onUnseen(frame.sessionId)
+        break
+      case 'live-work':
+        this.cb.onLiveWork(frame.ids)
         break
       case 'hello':
         this.setState('online')

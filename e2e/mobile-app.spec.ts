@@ -539,7 +539,7 @@ async function pairedHome(
             ?.status,
         { timeout: 20_000 }
       )
-      .toBe('idle')
+      .toMatch(/^(idle|error)$/)
   }
   await opts.beforePair?.(desktop, projectIds, ids)
   const b = await chromium.launch()
@@ -810,6 +810,74 @@ test('phone: an older desktop can still be marked unread, on the phone alone', a
     await sheet.locator('.sheet-action', { hasText: 'Mark as read' }).click()
     await expect(row.locator('.session-bell')).toHaveCount(0)
     await expect(phone.locator('.banner-error')).toHaveCount(0)
+  } finally {
+    await teardown()
+  }
+})
+
+test('phone: status dots, times and rollups match the desktop sidebar', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(180_000)
+  const { desktop, phone, ids, teardown } = await pairedHome([
+    { title: 'bg worker', firstPrompt: 'spawn background agents' },
+    { title: 'broken', firstPrompt: 'trigger error' },
+    { title: 'finisher', firstPrompt: 'do the thing' },
+    { title: 'asker' }
+  ])
+  try {
+    // seen on the desktop, so its accent no longer outranks the cyan
+    await desktop.locator('.session-row', { hasText: 'bg worker' }).click()
+    await desktop.locator('.session-row', { hasText: 'asker' }).click()
+    await desktop.evaluate(
+      (id) => window.hang4r.prompt(id, 'please ask permission before proceeding'),
+      ids[3]
+    )
+    const phoneRow = (t: string) => phone.locator('.session-row', { hasText: t })
+    await expect(phoneRow('bg worker').locator('.status-dot')).toHaveClass(/status-pending/, {
+      timeout: 20_000
+    })
+    await expect(phoneRow('asker').locator('.needs-you')).toBeVisible({ timeout: 20_000 })
+    // every row's dot is the desktop's dot
+    for (const t of ['bg worker', 'broken', 'finisher', 'asker']) {
+      const want = await desktop
+        .locator('.sidebar .session-row', { hasText: t })
+        .locator('.status-dot')
+        .getAttribute('class')
+      await expect(phoneRow(t).locator('.status-dot')).toHaveAttribute('class', want!)
+    }
+    await expect(phoneRow('finisher').locator('.session-time')).toHaveText('now')
+    await phone.screenshot({ path: `${SHOTS}/9-status-dots.png` })
+
+    // the reason a session failed, one long-press away
+    const lastError = (await desktop.evaluate(() => window.hang4r.listSessions())).find(
+      (x) => x.id === ids[1]
+    )!.lastError
+    expect(lastError).toBeTruthy()
+    await longPress(phone, 'broken')
+    await expect(phone.locator('.session-actions-sheet .sheet-error')).toHaveText(lastError!)
+    await phone.screenshot({ path: `${SHOTS}/9-last-error.png` })
+    await phone.locator('.sheet-scrim').click()
+
+    // a collapsed workspace still says what's inside
+    await phone.locator('.project-header').first().click()
+    const header = phone.locator('.project-header').first()
+    await expect(header.locator('.needs-you-count')).toHaveText('1 need you')
+    await expect(header.locator('.project-flag-error')).toHaveText('1 error')
+    await expect(header.locator('.project-flag-finished')).toHaveText('1 done')
+    await phone.screenshot({ path: `${SHOTS}/9-rollups.png` })
+    await phone.locator('.project-header').first().click()
+
+    // "needs you" survives a cold start
+    await phone.reload()
+    await expect(phoneRow('asker').locator('.needs-you')).toBeVisible()
+    await expect(phone.locator('.conn-online')).toBeVisible({ timeout: 30_000 })
+    await expect(phoneRow('asker').locator('.needs-you')).toBeVisible()
+    await expect(phoneRow('bg worker').locator('.status-dot')).toHaveClass(/status-pending/, {
+      timeout: 15_000
+    })
+
+    await phone.setViewportSize({ width: 1024, height: 1366 })
+    await phone.screenshot({ path: `${SHOTS}/9-ipad-status.png` })
   } finally {
     await teardown()
   }

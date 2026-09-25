@@ -33,6 +33,8 @@ const PING_MS = 25_000
 const NOTIFY_DELAY_MS = 30_000
 /** approvals escalate even while the desktop is focused, just slower */
 const NOTIFY_DELAY_FOCUSED_APPROVAL_MS = 60_000
+/** the desktop sidebar's own re-read interval for live work */
+const LIVE_WORK_POLL_MS = 5_000
 const BACKOFF_MIN_MS = 1_000
 const BACKOFF_MAX_MS = 30_000
 
@@ -57,13 +59,16 @@ export class BridgeService {
   private phoneConnected = false
   private psbId: number | null = null
   private pendingNotifies = new Map<string, ReturnType<typeof setTimeout>>()
+  private liveWorkTimer: ReturnType<typeof setInterval> | null = null
+  private lastLiveWork: string | null = null
 
   constructor(
     private settings: SettingsLike,
     private api: Record<string, (...args: never[]) => unknown>,
     private appVersion: string,
     private onStatus: (s: BridgeStatus) => void,
-    private titleFor: (sessionId: string) => string | null = () => null
+    private titleFor: (sessionId: string) => string | null = () => null,
+    private liveWork: () => Promise<string[]> = async () => []
   ) {
     if (this.enabled) this.connect()
     this.syncKeepAwake()
@@ -229,6 +234,32 @@ export class BridgeService {
 
   onSessionUpdated(session: SessionMeta): void {
     this.send({ t: 'event', channel: 'session-updated', payload: session })
+    if (this.phoneConnected) void this.pollLiveWork()
+  }
+
+  /** Only while a phone listens: answering probes processes. */
+  private syncLiveWorkPolling(): void {
+    if (this.phoneConnected && !this.liveWorkTimer) {
+      this.lastLiveWork = null
+      void this.pollLiveWork()
+      this.liveWorkTimer = setInterval(() => void this.pollLiveWork(), LIVE_WORK_POLL_MS)
+    } else if (!this.phoneConnected && this.liveWorkTimer) {
+      clearInterval(this.liveWorkTimer)
+      this.liveWorkTimer = null
+    }
+  }
+
+  private async pollLiveWork(): Promise<void> {
+    let ids: string[]
+    try {
+      ids = [...(await this.liveWork())].sort()
+    } catch {
+      return
+    }
+    const key = ids.join(',')
+    if (key === this.lastLiveWork || !this.phoneConnected) return
+    this.lastLiveWork = key
+    this.send({ t: 'live-work', ids })
   }
 
   dispose(): void {
@@ -294,6 +325,7 @@ export class BridgeService {
           if (frame.t === 'peer') {
             this.phoneConnected = frame.connected === true
             if (!this.phoneConnected) this.subs.clear()
+            this.syncLiveWorkPolling()
             this.emitStatus()
           }
         } catch {
@@ -332,6 +364,7 @@ export class BridgeService {
     this.relayConnected = false
     this.phoneConnected = false
     this.subs.clear()
+    this.syncLiveWorkPolling()
     if (this.pingTimer) {
       clearInterval(this.pingTimer)
       this.pingTimer = null

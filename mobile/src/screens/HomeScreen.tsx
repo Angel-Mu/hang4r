@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import type { SessionMeta } from '@shared/protocol'
 import { Icon } from '@shared/icons'
 import { orderProjects, orderSessions } from '@shared/sidebarOrder'
+import { relativeTime } from '@shared/relativeTime'
 import { isFinishedUnseen, useApp } from '../state/store'
 import { Drawer } from '../components/Drawer'
 import { SessionActionSheet } from '../components/SessionActionSheet'
@@ -24,13 +25,21 @@ function ConnDot(): JSX.Element {
 }
 
 /** Desktop dot semantics: idle = invisible, green pulse = WORKING, amber
- *  pulse = awaiting your response, accent = finished unseen, red = error. */
-function dotClass(session: SessionMeta, pending: number, unseen: boolean): string {
-  const unseenDone = unseen && session.status === 'idle' && pending === 0
+ *  pulse = awaiting your response, accent = finished unseen, red = error,
+ *  slow cyan pulse = turn over but still working (amber and accent win). */
+function dotClass(
+  session: SessionMeta,
+  pending: number,
+  unseen: boolean,
+  stillWorking: boolean
+): string {
+  const awaiting = pending > 0
+  const unseenDone = unseen && session.status === 'idle' && !awaiting
   return (
     `status-dot status-${session.status}` +
-    (pending > 0 ? ' status-awaiting' : '') +
-    (unseenDone ? ' status-unseen' : '')
+    (awaiting ? ' status-awaiting' : '') +
+    (unseenDone ? ' status-unseen' : '') +
+    (stillWorking && !awaiting && !unseenDone ? ' status-pending' : '')
   )
 }
 
@@ -81,6 +90,13 @@ export function HomeScreen(): JSX.Element {
   const pinned = useApp((s) => s.pinned)
   const seenAt = useApp((s) => s.seenAt)
   const unreadOverrides = useApp((s) => s.unreadOverrides)
+  const liveWork = useApp((s) => s.liveWork)
+  // keeps "now / 5m / 2h" honest while the list sits open
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const iv = window.setInterval(() => setTick((n) => n + 1), 30_000)
+    return () => clearInterval(iv)
+  }, [])
   const unseenOf = (id: string): boolean =>
     isFinishedUnseen({ desktopUnseen, attention, finishedAt, seenAt, unreadOverrides }, id)
   const [sheetFor, setSheetFor] = useState<string | null>(null)
@@ -196,6 +212,10 @@ export function HomeScreen(): JSX.Element {
           const limit = pageLimits[p.id] ?? SESSIONS_PAGE
           const visible = filterLower ? own : own.slice(0, limit)
           const needsYou = own.filter((s) => (pendingApprovals[s.id] ?? 0) > 0).length
+          const errors = own.filter((s) => s.status === 'error').length
+          const done = own.filter(
+            (s) => unseenOf(s.id) && s.status === 'idle' && !(pendingApprovals[s.id] ?? 0)
+          ).length
           return (
             <section key={p.id} className="project-group">
               <button className="project-header" onClick={() => toggleCollapsed(p.id)}>
@@ -208,6 +228,14 @@ export function HomeScreen(): JSX.Element {
                 )}
                 {isCollapsed && needsYou > 0 && (
                   <span className="needs-you-count">{needsYou} need you</span>
+                )}
+                {isCollapsed && errors > 0 && (
+                  <span className="project-flag project-flag-error">
+                    {errors} error{errors > 1 ? 's' : ''}
+                  </span>
+                )}
+                {isCollapsed && done > 0 && (
+                  <span className="project-flag project-flag-finished">{done} done</span>
                 )}
                 <span className="project-count">{own.length}</span>
               </button>
@@ -236,23 +264,25 @@ export function HomeScreen(): JSX.Element {
                         className={dotClass(
                           s,
                           pendingApprovals[s.id] ?? 0,
-                          unseenOf(s.id)
+                          unseenOf(s.id),
+                          liveWork.includes(s.id)
                         )}
                       />
                       <span className={`backend-glyph backend-${s.backend}`} title={s.backend}>
                         <Icon name={s.backend} size={15} />
                       </span>
                       <span className="session-title">{s.title}</span>
-                      {isPinned(s.id) && (
-                        <span className="session-pin" title="Pinned">
-                          <Icon name="pin" size={12} />
-                        </span>
-                      )}
                       <RowState
                         session={s}
                         pending={pendingApprovals[s.id] ?? 0}
                         unseen={unseenOf(s.id)}
                       />
+                      {isPinned(s.id) && (
+                        <span className="session-pin" title="Pinned">
+                          <Icon name="pin" size={12} />
+                        </span>
+                      )}
+                      <span className="session-time">{relativeTime(s.updatedAt)}</span>
                     </button>
                   ))}
                   {own.length > limit && !filterLower && (

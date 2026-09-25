@@ -36,6 +36,9 @@ export function SessionActionSheet({
       <div className="sheet session-actions-sheet" role="menu" onPointerDown={arm}>
         <div className="sheet-grab" />
         <p className="sheet-title">{session.title}</p>
+        {session.status === 'error' && (
+          <p className="sheet-error">{session.lastError ?? 'Turn failed'}</p>
+        )}
         {pinnedOnDesktop && !pinnedHere ? (
           <p className="sheet-note">
             <Icon name="pin" size={14} /> Pinned on your computer

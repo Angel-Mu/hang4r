@@ -1705,3 +1705,10 @@ html.kb-open .split-master {
 .queue-row-del {
   color: var(--red);
 }
+
+/* ---- round 18: desktop sidebar parity ---- */
+.project-pin {
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+}

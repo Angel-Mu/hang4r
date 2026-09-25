@@ -6,6 +6,7 @@
  */
 
 import type { SessionEvent, SessionMeta } from './protocol'
+import type { SidebarLayout } from './sidebarOrder'
 
 export const DEFAULT_RELAY_URL = 'wss://hang4r-relay.angel-malavar.workers.dev'
 
@@ -131,6 +132,8 @@ export type BridgeMethod = (typeof BRIDGE_METHODS)[number]
 
 /** What the desktop sidebar shows, so the phone can mirror it. */
 export interface BridgeSidebarState {
+  /** pins, drag order, sort and collapsed workspaces — read-only for phones */
+  layout: SidebarLayout
   /** sessions the desktop flags finished-unseen */
   unseen: string[]
 }

@@ -8,6 +8,7 @@ import type {
   SessionMeta
 } from '../../../shared/protocol'
 import { useHang4r, isAwaitingPermission, isAwaitingQuestion } from '../state/store'
+import { orderProjects, orderSessions as orderByPin } from '../../../shared/sidebarOrder'
 import { contextWindow } from '../contextWindow'
 import { FALLBACK_CODEX_MODELS } from '../modelChoices'
 import { Icon, type IconName } from './Icon'
@@ -244,24 +245,10 @@ export function Sidebar(): JSX.Element {
 
   const filterLower = filter.trim().toLowerCase()
 
-  // workspaces ordered: pinned first, then by the chosen sort
-  const lastActivity = (projectId: string): number =>
-    Math.max(0, ...sessions.filter((s) => s.projectId === projectId).map((s) => s.updatedAt))
-  const orderIndex = (id: string): number => {
-    const i = projectOrder.indexOf(id)
-    return i === -1 ? Number.POSITIVE_INFINITY : i
-  }
-  const orderedProjects = [...projects].sort((a, b) => {
-    const ap = pinnedProjectIds.includes(a.id)
-    const bp = pinnedProjectIds.includes(b.id)
-    if (ap !== bp) return ap ? -1 : 1
-    // manual drag order wins; unordered workspaces fall back to the chosen sort
-    const ai = orderIndex(a.id)
-    const bi = orderIndex(b.id)
-    if (ai !== bi) return ai - bi
-    return projectSort === 'name'
-      ? a.name.localeCompare(b.name)
-      : lastActivity(b.id) - lastActivity(a.id)
+  const orderedProjects = orderProjects(projects, sessions, {
+    pinnedProjects: pinnedProjectIds,
+    projectOrder,
+    projectSort
   })
   // drag-reorder: persist the visible order with the dragged workspace moved
   const reorderProject = (draggedId: string, targetId: string, before: boolean): void => {
@@ -272,14 +259,10 @@ export function Sidebar(): JSX.Element {
     useHang4r.getState().setProjectOrder(ids)
   }
   const orderSessions = (list: SessionMeta[]): SessionMeta[] =>
-    list
-      .filter((s) => !filterLower || s.title.toLowerCase().includes(filterLower))
-      .sort((a, b) => {
-        const pa = isPinned(a.id) ? 1 : 0
-        const pb = isPinned(b.id) ? 1 : 0
-        if (pa !== pb) return pb - pa // pinned first
-        return b.updatedAt - a.updatedAt // then most-recent
-      })
+    orderByPin(
+      list.filter((s) => !filterLower || s.title.toLowerCase().includes(filterLower)),
+      isPinned
+    )
 
   const focusedProjectId =
     sessions.find((x) => x.id === focusedId)?.projectId ?? projects[0]?.id ?? null

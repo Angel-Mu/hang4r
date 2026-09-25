@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { SessionMeta } from '@shared/protocol'
 import { Icon } from '@shared/icons'
+import { orderProjects, orderSessions } from '@shared/sidebarOrder'
 import { isFinishedUnseen, useApp } from '../state/store'
 import { Drawer } from '../components/Drawer'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
@@ -53,11 +54,13 @@ function RowState({
   return null
 }
 
-function loadCollapsed(): Set<string> {
+/** null = never toggled on this phone (the desktop's collapse applies) */
+function loadCollapsed(): Set<string> | null {
   try {
-    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]') as string[])
+    const raw = localStorage.getItem(COLLAPSED_KEY)
+    return raw === null ? null : new Set(JSON.parse(raw) as string[])
   } catch {
-    return new Set()
+    return null
   }
 }
 
@@ -92,7 +95,9 @@ export function HomeScreen(): JSX.Element {
     if (pressTimer.current) clearTimeout(pressTimer.current)
     pressTimer.current = null
   }
-  const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed)
+  const layout = useApp((s) => s.desktopLayout)
+  const [localCollapsed, setLocalCollapsed] = useState<Set<string> | null>(loadCollapsed)
+  const collapsed = localCollapsed ?? new Set(layout?.collapsedProjects ?? [])
   const [pageLimits, setPageLimits] = useState<Record<string, number>>({})
   const [filter, setFilter] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -104,25 +109,30 @@ export function HomeScreen(): JSX.Element {
   }, [conn, refresh])
 
   const toggleCollapsed = (projectId: string): void => {
-    setCollapsed((prev) => {
-      const next = new Set(prev)
-      if (next.has(projectId)) next.delete(projectId)
-      else next.add(projectId)
-      localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]))
-      return next
-    })
+    const next = new Set(collapsed)
+    if (next.has(projectId)) next.delete(projectId)
+    else next.add(projectId)
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]))
+    setLocalCollapsed(next)
   }
 
-  // desktop sidebar order: workspaces by last activity, sessions by updatedAt
-  const live = sessions.filter(
-    (s) =>
-      s.status !== 'archived' && (!filterLower || s.title.toLowerCase().includes(filterLower))
+  const unarchived = sessions.filter((s) => s.status !== 'archived')
+  const live = unarchived.filter(
+    (s) => !filterLower || s.title.toLowerCase().includes(filterLower)
   )
-  const lastActivity = (projectId: string): number =>
-    Math.max(0, ...live.filter((s) => s.projectId === projectId).map((s) => s.updatedAt))
-  const orderedProjects = [...projects]
-    .filter((p) => live.some((s) => s.projectId === p.id))
-    .sort((a, b) => lastActivity(b.id) - lastActivity(a.id))
+  // the desktop's own order and pins, with this phone's pins on top; an older
+  // desktop can't say, so workspaces go by latest activity and empty ones hide
+  const isPinned = (id: string): boolean =>
+    pinned.includes(id) || !!layout?.pinnedSessions.includes(id)
+  const orderedProjects = layout
+    ? orderProjects(projects, unarchived, layout).filter(
+        (p) => !filterLower || live.some((s) => s.projectId === p.id)
+      )
+    : orderProjects(
+        projects.filter((p) => live.some((s) => s.projectId === p.id)),
+        live,
+        { pinnedProjects: [], projectOrder: [], projectSort: 'recent' }
+      )
 
   const spinning = refreshing || ptrActive
 
@@ -172,14 +182,10 @@ export function HomeScreen(): JSX.Element {
       </div>
       <main className="home-list" ref={listRef}>
         {orderedProjects.map((p) => {
-          const own = live
-            .filter((s) => s.projectId === p.id)
-            .sort((a, b) => {
-              const pa = pinned.includes(a.id) ? 1 : 0
-              const pb = pinned.includes(b.id) ? 1 : 0
-              if (pa !== pb) return pb - pa
-              return b.updatedAt - a.updatedAt
-            })
+          const own = orderSessions(
+            live.filter((s) => s.projectId === p.id),
+            isPinned
+          )
           const isCollapsed = collapsed.has(p.id) && !filterLower
           const limit = pageLimits[p.id] ?? SESSIONS_PAGE
           const visible = filterLower ? own : own.slice(0, limit)
@@ -189,6 +195,11 @@ export function HomeScreen(): JSX.Element {
               <button className="project-header" onClick={() => toggleCollapsed(p.id)}>
                 <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={14} />
                 <span className="project-name">{p.name}</span>
+                {layout?.pinnedProjects.includes(p.id) && (
+                  <span className="project-pin" title="Pinned workspace">
+                    <Icon name="pin" size={12} />
+                  </span>
+                )}
                 {isCollapsed && needsYou > 0 && (
                   <span className="needs-you-count">{needsYou} need you</span>
                 )}
@@ -223,7 +234,7 @@ export function HomeScreen(): JSX.Element {
                         <Icon name={s.backend} size={15} />
                       </span>
                       <span className="session-title">{s.title}</span>
-                      {pinned.includes(s.id) && (
+                      {isPinned(s.id) && (
                         <span className="session-pin" title="Pinned — hold to unpin">
                           <Icon name="pin" size={12} />
                         </span>

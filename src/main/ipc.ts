@@ -375,7 +375,16 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     setSessionPermissionMode: (sessionId: string, mode: PermissionMode) =>
       sessions.setPermissionMode(sessionId, mode),
     markSeen: (sessionId: string) => seenOnDesktop(sessionId, true),
-    sidebarState: (): BridgeSidebarState => ({ unseen: [...desktopUnseen] })
+    sidebarState: (): BridgeSidebarState => ({
+      layout: {
+        pinnedProjects: readIds('pinnedProjects'),
+        projectOrder: readIds('projectOrder'),
+        projectSort: settings.getSetting('projectSort') === 'name' ? 'name' : 'recent',
+        pinnedSessions: readIds('pinnedSessions'),
+        collapsedProjects: readIds('collapsedProjects')
+      },
+      unseen: [...desktopUnseen]
+    })
   }
   // e2e: impersonate an older desktop that predates some methods
   for (const m of (process.env.HANG4R_TEST_BRIDGE_WITHOUT ?? '').split(',')) {

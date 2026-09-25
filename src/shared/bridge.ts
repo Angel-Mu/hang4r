@@ -125,7 +125,8 @@ export const BRIDGE_METHODS = [
   'agentAlive',
   'currentBranch',
   'resyncSession',
-  'sidebarState'
+  'sidebarState',
+  'markUnseen'
 ] as const
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number]

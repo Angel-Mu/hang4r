@@ -239,4 +239,36 @@ test.describe('mobile bridge', () => {
     phone = await pairPhone(launched.page)
     expect((await phone.call<BridgeSidebarState>('sidebarState')).unseen).toEqual([s.id])
   })
+
+  test('a phone marks a session unread on the desktop, and every device hears it', async () => {
+    test.setTimeout(90_000)
+    launched = await launchApp()
+    const { page } = launched
+    const project = await createProject(page, makeScratchRepo())
+    await page.reload()
+    await page.waitForSelector('.app')
+    phone = await pairPhone(page)
+    const s = await page.evaluate(
+      (pid) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'claude',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          title: 'mark me',
+          firstPrompt: 'do the thing'
+        }),
+      project.id
+    )
+    const row = page.locator('.session-row', { hasText: 'mark me' })
+    await expect(row.locator('.session-flag-finished')).toBeVisible({ timeout: 20_000 })
+    await phone.call('markSeen', s.id)
+    await expect(row.locator('.session-flag-finished')).toHaveCount(0)
+    phone.clearEvents()
+
+    await phone.call('markUnseen', s.id)
+    await expect(row.locator('.session-flag-finished')).toBeVisible()
+    await phone.nextEvent(frameFor('unseen', s.id))
+    expect((await phone.call<BridgeSidebarState>('sidebarState')).unseen).toEqual([s.id])
+  })
 })

@@ -15,6 +15,7 @@ const DESKTOP_UNSEEN_KEY = 'h4.desktopUnseen'
 const PENDING_SEEN_KEY = 'h4.pendingSeen'
 const FINISHED_KEY = 'h4.finishedAt'
 const LAYOUT_KEY = 'h4.desktopLayout'
+const UNREAD_KEY = 'h4.unreadOverrides'
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -91,9 +92,10 @@ function saveJson(key: string, value: unknown): void {
  *  truth (it clears when the session is seen anywhere); an older desktop
  *  leaves the phone to its own record of turns that ended since it looked. */
 export function isFinishedUnseen(
-  s: Pick<AppState, 'desktopUnseen' | 'attention' | 'finishedAt' | 'seenAt'>,
+  s: Pick<AppState, 'desktopUnseen' | 'attention' | 'finishedAt' | 'seenAt' | 'unreadOverrides'>,
   id: string
 ): boolean {
+  if (s.unreadOverrides.includes(id)) return true
   if (s.desktopUnseen) return s.desktopUnseen.includes(id)
   return !!s.attention[id] || (s.finishedAt[id] ?? 0) > (s.seenAt[id] ?? 0)
 }
@@ -102,6 +104,8 @@ export function isFinishedUnseen(
  *  triggers (turn settled, refresh while idle) can fire for the same idle
  *  window, and the second must not send the next message into a live turn */
 const flushInFlight = new Map<string, number>()
+/** marked unread from this phone — its own echo must not be swallowed */
+const requestedUnseen = new Set<string>()
 const FLUSH_GUARD_MS = 15_000
 const SESSION_INIT_MAX = 100
 
@@ -225,6 +229,10 @@ interface AppState {
   finishedAt: Record<string, number>
   /** the desktop sidebar's pins/order/sort/collapse; null = desktop too old */
   desktopLayout: SidebarLayout | null
+  /** marked unread here when the desktop couldn't take it */
+  unreadOverrides: string[]
+  /** "Mark as unread": the desktop flags it for every device */
+  markUnseen(sessionId: string): Promise<void>
   error: string | null
   /** push registration outcome, surfaced in Settings so failures aren't silent */
   pushStatus: string
@@ -340,9 +348,9 @@ function startClient(url: string): BridgeClient | null {
     },
     onUnseen: (sessionId: string) => {
       const app = useApp.getState()
-      // looking at it right now: seen here is seen everywhere
-      if (app.openSessionId === sessionId && document.visibilityState === 'visible') {
-        app.markSeenEverywhere(sessionId)
+      const asked = requestedUnseen.delete(sessionId)
+      // on screen here: no bell; closing it clears the desktop's too
+      if (!asked && app.openSessionId === sessionId && document.visibilityState === 'visible') {
         return
       }
       useApp.setState((s) => {
@@ -408,6 +416,7 @@ export const useApp = create<AppState>((set, get) => ({
   desktopUnseen: loadJson<string[] | null>(DESKTOP_UNSEEN_KEY, null),
   finishedAt: loadJson<Record<string, number>>(FINISHED_KEY, {}),
   desktopLayout: loadJson<SidebarLayout | null>(LAYOUT_KEY, null),
+  unreadOverrides: loadJson<string[]>(UNREAD_KEY, []),
   error: null,
   queues: loadQueues(),
 
@@ -488,11 +497,38 @@ export const useApp = create<AppState>((set, get) => ({
     set((s) => {
       const seenAt = { ...s.seenAt, [sessionId]: Date.now() }
       saveJson(SEEN_KEY, seenAt)
-      if (!s.desktopUnseen?.includes(sessionId)) return { seenAt }
-      const desktopUnseen = s.desktopUnseen.filter((id) => id !== sessionId)
-      saveJson(DESKTOP_UNSEEN_KEY, desktopUnseen)
-      return { seenAt, desktopUnseen }
+      const next: Partial<AppState> = { seenAt }
+      if (s.desktopUnseen?.includes(sessionId)) {
+        next.desktopUnseen = s.desktopUnseen.filter((id) => id !== sessionId)
+        saveJson(DESKTOP_UNSEEN_KEY, next.desktopUnseen)
+      }
+      if (s.unreadOverrides.includes(sessionId)) {
+        next.unreadOverrides = s.unreadOverrides.filter((id) => id !== sessionId)
+        saveJson(UNREAD_KEY, next.unreadOverrides)
+      }
+      return next
     })
+  },
+
+  async markUnseen(sessionId: string): Promise<void> {
+    try {
+      requestedUnseen.add(sessionId)
+      await bridge().call('markUnseen', sessionId)
+      // the desktop's unseen frame confirms it; don't wait on the round trip
+      set((s) =>
+        s.desktopUnseen && !s.desktopUnseen.includes(sessionId)
+          ? { desktopUnseen: [...s.desktopUnseen, sessionId] }
+          : {}
+      )
+    } catch {
+      requestedUnseen.delete(sessionId)
+      set((s) => {
+        if (s.unreadOverrides.includes(sessionId)) return {}
+        const unreadOverrides = [...s.unreadOverrides, sessionId]
+        saveJson(UNREAD_KEY, unreadOverrides)
+        return { unreadOverrides }
+      })
+    }
   },
 
   markSeenEverywhere(sessionId: string): void {
@@ -611,12 +647,13 @@ export const useApp = create<AppState>((set, get) => ({
     localStorage.removeItem(PAIRING_KEY)
     localStorage.removeItem(HOME_CACHE_KEY)
     localStorage.removeItem(QUEUE_KEY)
-    for (const k of [DESKTOP_UNSEEN_KEY, PENDING_SEEN_KEY, FINISHED_KEY, LAYOUT_KEY]) {
+    for (const k of [DESKTOP_UNSEEN_KEY, PENDING_SEEN_KEY, FINISHED_KEY, LAYOUT_KEY, UNREAD_KEY]) {
       localStorage.removeItem(k)
     }
     set({
       desktopUnseen: null,
       desktopLayout: null,
+      unreadOverrides: [],
       finishedAt: {},
       pairingUrl: null,
       conn: 'idle',

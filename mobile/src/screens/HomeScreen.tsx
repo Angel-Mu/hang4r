@@ -4,6 +4,7 @@ import { Icon } from '@shared/icons'
 import { orderProjects, orderSessions } from '@shared/sidebarOrder'
 import { isFinishedUnseen, useApp } from '../state/store'
 import { Drawer } from '../components/Drawer'
+import { SessionActionSheet } from '../components/SessionActionSheet'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 
 /** Mirrors the desktop sidebar: 10 sessions per workspace, then "Show more". */
@@ -78,22 +79,26 @@ export function HomeScreen(): JSX.Element {
   const error = useApp((s) => s.error)
   const pendingApprovals = useApp((s) => s.pendingApprovals)
   const pinned = useApp((s) => s.pinned)
-  const togglePin = useApp((s) => s.togglePin)
   const seenAt = useApp((s) => s.seenAt)
+  const unreadOverrides = useApp((s) => s.unreadOverrides)
   const unseenOf = (id: string): boolean =>
-    isFinishedUnseen({ desktopUnseen, attention, finishedAt, seenAt }, id)
-  // long-press pins; the synthetic click that follows must not open the row
+    isFinishedUnseen({ desktopUnseen, attention, finishedAt, seenAt, unreadOverrides }, id)
+  const [sheetFor, setSheetFor] = useState<string | null>(null)
+  // long-press opens the row's actions; the synthetic click that follows must
+  // not open the row
   const suppressClick = useRef(false)
   const pressTimer = useRef<number | null>(null)
   const startPress = (sessionId: string): void => {
     pressTimer.current = window.setTimeout(() => {
       suppressClick.current = true
-      togglePin(sessionId)
+      setSheetFor(sessionId)
     }, 500)
   }
   const endPress = (): void => {
     if (pressTimer.current) clearTimeout(pressTimer.current)
     pressTimer.current = null
+    // not every WebView follows a long-press with a click; don't eat the next tap
+    if (suppressClick.current) window.setTimeout(() => (suppressClick.current = false), 400)
   }
   const layout = useApp((s) => s.desktopLayout)
   const [localCollapsed, setLocalCollapsed] = useState<Set<string> | null>(loadCollapsed)
@@ -135,6 +140,7 @@ export function HomeScreen(): JSX.Element {
       )
 
   const spinning = refreshing || ptrActive
+  const sheetSession = sheetFor ? sessions.find((x) => x.id === sheetFor) : undefined
 
   return (
     <div className="screen home-screen">
@@ -221,7 +227,10 @@ export function HomeScreen(): JSX.Element {
                       onTouchStart={() => startPress(s.id)}
                       onTouchEnd={endPress}
                       onTouchMove={endPress}
-                      onContextMenu={(e) => e.preventDefault()}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setSheetFor(s.id)
+                      }}
                     >
                       <span
                         className={dotClass(
@@ -235,7 +244,7 @@ export function HomeScreen(): JSX.Element {
                       </span>
                       <span className="session-title">{s.title}</span>
                       {isPinned(s.id) && (
-                        <span className="session-pin" title="Pinned — hold to unpin">
+                        <span className="session-pin" title="Pinned">
                           <Icon name="pin" size={12} />
                         </span>
                       )}
@@ -270,6 +279,15 @@ export function HomeScreen(): JSX.Element {
         )}
       </main>
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      {sheetSession && (
+        <SessionActionSheet
+          session={sheetSession}
+          onClose={() => {
+            suppressClick.current = false
+            setSheetFor(null)
+          }}
+        />
+      )}
     </div>
   )
 }

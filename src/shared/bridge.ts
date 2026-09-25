@@ -104,6 +104,7 @@ export const BRIDGE_METHODS = [
   'listSessions',
   'listArchivedSessions',
   'getSessionEvents',
+  'getSessionEventsPage',
   'prompt',
   'interrupt',
   'createSession',
@@ -137,6 +138,21 @@ export const BRIDGE_METHODS = [
 ] as const
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number]
+
+/** One page of a transcript for a phone, newest events last. */
+export interface BridgeEventPage {
+  /** whole turns (unless one turn alone passes the size cap), oldest first */
+  events: SessionEvent[]
+  /** pass as `before` for the next older page; null = this reaches the start */
+  cursor: number | null
+}
+
+export interface BridgeEventPageOpts {
+  /** only events with seq < before */
+  before?: number
+  /** JSON bytes to aim for; the desktop clamps it */
+  budget?: number
+}
 
 /** What the desktop sidebar shows, so the phone can mirror it. */
 export interface BridgeSidebarState {

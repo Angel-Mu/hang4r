@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
 import { FakePhone } from './bridgeClient'
 import type { SessionEvent, SessionMeta, Project } from '../src/shared/protocol'
-import type { BridgeDesktopFrame, BridgeSidebarState } from '../src/shared/bridge'
+import type { BridgeDesktopFrame, BridgeEventPage, BridgeSidebarState } from '../src/shared/bridge'
 import type { Page } from '@playwright/test'
 
 async function pairPhone(page: Page): Promise<FakePhone> {
@@ -401,5 +401,124 @@ test.describe('mobile bridge', () => {
     const want = ['turn 1', 'turn 2', 'turn 3 edited'].map((t) => new RegExp(`${t}$`))
     await expect(cards).toHaveText(want)
     await expect(earlier).toHaveCount(0)
+  })
+
+
+  test('a phone is sent only what it shows: no subagent streams, no hooks, tool output trimmed', async () => {
+    test.setTimeout(120_000)
+    launched = await launchApp()
+    const { page } = launched
+    const project = await createProject(page, makeScratchRepo())
+    phone = await pairPhone(page)
+    const s = await phone.call<SessionMeta>('createSession', {
+      projectId: project.id,
+      backend: 'claude',
+      environment: 'local',
+      permissionMode: 'acceptEdits',
+      firstPrompt: 'print a long log'
+    })
+    phone.sub(s.id)
+    const live: SessionEvent[] = []
+    await phone.nextEvent((f) => {
+      if (f.t !== 'event' || f.channel !== 'agent-event') return false
+      const ev = f.payload as SessionEvent
+      if (ev.sessionId !== s.id) return false
+      live.push(ev)
+      return ev.event.kind === 'turn-complete'
+    }, 30_000)
+
+    const ignored = ['rate-limit', 'hook', 'subagent-note', 'stderr']
+    const resultLengths = (evs: SessionEvent[]): number[] =>
+      evs
+        .map((e) => e.event)
+        .filter((e) => e.kind === 'tool-result')
+        .map((e) => {
+          const c = (e as { content: unknown }).content
+          return (typeof c === 'string' ? c : JSON.stringify(c)).length
+        })
+    const history = await phone.call<SessionEvent[]>('getSessionEvents', s.id)
+    for (const evs of [live, history]) {
+      expect(evs.map((e) => e.event.kind)).toContain('user-text')
+      expect(evs.filter((e) => ignored.includes(e.event.kind))).toEqual([])
+      expect(evs.filter((e) => 'parentToolUseId' in e.event && e.event.parentToolUseId)).toEqual([])
+      expect(Math.max(...resultLengths(evs))).toBe(2000)
+    }
+    // trimmed for the phone only: the desktop keeps the whole record
+    const full = await page.evaluate((id) => window.hang4r.getSessionEvents(id), s.id)
+    expect(full.some((e) => e.event.kind === 'rate-limit')).toBe(true)
+    expect(full.some((e) => 'parentToolUseId' in e.event && e.event.parentToolUseId)).toBe(true)
+    expect(Math.max(...resultLengths(full))).toBeGreaterThan(2000)
+  })
+
+  test('history reaches a phone in pages of whole turns, oldest last', async () => {
+    test.setTimeout(180_000)
+    launched = await launchApp({ env: { HANG4R_TEST_BRIDGE_PAGE_BYTES: '6000' } })
+    const { page } = launched
+    const project = await createProject(page, makeScratchRepo())
+    const prompts = Array.from({ length: 8 }, (_, i) => `turn ${i + 1}`)
+    const s = await page.evaluate(
+      ({ pid, first }) =>
+        window.hang4r.createSession({
+          projectId: pid,
+          backend: 'claude',
+          environment: 'local',
+          permissionMode: 'acceptEdits',
+          title: 'long history',
+          firstPrompt: first
+        }),
+      { pid: project.id, first: prompts[0] }
+    )
+    const idle = async (): Promise<void> => {
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.hang4r.listSessions())).find((x) => x.id === s.id)
+              ?.status,
+          { timeout: 20_000 }
+        )
+        .toBe('idle')
+    }
+    await idle()
+    for (const text of prompts.slice(1)) {
+      await page.evaluate(([id, t]) => window.hang4r.prompt(id, t), [s.id, text])
+      await idle()
+    }
+    phone = await pairPhone(page)
+
+    const pages: BridgeEventPage[] = []
+    let before: number | undefined
+    do {
+      pages.push(
+        await phone.call<BridgeEventPage>('getSessionEventsPage', s.id, before ? { before } : {})
+      )
+      before = pages.at(-1)!.cursor ?? undefined
+    } while (before !== undefined && pages.length < 50)
+    expect(pages.length).toBeGreaterThan(2)
+    expect(pages.at(-1)!.cursor).toBeNull()
+
+    const carried = ['init', 'plan']
+    for (const p of pages) {
+      // every page starts on a turn's first event — nothing cut mid-turn
+      const body = p.events.filter((e) => !carried.includes(e.event.kind))
+      expect(body[0].event.kind).toBe('user-text')
+      const seqs = p.events.map((e) => e.seq)
+      expect(seqs).toEqual([...seqs].sort((a, b) => a - b))
+    }
+    // the newest page still knows the model, though init is far older
+    expect(pages[0].events.find((e) => e.event.kind === 'init')?.event).toMatchObject({
+      model: 'fake-model'
+    })
+
+    const bySeq = new Map<number, SessionEvent>()
+    for (const p of pages) for (const e of p.events) bySeq.set(e.seq, e)
+    const paged = [...bySeq.values()].sort((a, b) => a.seq - b.seq)
+    const whole = await phone.call<SessionEvent[]>('getSessionEvents', s.id)
+    const texts = (evs: SessionEvent[]): string[] =>
+      evs.filter((e) => e.event.kind === 'user-text').map((e) => (e.event as { text: string }).text)
+    expect(texts(paged)).toEqual(prompts)
+    // pages add up to the whole history, apart from superseded plan/usage
+    const kinds = (evs: SessionEvent[]): string[] =>
+      evs.filter((e) => !['plan', 'usage'].includes(e.event.kind)).map((e) => `${e.seq}`)
+    expect(kinds(paged)).toEqual(kinds(whole))
   })
 })

@@ -181,3 +181,52 @@ test('choices attach to the last question, not the first', () => {
   )
   expect(out.options.map((o) => o.value)).toEqual(['A', 'B'])
 })
+
+// Angel: the card ran the full container width and its text was smaller than
+// the conversation's, so it read as a banner rather than part of the exchange.
+test('the options card lines up with the composer and reads at conversation size', async () => {
+  const launched = await launchApp()
+  try {
+    const { page } = launched
+    await createProject(page, makeScratchRepo())
+    await page.reload()
+    await page.waitForSelector('.app')
+    await page.locator('.project-row .ghost-btn.project-add').first().click()
+    await page.locator('.dialog-prompt').fill('offer me options')
+    await page.getByRole('button', { name: /Start agent/ }).click()
+
+    const tile = page.locator('.tile').first()
+    await expect(tile.locator('.quick-replies')).toBeVisible({ timeout: 20_000 })
+
+    const m = await page.evaluate(() => {
+      const box = (sel: string): number => {
+        const el = document.querySelector(sel)
+        return el ? Math.round(el.getBoundingClientRect().width) : -1
+      }
+      const left = (sel: string): number => {
+        const el = document.querySelector(sel)
+        return el ? Math.round(el.getBoundingClientRect().left) : -1
+      }
+      const font = (sel: string): string => {
+        const el = document.querySelector(sel)
+        return el ? getComputedStyle(el).fontSize : 'none'
+      }
+      return {
+        cardWidth: box('.quick-replies'),
+        composerWidth: box('.composer'),
+        cardLeft: left('.quick-replies'),
+        composerLeft: left('.composer'),
+        optionFont: font('.quick-reply'),
+        titleFont: font('.quick-replies-title'),
+        conversationFont: font('.msg-assistant')
+      }
+    })
+
+    expect(m.cardWidth).toBe(m.composerWidth)
+    expect(m.cardLeft).toBe(m.composerLeft)
+    expect(m.optionFont).toBe(m.conversationFont)
+    expect(m.titleFont).toBe(m.conversationFont)
+  } finally {
+    await launched.app.close()
+  }
+})

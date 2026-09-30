@@ -2626,7 +2626,10 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 0 10px 6px;
+  /* lines up with .composer, its sibling in .composer-wrap — full width read as
+     a banner rather than part of the exchange */
+  max-width: 980px;
+  margin: 0 auto 6px;
   padding: 8px;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
@@ -2641,7 +2644,7 @@ button:disabled {
 .quick-replies-title {
   flex: 1 1 auto;
   color: var(--text);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-md);
   font-weight: 600;
 }
 .quick-replies-skip {
@@ -2650,7 +2653,7 @@ button:disabled {
   border: none;
   background: none;
   color: var(--text-faint);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   cursor: pointer;
 }
 .quick-replies-skip:hover { color: var(--text); }
@@ -2664,21 +2667,22 @@ button:disabled {
   border-radius: 5px;
   background: none;
   color: var(--text-muted);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-md);
+  line-height: 1.55;
   text-align: left;
   cursor: pointer;
 }
 .quick-reply:hover { background: var(--surface); color: var(--text); }
 .quick-reply-key {
   flex: 0 0 auto;
-  width: 17px;
-  height: 17px;
+  width: 1.5em;
+  height: 1.5em;
   border: 1px solid var(--border-strong);
   border-radius: 4px;
   color: var(--text-faint);
   font-family: var(--mono);
-  font-size: var(--fs-3xs);
-  line-height: 15px;
+  font-size: var(--fs-2xs);
+  line-height: calc(1.5em - 2px);
   text-align: center;
 }
 .quick-reply:hover .quick-reply-key { border-color: var(--accent); color: var(--accent); }

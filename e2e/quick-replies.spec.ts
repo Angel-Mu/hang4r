@@ -182,8 +182,8 @@ test('choices attach to the last question, not the first', () => {
   expect(out.options.map((o) => o.value)).toEqual(['A', 'B'])
 })
 
-// Angel: the card ran the full container width and its text was smaller than
-// the conversation's, so it read as a banner rather than part of the exchange.
+// The card and the composer are siblings; changing one's width without the
+// other is what made the card read as a banner.
 test('the options card lines up with the composer and reads at conversation size', async () => {
   const launched = await launchApp()
   try {

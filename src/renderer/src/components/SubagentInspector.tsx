@@ -64,6 +64,16 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
   // matching thread can expand + scroll itself into view (below)
   const focusSig = useHang4r((s) => s.subagentsToOpen)
   const focus = focusSig && focusSig.sessionId === sessionId ? focusSig : null
+  // Each thread owns its open state so "View thread" can expand one without the
+  // panel re-rendering the rest. A bulk toggle therefore writes collapsedRuns
+  // and bumps this, which is the only thing the threads watch.
+  const [bulkNonce, setBulkNonce] = useState(0)
+  const anyOpen = runs.some((r) => !(collapsedRuns.get(`${sessionId}:${r.toolUseId}`) ?? false))
+  const toggleAll = (): void => {
+    for (const r of runs) collapsedRuns.set(`${sessionId}:${r.toolUseId}`, anyOpen)
+    persistCollapsed(sessionId)
+    setBulkNonce((n) => n + 1)
+  }
 
   if (runs.length === 0) {
     return (
@@ -79,6 +89,19 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
     <div className="subagents-view">
       <div className="subagents-header">
         Subagents ({runs.length})
+        {runs.length > 1 && (
+          <button
+            className="ghost-btn subagents-collapse-all"
+            title={
+              anyOpen
+                ? 'Collapse every thread — each stays collapsed until you open it'
+                : 'Expand every thread'
+            }
+            onClick={toggleAll}
+          >
+            {anyOpen ? 'Collapse all' : 'Expand all'}
+          </button>
+        )}
         {running && (
           <button
             className="ghost-btn stop-turn-btn"
@@ -96,6 +119,7 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
           sessionId={sessionId}
           sessionModel={sessionModel}
           focus={focus}
+          bulkNonce={bulkNonce}
         />
       ))}
     </div>
@@ -133,13 +157,16 @@ function SubagentThread({
   run,
   sessionId,
   sessionModel,
-  focus
+  focus,
+  bulkNonce
 }: {
   run: SubagentRun
   sessionId: string
   /** what a run inherits when its launch named no model */
   sessionModel: string
   focus: { sessionId: string; toolUseId?: string; nonce: number } | null
+  /** bumped by the header's collapse/expand all, after it writes collapsedRuns */
+  bulkNonce: number
 }): JSX.Element {
   const collapseKey = `${sessionId}:${run.toolUseId}`
   const [open, setOpenState] = useState(!(collapsedRuns.get(collapseKey) ?? false))
@@ -148,6 +175,14 @@ function SubagentThread({
     setOpenState(o)
     persistCollapsed(sessionId)
   }
+  // Re-reads the shared map rather than taking a value, so a thread the bulk
+  // toggle did not cover (a run that arrived since) keeps its own state.
+  const firstBulk = useRef(bulkNonce)
+  useEffect(() => {
+    if (bulkNonce === firstBulk.current) return
+    setOpenState(!(collapsedRuns.get(collapseKey) ?? false))
+  }, [bulkNonce, collapseKey])
+
   const bodyRef = useRef<HTMLDivElement>(null)
   const rowRef = useRef<HTMLDivElement>(null)
   const [flash, setFlash] = useState(false)

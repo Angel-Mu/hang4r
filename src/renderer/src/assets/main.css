@@ -6788,6 +6788,15 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+/* pushed right so the count stays left and Stop turn keeps its end position */
+.subagents-collapse-all {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 .stop-turn-btn {
   font-size: var(--fs-xs);

@@ -56,6 +56,7 @@ type Broadcast = {
   agentEvent(ev: SessionEvent): void
   sessionUpdated(session: SessionMeta): void
   transcriptReset(sessionId: string): void
+  liveAgentsChanged(sessionId: string, agentIds: string[]): void
 }
 
 /**
@@ -1051,8 +1052,15 @@ export class SessionManager {
 
     const quiet = ev.block.type === 'text' && !!ev.block.text.trim() && open.size === 0
     const live = this.liveAsyncAgents.get(sessionId)
-    if (quiet) live?.delete(agentId)
-    else live?.add(agentId)
+    if (!live) return
+    const had = live.has(agentId)
+    if (quiet) live.delete(agentId)
+    else live.add(agentId)
+    // The renderer keeps a COPY and only re-read it on a status change. An agent
+    // that went quiet, was retired, and then resumed after its turn ended left
+    // that copy saying "absent" with nothing to correct it — SubagentInspector
+    // reads absence as a dead process.
+    if (had !== live.has(agentId)) this.broadcast.liveAgentsChanged(sessionId, [...live])
   }
 
   /** agentIds still owned by this session's LIVE process; anything else the

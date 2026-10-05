@@ -322,6 +322,11 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
         win.webContents.send('session-transcript-reset', sessionId)
       }
       bridgeService?.sendTranscriptReset(sessionId)
+    },
+    liveAgentsChanged(sessionId: string, agentIds: string[]) {
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send('session-live-agents', { sessionId, agentIds })
+      }
     }
     },
     (sessionId: string) => browserControl!.sessionEnv(sessionId)

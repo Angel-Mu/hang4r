@@ -1142,6 +1142,10 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     })
     window.hang4r.onMarkUnseen((sessionId) => get().setSessionUnseen(sessionId, true))
     // a rewind (possibly from a phone) deleted events: nothing live says so
+    window.hang4r.onLiveAgents(({ sessionId, agentIds }) => {
+      set((s) => ({ liveAgents: { ...s.liveAgents, [sessionId]: agentIds } }))
+    })
+
     window.hang4r.onTranscriptReset((sessionId) => {
       const current = get().transcripts[sessionId]
       if (!current) return

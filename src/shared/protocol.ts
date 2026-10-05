@@ -578,6 +578,9 @@ export interface Hang4rApi {
   onSessionSeen(cb: (sessionId: string) => void): () => void
   /** events were deleted from this session (a rewind, from here or a phone) */
   onTranscriptReset(cb: (sessionId: string) => void): () => void
+  /** main's live async-agent set changed — the renderer's copy would otherwise
+   *  only refresh on a status change, going stale for a whole streaming turn */
+  onLiveAgents(cb: (p: { sessionId: string; agentIds: string[] }) => void): () => void
   /** a phone asked for this session to be marked unread */
   onMarkUnseen(cb: (sessionId: string) => void): () => void
   /** renderer opened a session — clear its come-look signals everywhere */

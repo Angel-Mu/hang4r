@@ -364,3 +364,36 @@ test('an agent that narrates between tool calls is still live work', async () =>
   expect(await page.evaluate(() => window.hang4r.sessionsWithLiveWork())).toContain(sid)
   expect(await page.evaluate((id) => window.hang4r.liveAgentIds(id), sid)).not.toEqual([])
 })
+
+// The renderer only re-read the live set on a status change, so a run that
+// outlived its launching turn was judged against a stale snapshot and read as
+// interrupted while it was still making tool calls.
+test('an agent still working across turns is not reported as interrupted', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn').first().click()
+  await page.locator('.dialog-prompt').fill('spawn background agents')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+
+  const tile = page.locator('.tile').first()
+  await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  const sid = (await page.evaluate(() => window.hang4r.listSessions()))[0].id
+  await page.evaluate((id) => window.hang4r.prompt(id, 'async agent keeps working'), sid)
+  await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+
+  await tile.getByRole('button', { name: 'Subagents' }).click()
+  const running = tile.locator('.subagent-run', { hasText: 'long haul research' })
+  await expect(running).toHaveCount(1, { timeout: 10_000 })
+  // the agent goes quiet, then resumes AFTER the turn ended — no status change,
+  // so nothing would make the renderer re-read the live set on its own
+  await expect
+    .poll(async () => (await page.evaluate((id) => window.hang4r.liveAgentIds(id), sid)).length, {
+      timeout: 10_000
+    })
+    .toBe(1)
+  await expect(running).not.toHaveClass(/subagent-ended/)
+})

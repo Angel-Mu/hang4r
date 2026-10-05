@@ -46,6 +46,11 @@ const api: Hang4rApi = {
     ipcRenderer.on('session-transcript-reset', handler)
     return () => ipcRenderer.removeListener('session-transcript-reset', handler)
   },
+  onLiveAgents: (cb) => {
+    const handler = (_e: unknown, p: { sessionId: string; agentIds: string[] }): void => cb(p)
+    ipcRenderer.on('session-live-agents', handler)
+    return () => ipcRenderer.removeListener('session-live-agents', handler)
+  },
   onMarkUnseen: (cb) => {
     const handler = (_e: unknown, sessionId: string): void => cb(sessionId)
     ipcRenderer.on('session-mark-unseen', handler)

@@ -20,6 +20,9 @@ export class FakeAdapter implements AgentAdapter {
   /** the session id we announce at init — reused so a crafted poison transcript
    *  (see writePoisonTranscript) is named for THIS session */
   private backendSessionId = ''
+  /** the async agent launched earlier in this session, so a later turn can
+   *  stream more of its thread — the case where a run outlives its own turn */
+  private lastAsyncTool: string | null = null
 
   onEvent(cb: (ev: AgentEvent) => void): void {
     this.listeners.push(cb)
@@ -279,6 +282,7 @@ export class FakeAdapter implements AgentAdapter {
         isError: false,
         parentToolUseId: null
       })
+      this.lastAsyncTool = asyncId
       // …and one that never returns: tool_use with no matching tool-result
       this.emit({
         kind: 'block-final',
@@ -332,6 +336,30 @@ export class FakeAdapter implements AgentAdapter {
         block: { type: 'tool_use', id: step, name: 'Read', input: { file_path: '/tmp/x' } },
         parentToolUseId: workId
       })
+    }
+
+    // The real shape of a background agent: it goes quiet mid-turn (a text block
+    // with nothing outstanding, which retires it) and then keeps working AFTER
+    // the turn ended — with no status change to make the renderer re-read the
+    // live set.
+    if (text.includes('async agent keeps working') && this.lastAsyncTool) {
+      const parent = this.lastAsyncTool
+      this.emit({
+        kind: 'block-final',
+        messageId,
+        blockIndex: 30,
+        block: { type: 'text', text: 'Checked the config, continuing.' },
+        parentToolUseId: parent
+      })
+      setTimeout(() => {
+        this.emit({
+          kind: 'block-final',
+          messageId,
+          blockIndex: 31,
+          block: { type: 'tool_use', id: randomUUID(), name: 'Bash', input: { command: 'ls' } },
+          parentToolUseId: parent
+        })
+      }, 400)
     }
 
     // The CLI sends no completion notification, so the thread's own closing

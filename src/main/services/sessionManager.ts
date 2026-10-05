@@ -48,6 +48,7 @@ import {
   type Exec
 } from './remoteService'
 import { resolveBackgroundTaskState } from './backgroundTask'
+import { asyncAgentId } from '../../shared/asyncAgentLaunch'
 import { askWorktreeChoice } from '../worktreeAsk'
 import type { Store } from './store'
 import type { SettingsService } from './settingsService'
@@ -2011,9 +2012,7 @@ export class SessionManager {
       // was still adding tool calls read "ended with the session restart").
       const raw =
         typeof ev.content === 'string' ? ev.content : JSON.stringify(ev.content ?? '')
-      const agentId = /agent[_ ]?id:?\s*['"]?([A-Za-z0-9._-]{6,})/i.exec(
-        /async agent launched|agent launched successfully/i.test(raw) ? raw : ''
-      )?.[1]
+      const agentId = asyncAgentId(raw)
       if (agentId) {
         let live = this.liveAsyncAgents.get(sessionId)
         if (!live) this.liveAsyncAgents.set(sessionId, (live = new Set()))

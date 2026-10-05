@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { asyncAgentId, isAsyncLaunch } from '../../../shared/asyncAgentLaunch'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkEmoji } from '../remarkEmoji'
@@ -352,12 +353,8 @@ function parseTaskResult(result: unknown): {
       .map((b) => (b && typeof b === 'object' && 'text' in b ? String((b as { text: unknown }).text) : ''))
       .join('\n')
   } else if (result != null) text = JSON.stringify(result)
-  // phrasing varies across harness versions — match loosely so the metadata
-  // blob never leaks to the user as a "result"
-  if (/async agent launched|agent launched successfully|launched .{0,20}in the background/i.test(text)) {
-    const id = /agent[_ ]?id:?\s*['"]?([A-Za-z0-9._-]{6,})/i.exec(text)?.[1]
-    return { asyncLaunch: true, text: '', agentId: id }
-  }
+  // blanked so the metadata blob never leaks to the user as a "result"
+  if (isAsyncLaunch(text)) return { asyncLaunch: true, text: '', agentId: asyncAgentId(text) }
   return { asyncLaunch: false, text: text.trim() }
 }
 

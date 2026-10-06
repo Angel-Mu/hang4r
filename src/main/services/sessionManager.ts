@@ -49,6 +49,7 @@ import {
 } from './remoteService'
 import { resolveBackgroundTaskState } from './backgroundTask'
 import { asyncAgentId } from '../../shared/asyncAgentLaunch'
+import { AUTO_CONTINUE_LABEL, sentUserText } from '../../shared/userText'
 import { askWorktreeChoice } from '../worktreeAsk'
 import type { Store } from './store'
 import type { SettingsService } from './settingsService'
@@ -70,7 +71,7 @@ type Broadcast = {
 const MAX_AUTO_CONTINUE = 3
 /** Shown instead of a bare "continue", which was indistinguishable from a
  *  message the user had typed (the CLI still receives plain "continue"). */
-const AUTO_CONTINUE_LABEL = '↻ hang4r auto-recovery — continuing past an aborted turn'
+
 
 export class SessionManager {
   private adapters = new Map<string, AgentAdapter>()
@@ -603,7 +604,7 @@ export class SessionManager {
       // interactive CLI, the last prompt is an external-turn, not a user-text —
       // anchoring only on user-text would truncate to a stale older prompt
       if (ev.kind === 'user-text' || (ev.kind === 'external-turn' && ev.role === 'user')) {
-        lastUserText = ev.text
+        lastUserText = ev.kind === 'user-text' ? sentUserText(ev) : ev.text
         break
       }
     }
@@ -1304,7 +1305,7 @@ export class SessionManager {
     for (let i = events.length - 1; i >= 0; i--) {
       const ev = events[i].event
       if (ev.kind === 'user-text') {
-        void this.prompt(sessionId, ev.text)
+        void this.prompt(sessionId, sentUserText(ev))
         return
       }
     }

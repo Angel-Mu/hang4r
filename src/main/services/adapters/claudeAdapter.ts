@@ -271,7 +271,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
   prompt(text: string, images?: PromptImage[], echo?: PromptEcho): void {
     const userEcho = (): void =>
-      this.emit({ kind: 'user-text', text: echo?.displayText ?? text, images, files: echo?.files })
+      this.emit({ kind: 'user-text', text, label: echo?.displayText, images, files: echo?.files })
     // buffer during the (re)spawn window so an auto-update blip doesn't drop it
     if (this.spawnAttempts > 0 || (!this.proc && this.spawnBinary)) {
       userEcho()

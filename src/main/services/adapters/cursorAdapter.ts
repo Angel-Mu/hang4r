@@ -126,7 +126,7 @@ export class CursorAdapter implements AgentAdapter {
     const opts = this.opts
     if (!opts) return
     const userEcho = (): void =>
-      this.emit({ kind: 'user-text', text: echo?.displayText ?? text, images, files: echo?.files })
+      this.emit({ kind: 'user-text', text, label: echo?.displayText, images, files: echo?.files })
 
     // Decide the outcome BEFORE echoing anything. `user-text` means "this was
     // sent" — echoing it ahead of a reject/error paints a message as sent when

@@ -53,7 +53,7 @@ export class FakeAdapter implements AgentAdapter {
     const turn = this.turn
     // carry images on the user event, exactly like the real adapters — so the
     // chat thumbnail (and its click-to-enlarge lightbox) is exercised in e2e
-    this.emit({ kind: 'user-text', text: echo?.displayText ?? text, images, files: echo?.files })
+    this.emit({ kind: 'user-text', text, label: echo?.displayText, images, files: echo?.files })
 
     // deterministic error turn (mirrors Claude's error_during_execution abort)
     // so the suite can prove error recovery: the session goes to error, the

@@ -1,4 +1,5 @@
 import type { AgentEvent, BackendId } from '../../shared/protocol'
+import { sentUserText } from '../../shared/userText'
 
 /** human label for a backend id */
 export function backendLabel(b: BackendId): string {
@@ -65,10 +66,12 @@ export function buildHandoffSeed(events: AgentEvent[], opts: HandoffOpts): strin
   }
   for (const ev of events) {
     switch (ev.kind) {
-      case 'user-text':
+      case 'user-text': {
         flush()
-        if (ev.text?.trim()) turns.push('User:\n' + ev.text.trim())
+        const said = sentUserText(ev)
+        if (said.trim()) turns.push('User:\n' + said.trim())
         break
+      }
       case 'external-turn':
         flush()
         if (ev.text?.trim())

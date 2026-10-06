@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { shownUserText } from '../../../shared/userText'
 import { applyTheme, type Theme } from '../theme'
 
 /** Which side of a previewable file's Preview/Source toggle it opens on. */
@@ -311,7 +312,7 @@ async function loadTranscriptData(sessionId: string, allTurns = false): Promise<
 export function applyEvent(t: Transcript, ev: AgentEvent): void {
   switch (ev.kind) {
     case 'user-text':
-      t.items.push({ type: 'user', text: ev.text, images: ev.images, files: ev.files })
+      t.items.push({ type: 'user', text: shownUserText(ev), images: ev.images, files: ev.files })
       break
     case 'external-turn':
       t.items.push({ type: 'external-turn', role: ev.role, text: ev.text })

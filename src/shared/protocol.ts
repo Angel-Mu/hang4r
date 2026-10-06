@@ -371,7 +371,18 @@ export type AgentEvent =
     }
   /** Echo of the user's prompt, so transcripts are self-contained. `text` is the
    *  DISPLAY text (file contents live in `files` as cards, not inlined here). */
-  | { kind: 'user-text'; text: string; images?: PromptImage[]; files?: PromptFile[] }
+  /** `text` is what was SENT to the agent; `label` is what hang4r shows in its
+   *  place. They differ for app-generated turns (auto-recovery) and for
+   *  attachments, whose bytes are rendered as cards. Anything that REPLAYS a
+   *  conversation — retry, handoff seeds, rewind anchors — must use `text`, or
+   *  it feeds the agent hang4r's own UI copy as if the user had typed it. */
+  | {
+      kind: 'user-text'
+      text: string
+      label?: string
+      images?: PromptImage[]
+      files?: PromptFile[]
+    }
   /** harness-injected note (background task/agent completion) — feeds the
    *  Subagents threads, never rendered as a user message */
   | { kind: 'subagent-note'; text: string }

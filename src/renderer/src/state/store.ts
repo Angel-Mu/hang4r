@@ -67,7 +67,14 @@ export function composeMessage(
   const images = atts
     .filter((a) => a.image)
     .map((a) => ({ base64: a.image!.base64, mediaType: a.image!.mediaType }))
-  const fence = (a: Attachment): string => `${a.label}:\n\`\`\`\n${a.text}\n\`\`\``
+  // The fence must out-run any backtick run inside the file, or the file closes
+  // it early and the rest of its bytes land in the prompt as the user's own
+  // words — which is how an attached brief ends up reading as an instruction.
+  const fence = (a: Attachment): string => {
+    const longest = Math.max(0, ...[...((a.text ?? '').match(/`+/g) ?? [])].map((r) => r.length))
+    const ticks = '`'.repeat(Math.max(3, longest + 1))
+    return `${a.label}:\n${ticks}\n${a.text}\n${ticks}`
+  }
   // a quoted selection ("Add to chat") renders as a BLOCKQUOTE in the transcript:
   // prose wraps and reads as a quote, instead of a monospace, horizontally-
   // scrolling code block (Angel: add-to-chat gave weird code-block formatting).

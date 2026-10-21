@@ -467,7 +467,9 @@ function startClient(url: string): BridgeClient | null {
     onSessionUpdated: (session: SessionMeta) => {
       const prev = useApp.getState().sessions.find((x) => x.id === session.id)?.status
       if (isActive(session.status)) flushInFlight.delete(session.id)
-      if (isActive(prev) && !isActive(session.status)) noteFinished([session.id])
+      // a claim handed back (starting → idle) is not a turn that ran: no "done"
+      const turnRan = prev === 'running' || session.status === 'error'
+      if (isActive(prev) && !isActive(session.status) && turnRan) noteFinished([session.id])
       useApp.setState((s) => ({
         sessions: s.sessions.some((x) => x.id === session.id)
           ? s.sessions.map((x) => (x.id === session.id ? session : x))

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
@@ -88,11 +88,39 @@ test('Settings > Command line renders and Install reports its result without tou
   await expect(page.locator('.settings-body code', { hasText: 'hang4r' }).first()).toBeVisible()
   await expect(page.locator('.cli-install-line', { hasText: 'hang4r sessions new --project <path> "…"' })).toBeVisible()
 
+  // MCP block: bare-name fallback + note before install; copy goes through a spied writeText
+  await page.evaluate(() => {
+    ;(window as any).__copied = [] // eslint-disable-line @typescript-eslint/no-explicit-any
+    navigator.clipboard.writeText = async (t: string) => void (window as any).__copied.push(t) // eslint-disable-line @typescript-eslint/no-explicit-any
+  })
+  await expect(page.getByText('Let other agents (Hermes, Claude Code, Codex, Slack bots) create and drive hang4r sessions.')).toBeVisible()
+  await expect(page.getByTestId('mcp-path-note')).toBeVisible()
+  await expect(page.getByTestId('mcp-snippet-claude-code')).toContainText('claude mcp add hang4r -- hang4r mcp --as claude-code')
+  await expect(page.getByTestId('mcp-snippet-codex')).toContainText('args = ["mcp", "--as", "codex"]')
+  await expect(page.getByTestId('mcp-snippet-hermes')).toContainText('args: [mcp, --as, hermes]')
+
   await page.getByRole('button', { name: 'Install hang4r command' }).click()
   const result = page.getByTestId('cli-install-result')
   await expect(result).toContainText(join(home, '.local', 'bin', 'hang4r'))
   expect(existsSync(join(home, '.local', 'bin', 'hang4r'))).toBe(true)
   await page.screenshot({ path: join(process.env.UI_SHOT_DIR ?? tmpdir(), 'control-cli-settings.png') })
+
+  // after install the snippets use the absolute path, and each copy button copies its own snippet
+  const bin = join(home, '.local', 'bin', 'hang4r')
+  await expect(page.getByTestId('mcp-path-note')).toHaveCount(0)
+  await expect(page.getByTestId('mcp-snippet-claude-code')).toContainText(`-- ${bin} mcp --as claude-code`)
+  await page.getByRole('button', { name: 'Copy Claude Code snippet' }).click()
+  await page.getByRole('button', { name: 'Copy Codex snippet' }).click()
+  await page.getByRole('button', { name: 'Copy Hermes snippet' }).click()
+  const copied: string[] = await page.evaluate(() => (window as any).__copied) // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(copied).toEqual([
+    `claude mcp add hang4r -- ${bin} mcp --as claude-code`,
+    `[mcp_servers.hang4r]\ncommand = "${bin}"\nargs = ["mcp", "--as", "codex"]`,
+    `mcp_servers:\n  hang4r:\n    command: ${bin}\n    args: [mcp, --as, hermes]`
+  ])
+  await page.getByTestId('mcp-setup').scrollIntoViewIfNeeded()
+  mkdirSync('/private/tmp/claude-501/shots', { recursive: true })
+  await page.screenshot({ path: '/private/tmp/claude-501/shots/control-cli-mcp-settings.png' })
 
   await page.getByRole('button', { name: 'Uninstall' }).click()
   await expect(result).toContainText('Removed')

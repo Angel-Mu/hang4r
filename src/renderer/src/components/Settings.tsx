@@ -1177,7 +1177,68 @@ function CommandLine(): JSX.Element {
       <Field label="Example">
         <pre className="cli-install-line">hang4r sessions new --project &lt;path&gt; &quot;…&quot;</pre>
       </Field>
+      <McpSetup installedPath={lastRan === 'install' && result?.ok ? result.linkPath : ''} />
     </>
+  )
+}
+
+function McpSnippet({ id, label, hint, text }: { id: string; label: string; hint?: string; text: string }): JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const copy = (): void => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <div className="mcp-snippet" data-testid={`mcp-snippet-${id}`}>
+      <div className="mcp-snippet-head">
+        <span className="mcp-snippet-label">
+          {label}
+          {hint && <code>{hint}</code>}
+        </span>
+        <button className="ghost-btn" onClick={copy} aria-label={`Copy ${label} snippet`}>
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className="cli-install-line">{text}</pre>
+    </div>
+  )
+}
+
+function McpSetup({ installedPath }: { installedPath: string }): JSX.Element {
+  // GUI-launched hosts often lack ~/.local/bin on PATH, so prefer the absolute path once known.
+  const cmd = installedPath || 'hang4r'
+  return (
+    <div className="mcp-setup" data-testid="mcp-setup">
+      <h3 className="mcp-setup-title">MCP server</h3>
+      <p className="settings-note">
+        Let other agents (Hermes, Claude Code, Codex, Slack bots) create and drive hang4r sessions.
+      </p>
+      {!installedPath && (
+        <p className="settings-note" data-testid="mcp-path-note">
+          Install the hang4r command above to fill in its absolute path. Hosts launched from the
+          dock often lack <code>~/.local/bin</code> on PATH, so the bare name may fail there.
+        </p>
+      )}
+      <McpSnippet
+        id="claude-code"
+        label="Claude Code"
+        text={`claude mcp add hang4r -- ${cmd} mcp --as claude-code`}
+      />
+      <McpSnippet
+        id="codex"
+        label="Codex"
+        hint="~/.codex/config.toml"
+        text={`[mcp_servers.hang4r]\ncommand = "${cmd}"\nargs = ["mcp", "--as", "codex"]`}
+      />
+      <McpSnippet
+        id="hermes"
+        label="Hermes"
+        hint="~/.hermes/config.yaml"
+        text={`mcp_servers:\n  hang4r:\n    command: ${cmd}\n    args: [mcp, --as, hermes]`}
+      />
+    </div>
   )
 }
 

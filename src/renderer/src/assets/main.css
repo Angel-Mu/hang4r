@@ -7043,6 +7043,15 @@ button:disabled {
   user-select: text;
 }
 
+/* Settings > Command line > MCP server */
+.mcp-setup { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+.mcp-setup-title { margin: 0; font-size: var(--fs-md, 14px); color: var(--text); }
+.mcp-snippet { display: flex; flex-direction: column; gap: 4px; }
+.mcp-snippet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mcp-snippet-label { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-sm); color: var(--text-muted); }
+.mcp-snippet-label code { font-family: var(--mono); font-size: var(--fs-xs); color: var(--accent); }
+.mcp-snippet .cli-install-line { margin: 0; }
+
 /* "via <caller>" — a session or turn that came from the hang4r command line */
 .session-origin {
   display: inline-flex;

@@ -163,8 +163,7 @@ function buildCommand(cmd, positionals, flags) {
     }
     case 'get': {
       const what = positionals[0]
-      if (!['text', 'url', 'title'].includes(what))
-        fail('get needs one of: text | url | title')
+      if (!['text', 'url', 'title'].includes(what)) fail('get needs one of: text | url | title')
       return { cmd: 'get', args: withTab({ what, selector: flags.selector }) }
     }
     case 'eval': {
@@ -195,9 +194,8 @@ function formatResult(cmd, result) {
       const tabs = result.tabs || []
       if (!tabs.length) return '(no browser tabs open in this session)'
       return tabs
-        .map(
-          (t) =>
-            `${t.active ? '*' : ' '} ${t.id}  ${t.title || '(untitled)'}  ${t.url || ''}`.trimEnd()
+        .map((t) =>
+          `${t.active ? '*' : ' '} ${t.id}  ${t.title || '(untitled)'}  ${t.url || ''}`.trimEnd()
         )
         .join('\n')
     }
@@ -219,9 +217,7 @@ function formatResult(cmd, result) {
     case 'console': {
       const entries = result.entries || []
       if (!entries.length) return '(no console messages)'
-      return entries
-        .map((e) => `[${e.level}] ${e.message}`)
-        .join('\n')
+      return entries.map((e) => `[${e.level}] ${e.message}`).join('\n')
     }
     case 'click':
     case 'type':
@@ -375,8 +371,19 @@ class CliError extends Error {
 const APP_COMMANDS = new Set(['status', 'projects', 'models', 'sessions'])
 const BOOL_FLAGS = new Set(['json', 'launch', 'wait', 'rebuild-worktree', 'help'])
 const VALUE_FLAGS = new Set([
-  'as', 'project', 'backend', 'model', 'effort', 'env', 'permission-mode', 'title',
-  'timeout', 'after', 'limit', 'prompt-file', 'option'
+  'as',
+  'project',
+  'backend',
+  'model',
+  'effort',
+  'env',
+  'permission-mode',
+  'title',
+  'timeout',
+  'after',
+  'limit',
+  'prompt-file',
+  'option'
 ])
 
 /** Strict parser for the app commands (the browser parser tolerates unknown flags). */
@@ -410,14 +417,23 @@ function parseAppArgs(argv) {
 /** Where is the running app? env first (inside a session), then HANG4R_USER_DATA, then the default. */
 function discover(env, platform, home) {
   const e = env || process.env
-  if (e.HANG4R_CTL_SOCK) return { sockPath: e.HANG4R_CTL_SOCK, envToken: e.HANG4R_CTL_TOKEN || null }
+  if (e.HANG4R_CTL_SOCK)
+    return { sockPath: e.HANG4R_CTL_SOCK, envToken: e.HANG4R_CTL_TOKEN || null }
   const plat = platform || process.platform
   let dir = e.HANG4R_USER_DATA
   if (!dir) {
     if (plat !== 'darwin') {
-      throw new CliError('unreachable', 'Discovery is macOS-only for now; set HANG4R_USER_DATA to the app data directory.')
+      throw new CliError(
+        'unreachable',
+        'Discovery is macOS-only for now; set HANG4R_USER_DATA to the app data directory.'
+      )
     }
-    dir = path.join(home || require('node:os').homedir(), 'Library', 'Application Support', 'hang4r')
+    dir = path.join(
+      home || require('node:os').homedir(),
+      'Library',
+      'Application Support',
+      'hang4r'
+    )
   }
   return { sockPath: path.join(dir, 'ctl.sock'), envToken: null }
 }
@@ -459,15 +475,24 @@ async function ensureRunning(sockPath, launch) {
   if (!launch) {
     throw new CliError('unreachable', 'hang4r is not running. Start it, or pass --launch.')
   }
-  const cmd = process.env.HANG4R_LAUNCH_CMD
+  // Test seam only: the override goes to /bin/sh -c, so a production CLI must never
+  // honor an env var anyone upstream of it could set. Only the fake-agent e2e env does.
+  const cmd = process.env.HANG4R_FAKE_AGENT === '1' ? process.env.HANG4R_LAUNCH_CMD : undefined
   const child = cmd
-    ? require('node:child_process').spawn('/bin/sh', ['-c', cmd], { detached: true, stdio: 'ignore' })
-    : require('node:child_process').spawn('open', ['-a', 'hang4r'], { detached: true, stdio: 'ignore' })
+    ? require('node:child_process').spawn('/bin/sh', ['-c', cmd], {
+        detached: true,
+        stdio: 'ignore'
+      })
+    : require('node:child_process').spawn('open', ['-a', 'hang4r'], {
+        detached: true,
+        stdio: 'ignore'
+      })
   child.on('error', () => {})
   child.unref()
   const wait = Number(process.env.HANG4R_LAUNCH_TIMEOUT_MS) || 30000
   const up = await pollUntil(() => canConnect(sockPath), wait, 250)
-  if (!up) throw new CliError('unreachable', `hang4r did not start within ${Math.round(wait / 1000)}s.`)
+  if (!up)
+    throw new CliError('unreachable', `hang4r did not start within ${Math.round(wait / 1000)}s.`)
 }
 
 /** One request, one response. A wait holds the connection open; a drop mid-request means the app quit. */
@@ -494,7 +519,8 @@ function appRequest(sockPath, token, payload) {
       reject(new CliError('unreachable', `Can't reach hang4r (${e.code || e.message}).`))
     )
     socket.on('close', () => {
-      if (!answered) reject(new CliError('unreachable', 'hang4r went away before answering (app-quit).'))
+      if (!answered)
+        reject(new CliError('unreachable', 'hang4r went away before answering (app-quit).'))
     })
   })
 }
@@ -525,7 +551,8 @@ async function promptFrom(words, flags) {
 function numFlag(flags, name) {
   if (flags[name] === undefined) return undefined
   const n = Number(flags[name])
-  if (!Number.isFinite(n) || n < 0) throw new CliError('usage', `--${name} must be a non-negative number`)
+  if (!Number.isFinite(n) || n < 0)
+    throw new CliError('usage', `--${name} must be a non-negative number`)
   return n
 }
 
@@ -643,9 +670,15 @@ function humanOutput(cmd, r) {
     case 'app.status':
       return `hang4r ${r.version} running (userData ${r.userData})`
     case 'app.projects':
-      return r.projects.map((p) => `${p.id}  ${p.name}  ${p.path}  (${p.sessionCount} sessions)`).join('\n') || '(no projects)'
+      return (
+        r.projects
+          .map((p) => `${p.id}  ${p.name}  ${p.path}  (${p.sessionCount} sessions)`)
+          .join('\n') || '(no projects)'
+      )
     case 'app.models':
-      return r.models.map((m) => `${m.backend}  ${m.id || '(default)'}  ${m.label}${m.default ? '  *' : ''}`).join('\n')
+      return r.models
+        .map((m) => `${m.backend}  ${m.id || '(default)'}  ${m.label}${m.default ? '  *' : ''}`)
+        .join('\n')
     case 'app.sessions':
       return r.sessions.map(humanSession).join('\n') || '(no sessions)'
     case 'app.archive':
@@ -655,12 +688,18 @@ function humanOutput(cmd, r) {
         const lines = [`${r.reason}: ${humanSession(r.session)}`]
         if (r.result) lines.push(r.result)
         if (r.errorMessage) lines.push(`error: ${r.errorMessage}`)
-        if (r.session.pending) lines.push(`pending ${r.session.pending.kind} ${r.session.pending.requestId}: ${r.session.pending.summary || ''}`)
+        if (r.session.pending)
+          lines.push(
+            `pending ${r.session.pending.kind} ${r.session.pending.requestId}: ${r.session.pending.summary || ''}`
+          )
         return lines.join('\n')
       }
       const lines = [humanSession(r.session)]
       if (r.after !== undefined) lines.push(`after ${r.after}`)
-      if (r.session.pending) lines.push(`pending ${r.session.pending.kind} ${r.session.pending.requestId}: ${r.session.pending.summary || ''}`)
+      if (r.session.pending)
+        lines.push(
+          `pending ${r.session.pending.kind} ${r.session.pending.requestId}: ${r.session.pending.summary || ''}`
+        )
       if (r.session.lastResult) lines.push(r.session.lastResult)
       for (const e of r.events || []) lines.push(`[${e.role}] ${e.text}`)
       return lines.join('\n')
@@ -688,7 +727,8 @@ async function runApp(argv) {
     const { sockPath, envToken } = discover()
     await ensureRunning(sockPath, !!flags.launch || process.env.HANG4R_AUTO_LAUNCH === '1')
     const token = readToken(sockPath, envToken)
-    if (!token) throw new CliError('auth', 'No auth token: ctl.token is missing next to the socket.')
+    if (!token)
+      throw new CliError('auth', 'No auth token: ctl.token is missing next to the socket.')
     const res = await appRequest(sockPath, token, { cmd, args, caller: flags.as })
     if (!res || res.ok !== true) {
       const code = res && res.code ? res.code : 'internal'
@@ -696,7 +736,10 @@ async function runApp(argv) {
     }
     const result = res.result || {}
     process.stdout.write(
-      (json ? JSON.stringify({ ok: true, ...result }) : humanOutput(cmd, result)).replace(/\n?$/, '\n')
+      (json ? JSON.stringify({ ok: true, ...result }) : humanOutput(cmd, result)).replace(
+        /\n?$/,
+        '\n'
+      )
     )
     return exitFor(result)
   } catch (err) {

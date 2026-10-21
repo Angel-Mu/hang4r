@@ -194,6 +194,18 @@ export interface Transcript {
   truncated?: boolean
 }
 
+/** A user action lost the turn race (main refused a second concurrent prompt) and
+ *  has no queue to fall back on: say so rather than failing silently. */
+function noticeSessionBusy(what: string): void {
+  useHang4r.setState({
+    lightbox: {
+      text: `${what}: the session is busy with another turn. Try again when it finishes.`,
+      kind: 'text',
+      alt: 'Session busy'
+    }
+  })
+}
+
 function emptyTranscript(): Transcript {
   return { items: [], blockIndex: new Map(), toolIndex: new Map(), hooks: [], lastSeq: 0 }
 }
@@ -1119,6 +1131,8 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
             : state.sessions.map((s) => (s.id === session.id ? session : s))
         return { sessions }
       })
+      // a claim handed back (starting → idle) is not a turn that ran
+      const turnRan = prev?.status === 'running' || session.status === 'error'
       // turn just settled (running/starting → idle|error): auto-send the next
       // queued message. We flush on 'error' too because a send-now interrupt
       // makes the real claude CLI emit an is_error result (status → 'error'),
@@ -1128,8 +1142,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         // a turn settled — if you weren't looking at THIS session (window hidden,
         // or focused on a different one), flag it "come look" in the sidebar so
         // you can tell which session finished. Cleared when you open/focus it.
-        const notLooking = document.hidden || session.id !== get().focusedSessionId
+        const notLooking = turnRan && (document.hidden || session.id !== get().focusedSessionId)
         set((s) => {
+          if (!turnRan) return {} // a released claim: nothing finished, no bell
           const has = s.finishedUnseen.has(session.id)
           if (notLooking === has) return {} // no change
           const next = new Set(s.finishedUnseen)
@@ -1138,7 +1153,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
           return { finishedUnseen: next }
         })
         // watched it finish: phones heard the turn end and would light a bell
-        if (!notLooking) void window.hang4r.notifySessionOpened(session.id)
+        if (turnRan && !notLooking) void window.hang4r.notifySessionOpened(session.id)
       }
     })
 
@@ -1454,17 +1469,38 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     const atts = get().attachments[sessionId] ?? []
     const { full, images, files, displayText } = composeMessage(text, atts)
     if (atts.length > 0) set((s) => ({ attachments: { ...s.attachments, [sessionId]: [] } }))
-    await window.hang4r.prompt(
-      sessionId,
-      full,
-      images.length ? images : undefined,
-      files.length ? files : undefined,
-      // pass the display echo whenever it DIFFERS from the agent text — file cards
-      // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
-      // files.length, which dropped snippet-only quotes → they echoed the fenced
-      // `full` and rendered as a code block instead of a blockquote (Angel).
-      displayText !== full ? displayText : undefined
-    )
+    try {
+      await window.hang4r.prompt(
+        sessionId,
+        full,
+        images.length ? images : undefined,
+        files.length ? files : undefined,
+        // pass the display echo whenever it DIFFERS from the agent text — file cards
+        // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
+        // files.length, which dropped snippet-only quotes → they echoed the fenced
+        // `full` and rendered as a code block instead of a blockquote (Angel).
+        displayText !== full ? displayText : undefined
+      )
+    } catch (err) {
+      if (!isSessionBusyError(err)) throw err
+      // Lost the race: someone else (the CLI, a phone) took the turn between our
+      // idle snapshot and main's claim. The draft and attachments are already
+      // cleared, so HOLD the message (attachments included) — it goes out when
+      // that turn settles, exactly as if it had been queued mid-turn.
+      set((s) => ({
+        messageQueue: {
+          ...s.messageQueue,
+          [sessionId]: [
+            ...(s.messageQueue[sessionId] ?? []),
+            {
+              id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              text,
+              attachments: atts
+            }
+          ]
+        }
+      }))
+    }
   },
 
   queueMessage(sessionId, text) {
@@ -1845,7 +1881,12 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
 
   async sendReview(sessionId, comments) {
-    await window.hang4r.submitReview(sessionId, comments)
+    try {
+      await window.hang4r.submitReview(sessionId, comments)
+    } catch (err) {
+      if (!isSessionBusyError(err)) throw err
+      noticeSessionBusy('Your review comments were not sent')
+    }
   },
 
   async interrupt(sessionId) {
@@ -1964,7 +2005,12 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
 
   async retrySession(sessionId) {
-    await window.hang4r.retrySession(sessionId)
+    try {
+      await window.hang4r.retrySession(sessionId)
+    } catch (err) {
+      if (!isSessionBusyError(err)) throw err
+      noticeSessionBusy('Nothing was retried')
+    }
   },
 
   toggleExpand(sessionId) {

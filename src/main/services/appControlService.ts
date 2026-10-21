@@ -63,6 +63,16 @@ export interface CtlRequest {
   caller?: string
 }
 
+/** the transcript events a `wait` can resolve on (see evaluate / livePending) */
+const WAKE_KINDS = new Set<string>([
+  'turn-complete',
+  'exit',
+  'permission-request',
+  'permission-resolved',
+  'question-request',
+  'question-resolved'
+])
+
 const RESULT_CAP = 20_000
 const SHOW_EVENTS = 20
 const DEFAULT_WAIT_S = 600
@@ -112,17 +122,28 @@ export class AppControlService {
 
   /** session-event broadcast (wired next to the renderer/bridge fan-out) */
   onAgentEvent(ev: SessionEvent): void {
+    // Only events that can change a wait's outcome. The broadcast carries every
+    // streamed token (block-delta, seq 0 = transient), and each poke re-reads the
+    // transcript: evaluating per token was a SQLite scan per delta per waiter.
+    if (ev.seq === 0 || !WAKE_KINDS.has(ev.event.kind)) return
     this.poke(ev.sessionId)
   }
 
   onSessionUpdated(session: SessionMeta): void {
+    // session-updated also fires for title/cost/model edits; evaluate() only
+    // reads the status (and lastError that rides with it)
+    if (this.lastStatus.get(session.id) === session.status) return
+    this.lastStatus.set(session.id, session.status)
     this.poke(session.id)
   }
+
+  private lastStatus = new Map<string, SessionMeta['status']>()
 
   /** quit: resolve nothing, just stop holding timers + references */
   dispose(): void {
     for (const w of [...this.waiters]) w.check = () => {}
     this.waiters.clear()
+    this.lastStatus.clear()
   }
 
   private poke(sessionId: string): void {

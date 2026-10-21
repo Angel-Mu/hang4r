@@ -99,3 +99,51 @@ test('a queued-message flush and an external prompt on the same idle edge never 
   )
   expect(ext.error).toBeNull()
 })
+
+test('a composer send that loses the race is queued, not dropped', async () => {
+  launched = await launchApp()
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn').first().click()
+  await page.locator('.dialog-prompt').fill('slow turn 100 first')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+  const tile = page.locator('.tile').first()
+  await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 15_000 })
+  const sessionId = await page.evaluate(() => window.hang4r.listSessions().then((l) => l[0].id))
+
+  await tile.locator('.composer-input').fill('RACE MSG')
+  // In ONE task: an external driver's prompt reaches main first, then the composer
+  // sends. The renderer still thinks the session is idle (it learns about the
+  // claim via session-updated, which cannot be processed mid-task), so the
+  // composer sends straight through and main rejects it busy.
+  await page.evaluate((sid) => {
+    const w = window as unknown as { __unhandled: string[] }
+    w.__unhandled = []
+    window.addEventListener('unhandledrejection', (e) => w.__unhandled.push(String(e.reason)))
+    void window.hang4r.prompt(sid, 'slow turn 800 EXTERNAL')
+    const send = [...document.querySelectorAll('.tile button')].find(
+      (b) => b.getAttribute('aria-label') === 'Send' || b.textContent?.trim() === 'Send'
+    ) as HTMLButtonElement | undefined
+    if (!send) throw new Error('no Send button')
+    send.click()
+  }, sessionId)
+
+  const texts = (): Promise<string[]> =>
+    page.evaluate(
+      (sid) =>
+        window.hang4r
+          .getSessionEvents(sid)
+          .then((evs) => evs.flatMap((e) => (e.event.kind === 'user-text' ? [e.event.text] : []))),
+      sessionId
+    )
+  // the loser is held and delivered after the winner's turn, in order
+  await expect
+    .poll(texts, { timeout: 15_000 })
+    .toEqual(['slow turn 100 first', 'slow turn 800 EXTERNAL', 'RACE MSG'])
+  const unhandled = await page.evaluate(
+    () => (window as unknown as { __unhandled: string[] }).__unhandled
+  )
+  expect(unhandled).toEqual([])
+})

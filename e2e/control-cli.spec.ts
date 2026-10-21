@@ -18,6 +18,7 @@ import { basename, join } from 'node:path'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
 import { BRIDGE_METHODS } from '../src/shared/bridge'
 import { installCli, shimScript, uninstallCli } from '../src/main/services/cliInstall'
+import { AppControlService } from '../src/main/services/appControlService'
 
 /**
  * `hang4r sessions …` against the built app, with the real CLI as a subprocess
@@ -520,4 +521,65 @@ test('installCli over IPC is wired (HOME redirected so the real one is never tou
   } finally {
     await l.app.close().catch(() => {})
   }
+})
+
+test('wait is not re-evaluated per streamed token', () => {
+  // waiters are poked from the same broadcast the renderer gets, which carries every
+  // block-delta. Only events that can end or block a turn, and status changes, may wake one.
+  const svc = new AppControlService({} as never)
+  let wakes = 0
+  const waiters = (svc as unknown as { waiters: Set<unknown> }).waiters
+  waiters.add({ sessionId: 's1', check: () => void wakes++ })
+  const ev = (seq: number, event: Record<string, unknown>): never =>
+    ({ sessionId: 's1', seq, ts: 0, event }) as never
+
+  for (let i = 0; i < 200; i++) {
+    svc.onAgentEvent(ev(0, { kind: 'block-delta', text: 'x' })) // transient
+    svc.onAgentEvent(ev(10 + i, { kind: 'block-delta', text: 'x' })) // even if persisted
+    svc.onAgentEvent(ev(300 + i, { kind: 'block-final' }))
+    svc.onAgentEvent(ev(600 + i, { kind: 'usage' }))
+  }
+  svc.onAgentEvent({ sessionId: 'other', seq: 5, ts: 0, event: { kind: 'turn-complete' } } as never)
+  expect(wakes).toBe(0)
+
+  svc.onAgentEvent(ev(900, { kind: 'turn-complete' }))
+  svc.onAgentEvent(ev(901, { kind: 'exit' }))
+  svc.onAgentEvent(ev(902, { kind: 'permission-request' }))
+  svc.onAgentEvent(ev(903, { kind: 'permission-resolved' }))
+  svc.onAgentEvent(ev(904, { kind: 'question-request' }))
+  svc.onAgentEvent(ev(905, { kind: 'question-resolved' }))
+  expect(wakes).toBe(6)
+
+  const upd = (status: string): never => ({ id: 's1', status }) as never
+  svc.onSessionUpdated(upd('running')) // first sighting
+  svc.onSessionUpdated(upd('running')) // a title/cost edit: same status
+  svc.onSessionUpdated(upd('running'))
+  expect(wakes).toBe(7)
+  svc.onSessionUpdated(upd('idle'))
+  expect(wakes).toBe(8)
+})
+
+test('--launch only honors HANG4R_LAUNCH_CMD under the fake-agent env', async () => {
+  // HANG4R_LAUNCH_CMD reaches /bin/sh -c; a production CLI must ignore it. `open` is
+  // shadowed on PATH so the fallback never starts the real app.
+  const dir = mkdtempSync(join(tmpdir(), 'h4r-launch-'))
+  const fakeBin = join(dir, 'bin')
+  mkdirSync(fakeBin)
+  const openMarker = join(dir, 'open-ran')
+  const cmdMarker = join(dir, 'cmd-ran')
+  writeFileSync(join(fakeBin, 'open'), `#!/bin/sh\ntouch '${openMarker}'\n`)
+  chmodSync(join(fakeBin, 'open'), 0o755)
+  const base = {
+    HANG4R_USER_DATA: join(dir, 'no-such-userdata'),
+    HANG4R_LAUNCH_CMD: `touch '${cmdMarker}'`,
+    HANG4R_LAUNCH_TIMEOUT_MS: '400',
+    PATH: `${fakeBin}:${process.env.PATH}`
+  }
+  await runCli(['status', '--launch'], { ...base, HANG4R_FAKE_AGENT: '' })
+  expect(existsSync(cmdMarker)).toBe(false) // ignored outside the e2e env
+  expect(existsSync(openMarker)).toBe(true) // fell back to the normal launcher
+  rmSync(openMarker)
+  await runCli(['status', '--launch'], { ...base, HANG4R_FAKE_AGENT: '1' })
+  expect(existsSync(cmdMarker)).toBe(true)
+  expect(existsSync(openMarker)).toBe(false)
 })

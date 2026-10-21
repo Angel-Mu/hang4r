@@ -465,7 +465,7 @@ export class AppControlService {
       this.waiters.add(waiter)
       void tryResolve()
       if (!done) {
-        timer = setTimeout(() => void finish({ reason: 'timeout' }), timeoutS * 1000)
+        timer = setTimeout(() => void finish({ reason: 'timeout', after: cursor }), timeoutS * 1000)
       }
     })
   }
@@ -532,7 +532,8 @@ export class AppControlService {
       result: o.result,
       isError: o.isError ?? o.reason === 'error',
       errorMessage: o.errorMessage,
-      costUsd: o.costUsd
+      costUsd: o.costUsd,
+      after: o.after
     }
   }
 
@@ -684,6 +685,8 @@ interface Outcome {
   isError?: boolean
   errorMessage?: string
   costUsd?: number
+  /** timeout only: the cursor to resume from, so a retry cannot miss a turn that ends in between */
+  after?: number
 }
 
 function toCtlError(err: unknown): CtlError {

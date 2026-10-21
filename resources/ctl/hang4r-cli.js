@@ -294,6 +294,8 @@ USAGE
   hang4r sessions respond <id> <requestId> allow|deny
   hang4r sessions respond <id> <requestId> --option <id> [--option <id> ...]
   hang4r sessions archive <id>
+  hang4r mcp [--as <name>] [--launch]    Stdio MCP server exposing these commands as tools
+                                         (claude mcp add hang4r -- hang4r mcp). Env HANG4R_MCP_WAIT_CAP_S (default 50).
   hang4r browser <command>               Drive this session's browser pane (hang4r browser --help)
 
 FLAGS (every command)
@@ -757,6 +759,10 @@ async function main() {
     process.exitCode = await runApp(argv)
     return
   }
+  if (argv[0] === 'mcp') {
+    process.exitCode = await require('./hang4r-mcp.js').runMcp(argv.slice(1))
+    return
+  }
   if (argv[0] !== 'browser') {
     fail(`Unknown command: ${argv[0]}\nRun \`hang4r --help\`.`)
   }
@@ -793,8 +799,20 @@ async function main() {
   if (out) process.stdout.write(out.replace(/\n?$/, '\n'))
 }
 
+// before main(): hang4r-mcp.js requires this module while main() is still on its first tick
+module.exports = {
+  pollUntil,
+  discover,
+  parseAppArgs,
+  exitFor,
+  EXIT,
+  CODE_TO_EXIT,
+  CliError,
+  ensureRunning,
+  readToken,
+  appRequest
+}
+
 if (require.main === module) {
   main().catch((e) => fail(e && e.message ? e.message : String(e)))
 }
-
-module.exports = { pollUntil, discover, parseAppArgs, exitFor, EXIT }

@@ -1458,20 +1458,28 @@ export class SessionManager {
     }
     if (!anchor)
       throw new Error("Couldn't locate that message in the Claude session history to rewind.")
+    // The ssh fetch above can take up to 30s: Stop / archive / delete may have
+    // revoked the claim meanwhile.
+    this.assertClaim(session.id, token)
+
+    // Every await and every throw happens BEFORE the transcript is touched. Once
+    // hang4r drops the turns, a fork MUST follow: Claude's jsonl still holds them,
+    // so a truncate with no fork makes the next prompt resume the full, hidden
+    // conversation. Hence the workdir rebuild and the claim re-check come first,
+    // and nothing between the truncate and the prompt below can throw or await.
+    await this.ensureWorkdir(session.id, true) // editing+re-running = continue here → rebuild if dropped
+    this.assertClaim(session.id, token)
+    const agentText = this.writeImageAttachments(session, newText, images)
 
     if (target) this.truncateTranscript(session.id, target.seq)
-
     // replace the live adapter with a fork truncated at the anchor. A null
     // parentUuid means the edited message was the very first — start fresh.
     this.adapters.get(session.id)?.dispose()
     this.adapters.delete(session.id)
-    await this.ensureWorkdir(session.id, true) // editing+re-running = continue here → rebuild if dropped
-    this.assertClaim(session.id, token)
     const adapter = anchor.parentUuid
       ? this.spawnAdapter(session, session.backendSessionId, true, anchor.parentUuid)
       : this.spawnAdapter(session)
     this.adapters.set(session.id, adapter)
-    const agentText = this.writeImageAttachments(session, newText, images)
     adapter.prompt(agentText, images, agentText !== newText ? { displayText: newText } : undefined)
     this.claims.delete(session.id)
     this.updateSession(session.id, { status: 'running', lastError: null })

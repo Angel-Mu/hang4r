@@ -108,6 +108,8 @@ test.describe('control CLI', () => {
     expect(r.status).toBe(0)
     expect(r.json.reason).toBe('turn-complete')
     expect(r.json.result).toBeTruthy()
+    // the snapshot is taken AFTER the status flip, not between turn-complete and it
+    expect(r.json.session.status).toBe('idle')
     expect(r.json.session.origin).toBe('cli:test')
     // omitted --env = the Start-agent dialog's default
     expect(r.json.session.environment).toBe('worktree')
@@ -141,7 +143,8 @@ test.describe('control CLI', () => {
       )
       .toBe(true)
     // …until an outside caller continues it: that turn (and only that turn) is labelled
-    const sent = await cli('sessions', 'send', created.id, 'from buzz', '--wait', '--as', 'buzz')
+    const sent = await cli('sessions', 'send', created.id, 'from buzz', '--wait', '--json', '--as', 'buzz')
+    expect(sent.json.session.status).toBe('idle')
     expect(sent.status).toBe(0)
     const users = (await events(created.id)).filter((e) => e.kind === 'user-text')
     expect(users.map((u) => [u.text, u.origin ?? null])).toEqual([

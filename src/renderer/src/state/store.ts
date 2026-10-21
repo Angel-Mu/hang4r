@@ -802,6 +802,43 @@ let subscribed = false
 let urlOpenSeq = 0
 let unseenSyncWired = false
 
+/** per-session tail of the queue-flush chain (see flushQueue) */
+const flushChains = new Map<string, Promise<void>>()
+
+async function flushHead(sessionId: string): Promise<void> {
+  const q = useHang4r.getState().messageQueue[sessionId] ?? []
+  if (q.length === 0) return
+  const [next, ...rest] = q
+  useHang4r.setState((s) => ({ messageQueue: { ...s.messageQueue, [sessionId]: rest } }))
+  const { full, images, files, displayText } = composeMessage(next.text, next.attachments)
+  try {
+    await window.hang4r.prompt(
+      sessionId,
+      full,
+      images.length ? images : undefined,
+      files.length ? files : undefined,
+      // pass the display echo whenever it DIFFERS from the agent text — file cards
+      // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
+      // files.length, which dropped snippet-only quotes → they echoed the fenced
+      // `full` and rendered as a code block instead of a blockquote (Angel).
+      displayText !== full ? displayText : undefined
+    )
+  } catch (err) {
+    // Someone else (the CLI, a phone) took the turn first: main refuses a second
+    // concurrent prompt. The message was explicit user intent — put it back at
+    // the FRONT; the next running → idle transition flushes it again.
+    // (a revoked claim — Stop landed first — holds it the same way: still queued,
+    // visible, and sendable, never lost to an unhandled rejection)
+    if (!isSessionBusyError(err) && !isClaimRevokedError(err)) throw err
+    useHang4r.setState((s) => ({
+      messageQueue: {
+        ...s.messageQueue,
+        [sessionId]: [next, ...(s.messageQueue[sessionId] ?? [])]
+      }
+    }))
+  }
+}
+
 export const useHang4r = create<Hang4rState>((set, get) => ({
   projects: [],
   sessions: [],
@@ -1572,38 +1609,20 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     }
   },
 
-  async flushQueue(sessionId) {
-    const q = get().messageQueue[sessionId] ?? []
-    if (q.length === 0) return
-    const [next, ...rest] = q
-    set((s) => ({ messageQueue: { ...s.messageQueue, [sessionId]: rest } }))
-    const { full, images, files, displayText } = composeMessage(next.text, next.attachments)
-    try {
-      await window.hang4r.prompt(
-        sessionId,
-        full,
-        images.length ? images : undefined,
-        files.length ? files : undefined,
-        // pass the display echo whenever it DIFFERS from the agent text — file cards
-        // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
-        // files.length, which dropped snippet-only quotes → they echoed the fenced
-        // `full` and rendered as a code block instead of a blockquote (Angel).
-        displayText !== full ? displayText : undefined
-      )
-    } catch (err) {
-      // Someone else (the CLI, a phone) took the turn first: main refuses a second
-      // concurrent prompt. The message was explicit user intent — put it back at
-      // the FRONT; the next running → idle transition flushes it again.
-      // (a revoked claim — Stop landed first — holds it the same way: still queued,
-      // visible, and sendable, never lost to an unhandled rejection)
-      if (!isSessionBusyError(err) && !isClaimRevokedError(err)) throw err
-      set((s) => ({
-        messageQueue: {
-          ...s.messageQueue,
-          [sessionId]: [next, ...(s.messageQueue[sessionId] ?? [])]
-        }
-      }))
-    }
+  flushQueue(sessionId) {
+    // One flush at a time per session. A flush that is still awaiting main (its
+    // claim parked in a slow await) has already taken the head off the queue; a
+    // second flush from the Stop's starting → idle update would take the NEXT
+    // message, and the first — requeued when its claim is revoked — would land
+    // behind it. Chaining makes the second flush wait for that requeue and take
+    // the head again.
+    const run = (flushChains.get(sessionId) ?? Promise.resolve()).then(() => flushHead(sessionId))
+    const tail = run.catch(() => undefined)
+    flushChains.set(sessionId, tail)
+    void tail.then(() => {
+      if (flushChains.get(sessionId) === tail) flushChains.delete(sessionId)
+    })
+    return run
   },
 
   addAttachment(sessionId, att) {

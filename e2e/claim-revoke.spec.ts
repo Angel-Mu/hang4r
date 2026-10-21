@@ -1,4 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
 import { SESSION_BUSY_MARKER } from '../src/shared/sessionBusy'
 
@@ -203,4 +206,81 @@ test('a send whose claim is revoked by Stop gives the draft back, with no unhand
   await expect(composer).toHaveValue('slow turn 100 MY DRAFT')
   expect(await userTexts(page, sid)).toEqual(['slow turn 100 FIRST'])
   expect(errors).toEqual([])
+})
+
+test('Claude rewind: Stop while the workdir is rebuilt leaves transcript AND backend untouched', async () => {
+  const projectsDir = mkdtempSync(join(tmpdir(), 'hang4r-claude-projects-'))
+  launched = await launchApp({
+    env: { HANG4R_TEST_WORKDIR_DELAY_MS: '1200', HANG4R_CLAUDE_PROJECTS_DIR: projectsDir }
+  })
+  const { page } = launched
+  const sid = await startSession(page, 'Claude', 'slow turn 100 original')
+  // the jsonl Claude would hold for this conversation: the rewind anchor lives there
+  const bsid = await page.evaluate(
+    (id) => window.hang4r.listSessions().then((l) => l.find((s) => s.id === id)!.backendSessionId),
+    sid
+  )
+  mkdirSync(join(projectsDir, 'p'), { recursive: true })
+  writeFileSync(
+    join(projectsDir, 'p', `${bsid}.jsonl`),
+    JSON.stringify({
+      type: 'user',
+      uuid: 'u0',
+      parentUuid: null,
+      message: { role: 'user', content: [{ type: 'text', text: 'slow turn 100 original' }] }
+    }) + '\n'
+  )
+  await page.evaluate((id) => window.hang4r.releaseForExternal(id), sid)
+
+  const result = await page.evaluate(async (id) => {
+    let rewind = 'pending'
+    const pr = window.hang4r
+      .rewindSession(id, 'slow turn 100 original', 0, 'slow turn 400 EDITED')
+      .then(
+        () => void (rewind = 'ok'),
+        (e: unknown) => void (rewind = String(e))
+      )
+    await new Promise((r) => setTimeout(r, 300)) // parked in ensureWorkdir
+    await window.hang4r.interrupt(id)
+    await pr
+    return rewind
+  }, sid)
+
+  await page.waitForTimeout(1500)
+  expect(result).not.toBe('ok')
+  // no fork was spawned and none was promised: hang4r must still show the turn
+  // Claude's jsonl still holds, or the next prompt resumes a hidden conversation
+  expect(await userTexts(page, sid)).toEqual(['slow turn 100 original'])
+})
+
+test('queued messages keep their order when the head flush is revoked by Stop', async () => {
+  launched = await launchApp({ env: { HANG4R_TEST_CLAIM_DELAY_MS: '2500' } })
+  const { page } = launched
+  await createProject(page, makeScratchRepo())
+  await page.reload()
+  await page.waitForSelector('.app')
+  await page.locator('.project-row .ghost-btn').first().click()
+  await page.locator('.dialog .segmented button', { hasText: 'Claude' }).click()
+  await page.locator('.dialog .segmented button', { hasText: 'In-place' }).click()
+  await page.locator('.dialog-prompt').fill('slow turn 2500 FIRST')
+  await page.getByRole('button', { name: /Start agent/ }).click()
+  const tile = page.locator('.tile').first()
+  await expect(tile.locator('.status-dot.status-running')).toBeVisible({ timeout: 30_000 })
+  const sid = await page.evaluate(() => window.hang4r.listSessions().then((l) => l[0].id))
+
+  const composer = tile.locator('.composer-input')
+  await composer.fill('slow turn 100 QA')
+  await composer.press('Enter')
+  await composer.fill('slow turn 100 QB')
+  await composer.press('Enter')
+  await expect(tile.locator('.queue-row')).toHaveCount(2)
+
+  // FIRST ends -> QA's flush takes a claim and parks in the (test) claim delay
+  await expect(tile.locator('.status-dot.status-starting')).toBeVisible({ timeout: 15_000 })
+  await page.evaluate((id) => window.hang4r.interrupt(id), sid) // revokes QA's claim
+
+  await expect
+    .poll(async () => (await userTexts(page, sid)).length, { timeout: 30_000 })
+    .toBe(3)
+  expect(await userTexts(page, sid)).toEqual(['slow turn 2500 FIRST', 'slow turn 100 QA', 'slow turn 100 QB'])
 })

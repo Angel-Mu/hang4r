@@ -476,6 +476,10 @@ export class AppControlService {
     const session = store.getSession(sessionId)
     if (!session) throw new CtlError('not-found', 'That session no longer exists.')
     const ended = store.firstEventOfKindsAfter(sessionId, after, ['turn-complete', 'exit'])
+    // The transcript event is broadcast BEFORE sessionManager flips the status, so
+    // resolving on the event alone returned a `session` still saying "running".
+    // Hold the outcome until the flip lands: onSessionUpdated pokes us again.
+    if (ended && (session.status === 'running' || session.status === 'starting')) return null
     if (ended) {
       if (ended.event.kind === 'exit') {
         return { reason: 'error', errorMessage: `the agent process exited (code ${ended.event.code})` }

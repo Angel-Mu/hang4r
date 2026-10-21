@@ -7045,19 +7045,15 @@ button:disabled {
 
 /* "via <caller>" — a session or turn that came from the hang4r command line */
 .session-origin {
-  flex: 0 1 auto;
-  min-width: 2.8em;
-  max-width: 6em;
-  font-size: var(--fs-2xs);
-  font-family: var(--mono);
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
   color: var(--cyan, #8be9fd);
-  background: color-mix(in srgb, var(--cyan, #8be9fd) 12%, transparent);
-  border-radius: 4px;
-  padding: 0 5px;
-  line-height: 1.5;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.session-origin .icon {
+  width: 14px;
+  height: 14px;
 }
 .msg-origin {
   display: block;

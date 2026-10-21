@@ -35,7 +35,7 @@ test.afterEach(async () => {
   launched = null
 })
 
-test('an externally created session shows its origin chip and "via" label, and keeps both after reload and restart', async () => {
+test('an externally created session shows its origin marker and "via" label, and keeps both after reload and restart', async () => {
   launched = await launchApp()
   let { page } = launched
   const repo = makeScratchRepo()
@@ -51,7 +51,7 @@ test('an externally created session shows its origin chip and "via" label, and k
 
   const check = async (): Promise<void> => {
     const row = page.locator('.session-row', { has: page.locator('.session-origin') })
-    await expect(row.locator('.session-origin')).toHaveText('via uitest')
+    await expect(row.getByLabel('via uitest')).toHaveAttribute('title', 'via uitest')
     await row.click()
     const bubble = page.locator('.tile .msg-user-card', { hasText: 'hello from outside' })
     await expect(bubble.locator('.msg-origin')).toHaveText('via uitest')
@@ -72,7 +72,8 @@ test('an externally created session shows its origin chip and "via" label, and k
   page = launched.page
   await check()
   expect(id).toBeTruthy()
-  await page.screenshot({ path: join(process.env.UI_SHOT_DIR ?? tmpdir(), 'control-cli-origin.png') })
+  await page.locator('.session-row', { has: page.locator('.session-origin') }).hover()
+  await page.screenshot({ path: join(process.env.UI_SHOT_DIR ?? tmpdir(), 'control-cli-origin-v2.png') })
 })
 
 test('Settings > Command line renders and Install reports its result without touching the real HOME', async () => {

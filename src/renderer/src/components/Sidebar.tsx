@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { originChipText } from '../../../shared/userText'
 import type {
   BackendId,
   ClaudeUsageSnapshot,
@@ -13,6 +12,7 @@ import { orderProjects, orderSessions as orderByPin } from '../../../shared/side
 import { relativeTime } from '../../../shared/relativeTime'
 import { contextWindow } from '../contextWindow'
 import { FALLBACK_CODEX_MODELS } from '../modelChoices'
+import { originChipText } from '../../../shared/userText'
 import { Icon, type IconName } from './Icon'
 
 const STATUS_LABEL: Record<SessionMeta['status'], string> = {
@@ -477,6 +477,16 @@ export function Sidebar(): JSX.Element {
                         onContextMenu={(e) => sessionMenu(e, session.id)}
                       >
                         <span className={dotClass} title={dotTitle} />
+                        {session.origin && (
+                          <span
+                            className="session-origin"
+                            role="img"
+                            title={originChipText(session.origin)}
+                            aria-label={originChipText(session.origin)}
+                          >
+                            <Icon name="terminal" size={14} />
+                          </span>
+                        )}
                         <span
                           className={'session-backend backend-' + session.backend}
                           title={BACKEND_LABEL[session.backend]}
@@ -486,14 +496,6 @@ export function Sidebar(): JSX.Element {
                         <span className="session-title" title={session.lastError ?? session.title}>
                           {session.title}
                         </span>
-                        {session.origin && (
-                          <span
-                            className="session-origin"
-                            title={`Created by an external driver (${session.origin}) through the hang4r command`}
-                          >
-                            {originChipText(session.origin)}
-                          </span>
-                        )}
                         {/* meta + hover actions share one grid cell (session-trailing) so
                             the actions pill is sized/positioned to exactly the meta
                             cluster's own footprint, however narrow — it can no longer

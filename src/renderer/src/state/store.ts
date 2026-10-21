@@ -117,6 +117,8 @@ export type TranscriptItem =
       text: string
       images?: { base64: string; mediaType: string }[]
       files?: PromptFile[]
+      /** "cli:<caller>" when an external driver sent this turn (display only) */
+      origin?: string
     }
   | {
       type: 'block'
@@ -313,7 +315,7 @@ async function loadTranscriptData(sessionId: string, allTurns = false): Promise<
 export function applyEvent(t: Transcript, ev: AgentEvent): void {
   switch (ev.kind) {
     case 'user-text':
-      t.items.push({ type: 'user', text: shownUserText(ev), images: ev.images, files: ev.files })
+      t.items.push({ type: 'user', text: shownUserText(ev), images: ev.images, files: ev.files, origin: ev.origin })
       break
     case 'external-turn':
       t.items.push({ type: 'external-turn', role: ev.role, text: ev.text })

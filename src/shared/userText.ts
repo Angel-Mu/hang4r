@@ -21,3 +21,8 @@ export function sentUserText(ev: { text: string; label?: string }): string {
 export function shownUserText(ev: { text: string; label?: string }): string {
   return ev.label ?? ev.text
 }
+
+/** "cli:claude-code" -> "via claude-code". Display only; the raw origin stays in tooltips. */
+export function originChipText(origin: string): string {
+  return 'via ' + origin.replace(/^cli:/, '')
+}

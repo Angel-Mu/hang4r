@@ -1,7 +1,7 @@
 import { useEffect, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useHang4r, type FileView } from '../state/store'
 import { THEMES, type Theme } from '../theme'
-import type { ModelChoice, SettingsScope, UpdateStatus } from '../../../shared/protocol'
+import type { CliInstallResult, ModelChoice, SettingsScope, UpdateStatus } from '../../../shared/protocol'
 import type { BridgeStatus } from '../../../shared/bridge'
 import { diagnosticsText, type LinkDiagnostics } from '../../../shared/bridgeLink'
 import {
@@ -385,6 +385,7 @@ type Category =
   | 'Worktrees'
   | 'Remote'
   | 'Phone'
+  | 'Command line'
   | 'Plugins'
   | 'Rules & Skills'
   | 'Tools & MCPs'
@@ -399,6 +400,7 @@ const CATEGORIES: Category[] = [
   'Worktrees',
   'Remote',
   'Phone',
+  'Command line',
   'Plugins',
   'Rules & Skills',
   'Tools & MCPs',
@@ -882,6 +884,7 @@ export function Settings(): JSX.Element | null {
 
             {cat === 'Remote' && <RemoteHosts />}
             {cat === 'Phone' && <PhoneBridge />}
+            {cat === 'Command line' && <CommandLine />}
 
             {cat === 'Worktrees' && (
               <>
@@ -1094,6 +1097,87 @@ export function Settings(): JSX.Element | null {
         </div>
       </div>
     </div>
+  )
+}
+
+function CommandLine(): JSX.Element {
+  const [result, setResult] = useState<CliInstallResult | null>(null)
+  const [action, setAction] = useState<'install' | 'uninstall' | null>(null)
+  const [lastRan, setLastRan] = useState<'install' | 'uninstall'>('install')
+  const run = async (which: 'install' | 'uninstall'): Promise<void> => {
+    setAction(which)
+    setLastRan(which)
+    try {
+      setResult(
+        await (which === 'install' ? window.hang4r.installCli() : window.hang4r.uninstallCli())
+      )
+    } catch (err) {
+      setResult({
+        ok: false,
+        reason: 'error',
+        message: err instanceof Error ? err.message : String(err),
+        linkPath: '',
+        target: '',
+        onPath: true,
+        pathLine: null
+      })
+    } finally {
+      setAction(null)
+    }
+  }
+  return (
+    <>
+      <p className="settings-note">
+        <strong>Drive hang4r from a terminal or another agent.</strong> The <code>hang4r</code>{' '}
+        command creates, messages and waits on sessions in this app. Sessions it creates show a
+        &ldquo;via&rdquo; chip in the sidebar.
+      </p>
+      <Field label="hang4r command">
+        <div className="cli-install">
+          <div className="cli-install-actions">
+            <button
+              className="primary-btn"
+              disabled={action !== null}
+              onClick={() => void run('install')}
+            >
+              {action === 'install' ? 'Installing…' : 'Install hang4r command'}
+            </button>
+            <button
+              className="ghost-btn"
+              disabled={action !== null}
+              onClick={() => void run('uninstall')}
+            >
+              {action === 'uninstall' ? 'Removing…' : 'Uninstall'}
+            </button>
+          </div>
+          {result && (
+            <div
+              className={'cli-install-result' + (result.ok ? '' : ' cli-install-result-error')}
+              role="status"
+              data-testid="cli-install-result"
+            >
+              {lastRan === 'install' && result.ok && !result.onPath && result.pathLine ? (
+                <div>
+                  Installed <code>{result.linkPath}</code>
+                </div>
+              ) : (
+                <div>{result.message}</div>
+              )}
+              {lastRan === 'install' && result.ok && !result.onPath && result.pathLine && (
+                <div className="cli-install-warn">
+                  <code>~/.local/bin</code> is not on your PATH. Add this line to your shell
+                  profile:
+                  <pre className="cli-install-line">{result.pathLine}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Field>
+      <Field label="Example">
+        <pre className="cli-install-line">hang4r sessions new --project &lt;path&gt; &quot;…&quot;</pre>
+      </Field>
+    </>
   )
 }
 

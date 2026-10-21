@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { originChipText } from '../../../shared/userText'
 import type {
   BackendId,
   ClaudeUsageSnapshot,
@@ -485,6 +486,14 @@ export function Sidebar(): JSX.Element {
                         <span className="session-title" title={session.lastError ?? session.title}>
                           {session.title}
                         </span>
+                        {session.origin && (
+                          <span
+                            className="session-origin"
+                            title={`Created by an external driver (${session.origin}) through the hang4r command`}
+                          >
+                            {originChipText(session.origin)}
+                          </span>
+                        )}
                         {/* meta + hover actions share one grid cell (session-trailing) so
                             the actions pill is sized/positioned to exactly the meta
                             cluster's own footprint, however narrow — it can no longer

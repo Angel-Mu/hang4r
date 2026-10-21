@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type JSX, type RefObject } from 'react'
+import { originChipText } from '../../../shared/userText'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkEmoji } from '../remarkEmoji'
@@ -804,6 +805,11 @@ function UserMessageCard({
   const isResumeMarker = /^— resumed: \d+ earlier message/.test(item.text)
   return (
     <div className="msg-user-card">
+      {item.origin && (
+        <span className="msg-origin" title={`Sent from outside the app (${item.origin})`}>
+          {originChipText(item.origin)}
+        </span>
+      )}
       {!isResumeMarker && (
         <button
           className="msg-edit-btn"

@@ -23,6 +23,9 @@ export class FakeAdapter implements AgentAdapter {
   /** the async agent launched earlier in this session, so a later turn can
    *  stream more of its thread — the case where a run outlives its own turn */
   private lastAsyncTool: string | null = null
+  /** pending completion of a `slow turn` — cleared by interrupt() so a stopped
+   *  turn can't report a second, stale turn-complete later */
+  private slowTimer: ReturnType<typeof setTimeout> | null = null
 
   onEvent(cb: (ev: AgentEvent) => void): void {
     this.listeners.push(cb)
@@ -53,7 +56,27 @@ export class FakeAdapter implements AgentAdapter {
     const turn = this.turn
     // carry images on the user event, exactly like the real adapters — so the
     // chat thumbnail (and its click-to-enlarge lightbox) is exercised in e2e
-    this.emit({ kind: 'user-text', text, label: echo?.displayText, images, files: echo?.files })
+    this.emit({ kind: 'user-text', text, label: echo?.displayText, images, files: echo?.files, origin: echo?.origin })
+
+    // a turn that takes real time ("slow turn" = 1500ms, "slow turn 600" = 600ms):
+    // the window the prompt-lock and wait-correlation e2e specs need to act in.
+    // Ends on its own, unlike 'agents still working', which only an interrupt ends.
+    const slow = /slow turn(?: (\d+))?/.exec(text)
+    if (slow) {
+      const ms = slow[1] ? Number(slow[1]) : 1500
+      this.emit({
+        kind: 'block-final',
+        messageId: randomUUID(),
+        blockIndex: 0,
+        block: { type: 'text', text: `Working slowly — turn ${turn}.` },
+        parentToolUseId: null
+      })
+      this.slowTimer = setTimeout(() => {
+        this.slowTimer = null
+        this.emit({ kind: 'turn-complete', isError: false, result: `slow turn ${turn} done` })
+      }, ms)
+      return
+    }
 
     // deterministic error turn (mirrors Claude's error_during_execution abort)
     // so the suite can prove error recovery: the session goes to error, the
@@ -672,6 +695,10 @@ export class FakeAdapter implements AgentAdapter {
   }
 
   interrupt(): void {
+    if (this.slowTimer) {
+      clearTimeout(this.slowTimer)
+      this.slowTimer = null
+    }
     this.emit({ kind: 'turn-complete', isError: false, result: 'interrupted' })
   }
 
@@ -748,6 +775,8 @@ export class FakeAdapter implements AgentAdapter {
   }
 
   dispose(): void {
+    if (this.slowTimer) clearTimeout(this.slowTimer)
+    this.slowTimer = null
     this.listeners = []
   }
 }

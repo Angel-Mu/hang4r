@@ -97,6 +97,9 @@ export interface SessionMeta {
    *  live + its conversation searchable; opening it no longer resurrects the
    *  worktree. Cleared when the worktree is recreated. */
   worktreeDropped?: boolean
+  /** set only on sessions created by an external driver (hang4r CLI / MCP):
+   *  "cli:<caller>" | "mcp:<caller>". The caller name is self-declared, display only. */
+  origin?: string | null
 }
 
 /* ---------------- Diff & review ---------------- */
@@ -380,6 +383,9 @@ export type AgentEvent =
       kind: 'user-text'
       text: string
       label?: string
+      /** set when an EXTERNAL driver (hang4r CLI, MCP) sent this turn: "cli:<caller>".
+       *  Display only — `text` is still exactly what the agent received. */
+      origin?: string
       images?: PromptImage[]
       files?: PromptFile[]
     }

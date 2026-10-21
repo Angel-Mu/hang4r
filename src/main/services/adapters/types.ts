@@ -15,6 +15,9 @@ import type {
 export interface PromptEcho {
   displayText?: string
   files?: PromptFile[]
+  /** who sent this turn when it came from outside the app ("cli:buzz") — a
+   *  display chip on the user message only; never part of what the agent sees */
+  origin?: string
 }
 
 export interface AdapterStartOptions {

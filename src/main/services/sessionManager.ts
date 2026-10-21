@@ -13,7 +13,8 @@ import type {
   ScopeSummary,
   ScopedFiles,
   SessionEvent,
-  SessionMeta
+  SessionMeta,
+  SessionStatus
 } from '../../shared/protocol'
 import { snapshotPrefix } from '../../shared/protocol'
 import { powerSaveBlocker } from 'electron'
@@ -24,6 +25,15 @@ import { CodexAdapter } from './adapters/codexAdapter'
 import { CursorAdapter } from './adapters/cursorAdapter'
 import { FakeAdapter } from './adapters/fakeAdapter'
 import type { AgentAdapter } from './adapters/types'
+
+/** Per-call options of SessionManager.prompt that only headless drivers set. */
+export interface PromptExtra {
+  /** "cli:<caller>" — shown as a chip on the user message, never sent to the agent */
+  origin?: string
+  /** worktree gone: 'fail' = throw WORKTREE_MISSING_MESSAGE, 'rebuild' = recreate it.
+   *  Omitted = the interactive behaviour (remembered choice, else ask in a dialog). */
+  worktree?: 'fail' | 'rebuild'
+}
 
 /** E2E/loop verification mode: use a deterministic in-process agent. */
 const FAKE_AGENT = process.env.HANG4R_FAKE_AGENT === '1'
@@ -50,6 +60,7 @@ import {
 import { resolveBackgroundTaskState } from './backgroundTask'
 import { asyncAgentId } from '../../shared/asyncAgentLaunch'
 import { AUTO_CONTINUE_LABEL, sentUserText } from '../../shared/userText'
+import { SESSION_BUSY_MESSAGE, WORKTREE_MISSING_MESSAGE } from '../../shared/sessionBusy'
 import { askWorktreeChoice } from '../worktreeAsk'
 import type { Store } from './store'
 import type { SettingsService } from './settingsService'
@@ -135,7 +146,12 @@ export class SessionManager {
     }
   }
 
-  async createSession(req: NewSessionRequest): Promise<SessionMeta> {
+  /** `ctx.origin` ("cli:<caller>") is set only by the control socket — never
+   *  taken from the request, which a renderer or phone also sends. */
+  async createSession(
+    req: NewSessionRequest,
+    ctx?: { origin?: string }
+  ): Promise<SessionMeta> {
     const project = this.store.getProject(req.projectId)
     if (!project) throw new Error(`Unknown project: ${req.projectId}`)
 
@@ -192,7 +208,8 @@ export class SessionManager {
       environment,
       baseRef,
       permissionMode: req.permissionMode,
-      remoteHostId: req.environment === 'ssh' ? req.remoteHostId : undefined
+      remoteHostId: req.environment === 'ssh' ? req.remoteHostId : undefined,
+      origin: ctx?.origin
     })
 
     // Stamped once, at birth, rather than resolved at every spawn: a later
@@ -233,8 +250,8 @@ export class SessionManager {
       adapter.prompt(
         agentText,
         req.firstImages,
-        req.firstFiles?.length || echoDisplay !== undefined
-          ? { files: req.firstFiles, displayText: echoDisplay }
+        req.firstFiles?.length || echoDisplay !== undefined || ctx?.origin
+          ? { files: req.firstFiles, displayText: echoDisplay, origin: ctx?.origin }
           : undefined
       )
       this.updateSession(session.id, { status: 'running' })
@@ -416,14 +433,73 @@ export class SessionManager {
     return this.store.getSession(session.id)!
   }
 
+  /**
+   * Send a turn. The session is CLAIMED (status → 'starting') before the first
+   * await and a prompt that finds a turn already in flight is rejected with
+   * SESSION_BUSY_MESSAGE — for every caller (renderer, phone bridge, control CLI).
+   * Without the claim, two prompts reaching main on the same idle edge both got
+   * past the busy check (everything below awaits before it flips the status to
+   * 'running') and were both handed to the adapter: two turns in flight at once.
+   * `extra.origin` labels a turn sent by an external driver ("cli:buzz"); such a
+   * caller also never gets the modal worktree question (see PromptExtra).
+   */
   async prompt(
     sessionId: string,
     text: string,
     images?: PromptImage[],
     files?: PromptFile[],
     displayText?: string,
-    auto = false
+    auto = false,
+    extra?: PromptExtra
   ): Promise<void> {
+    const prior = this.claimTurn(sessionId)
+    let started = false
+    try {
+      started = await this.promptClaimed(
+        sessionId,
+        text,
+        images,
+        files,
+        displayText,
+        auto,
+        prior,
+        extra
+      )
+    } finally {
+      // 'cancel', or any throw before the adapter took the turn: give the claim back
+      if (!started) this.releaseClaim(sessionId, prior)
+    }
+  }
+
+  /** Atomically (no await) move an idle session to 'starting'; returns the status it had. */
+  private claimTurn(sessionId: string): SessionStatus {
+    const session = this.store.getSession(sessionId)
+    if (!session) throw new Error(`Unknown session: ${sessionId}`)
+    if (session.status === 'running' || session.status === 'starting') {
+      throw new Error(SESSION_BUSY_MESSAGE)
+    }
+    this.updateSession(sessionId, { status: 'starting' })
+    return session.status
+  }
+
+  private releaseClaim(sessionId: string, prior: SessionStatus): void {
+    // only our own claim: an interrupt/exit/turn-complete may already have moved it
+    if (this.store.getSession(sessionId)?.status === 'starting') {
+      this.updateSession(sessionId, { status: prior })
+    }
+  }
+
+  /** @returns true once the adapter took the turn, false if the user cancelled */
+  private async promptClaimed(
+    sessionId: string,
+    text: string,
+    images: PromptImage[] | undefined,
+    files: PromptFile[] | undefined,
+    displayText: string | undefined,
+    auto: boolean,
+    priorStatus: SessionStatus,
+    extra?: PromptExtra
+  ): Promise<boolean> {
     // a MANUAL prompt (you stepping in) re-arms auto-continue: it clears the
     // consecutive-auto counter so recovery is available again. An auto-continue
     // (auto=true) does NOT, so a repeated-crash loop stays capped. It also clears
@@ -436,7 +512,7 @@ export class SessionManager {
     // BEFORE resuming — adoption switches backendSessionId to the fork's tip,
     // so this turn continues from the conversation INCLUDING those turns
     try {
-      await this.resyncExternal(sessionId)
+      await this.resyncExternal(sessionId, priorStatus)
     } catch {
       /* re-sync must never block a prompt */
     }
@@ -456,7 +532,6 @@ export class SessionManager {
     // adapter ALIVE, so a respawn-only recovery never fired — the live adapter
     // just --resumed the poison and re-errored. When idle (never a live turn), we
     // drop the stale adapter so it respawns recovering.
-    const idle = session.status !== 'running' && session.status !== 'starting'
     // HEAL BEFORE RESUME: a poisoned tail (a dangling tool_use) makes a plain
     // --resume fail. PREFER repairing the jsonl in place — append the missing
     // tool_result so the file is valid again — over fork-truncating past the
@@ -467,7 +542,7 @@ export class SessionManager {
       !!session.backendSessionId &&
       ClaudeImport.tailIsPoisoned(session.backendSessionId)
     const healed = poisoned && ClaudeImport.healPoison(session.backendSessionId!)
-    const needsRecovery = !healed && (session.status === 'error' || poisoned)
+    const needsRecovery = !healed && (priorStatus === 'error' || poisoned)
     const recoverAt = needsRecovery ? this.recoveryAnchor(session) : null
 
     let adapter = this.adapters.get(sessionId)
@@ -475,7 +550,7 @@ export class SessionManager {
     // the jsonl: a live -p process holds the OLD conversation in memory and never
     // re-reads the file, so it would --resume from the stale (poisoned) history.
     // Respawning makes --resume re-read the repaired transcript.
-    if (adapter && (recoverAt || healed) && idle) {
+    if (adapter && (recoverAt || healed)) {
       adapter.dispose()
       this.adapters.delete(sessionId)
       adapter = undefined
@@ -483,8 +558,8 @@ export class SessionManager {
     // The worktree was cleaned up (merge-cleanup, `wt remove`, Drop worktree).
     // Rebuilding costs a whole setup run, so ask instead of assuming: a question
     // about what was already discussed needs no files at all.
-    const missing = await this.resolveMissingWorktree(session)
-    if (missing === 'cancel') return
+    const missing = await this.resolveMissingWorktree(session, extra?.worktree)
+    if (missing === 'cancel') return false
     if (missing === 'rebuild' && adapter) {
       // the live CLI still holds the deleted directory — only a re-spawn moves it
       adapter.dispose()
@@ -520,11 +595,12 @@ export class SessionManager {
     adapter.prompt(
       agentText,
       images,
-      files?.length || echoDisplay !== undefined
-        ? { files, displayText: echoDisplay }
+      files?.length || echoDisplay !== undefined || extra?.origin
+        ? { files, displayText: echoDisplay, origin: extra?.origin }
         : undefined
     )
     this.updateSession(sessionId, { status: 'running', lastError: null })
+    return true
   }
 
   /**
@@ -682,9 +758,12 @@ export class SessionManager {
    * by the poll + prompt()) only for its harmless watermark bookkeeping and the
    * Codex usage sync. Always returns 0 for the Claude external-turn path now.
    */
-  async resyncExternal(sessionId: string): Promise<number> {
-    const s = this.store.getSession(sessionId)
-    if (!s || s.environment === 'ssh') return 0
+  async resyncExternal(sessionId: string, claimedStatus?: SessionStatus): Promise<number> {
+    const found = this.store.getSession(sessionId)
+    if (!found || found.environment === 'ssh') return 0
+    // prompt() calls this holding its 'starting' claim; judge by the status the
+    // session had before it, not by the claim itself
+    const s = claimedStatus ? { ...found, status: claimedStatus } : found
     if (s.status === 'running' || s.status === 'starting') return 0
     if (!s.backendSessionId) return 0
     // After a turn that ended in ERROR, the tail of the jsonl is OUR OWN
@@ -1426,9 +1505,13 @@ export class SessionManager {
    * choice sticks per session so a follow-up question doesn't re-ask.
    */
   private async resolveMissingWorktree(
-    session: SessionMeta
+    session: SessionMeta,
+    /** set by headless callers (control socket): never open the modal */
+    headless?: 'fail' | 'rebuild'
   ): Promise<'ok' | 'rebuild' | 'answer' | 'cancel'> {
     if (session.environment !== 'worktree' || existsSync(session.cwd)) return 'ok'
+    if (headless === 'rebuild') return 'rebuild'
+    if (headless === 'fail') throw new Error(WORKTREE_MISSING_MESSAGE)
     const key = `worktreeChoice:${session.id}`
     const remembered = this.settings.getSetting(key)
     if (remembered === 'answer' || remembered === 'rebuild') return remembered

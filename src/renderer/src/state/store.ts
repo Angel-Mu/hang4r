@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { shownUserText } from '../../../shared/userText'
+import { isSessionBusyError } from '../../../shared/sessionBusy'
 import { applyTheme, type Theme } from '../theme'
 
 /** Which side of a previewable file's Preview/Source toggle it opens on. */
@@ -1522,17 +1523,30 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     const [next, ...rest] = q
     set((s) => ({ messageQueue: { ...s.messageQueue, [sessionId]: rest } }))
     const { full, images, files, displayText } = composeMessage(next.text, next.attachments)
-    await window.hang4r.prompt(
-      sessionId,
-      full,
-      images.length ? images : undefined,
-      files.length ? files : undefined,
-      // pass the display echo whenever it DIFFERS from the agent text — file cards
-      // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
-      // files.length, which dropped snippet-only quotes → they echoed the fenced
-      // `full` and rendered as a code block instead of a blockquote (Angel).
-      displayText !== full ? displayText : undefined
-    )
+    try {
+      await window.hang4r.prompt(
+        sessionId,
+        full,
+        images.length ? images : undefined,
+        files.length ? files : undefined,
+        // pass the display echo whenever it DIFFERS from the agent text — file cards
+        // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
+        // files.length, which dropped snippet-only quotes → they echoed the fenced
+        // `full` and rendered as a code block instead of a blockquote (Angel).
+        displayText !== full ? displayText : undefined
+      )
+    } catch (err) {
+      // Someone else (the CLI, a phone) took the turn first: main refuses a second
+      // concurrent prompt. The message was explicit user intent — put it back at
+      // the FRONT; the next running → idle transition flushes it again.
+      if (!isSessionBusyError(err)) throw err
+      set((s) => ({
+        messageQueue: {
+          ...s.messageQueue,
+          [sessionId]: [next, ...(s.messageQueue[sessionId] ?? [])]
+        }
+      }))
+    }
   },
 
   addAttachment(sessionId, att) {

@@ -479,7 +479,16 @@ export class AppControlService {
     // The transcript event is broadcast BEFORE sessionManager flips the status, so
     // resolving on the event alone returned a `session` still saying "running".
     // Hold the outcome until the flip lands: onSessionUpdated pokes us again.
-    if (ended && (session.status === 'running' || session.status === 'starting')) return null
+    // Only while `ended` is still the latest turn boundary: once a user-text follows
+    // it, the running/starting status belongs to a NEWER turn (a queued flush or the
+    // phone started B), and holding would block on B or drop A's result at timeout.
+    if (
+      ended &&
+      (session.status === 'running' || session.status === 'starting') &&
+      !this.deps.store.firstEventOfKindsAfter(sessionId, ended.seq, ['user-text'])
+    ) {
+      return null
+    }
     if (ended) {
       if (ended.event.kind === 'exit') {
         return { reason: 'error', errorMessage: `the agent process exited (code ${ended.event.code})` }

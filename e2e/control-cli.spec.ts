@@ -197,6 +197,30 @@ test.describe('control CLI', () => {
     await cli('sessions', 'interrupt', id)
   })
 
+  test('wait --after N returns turn A immediately even when turn B has already started', async () => {
+    const made = await cli('sessions', 'new', '--project', project, '--env', 'local')
+    const id = made.json.session.id
+    const a = await cli('sessions', 'send', id, 'quick one')
+    expect(a.status).toBe(0)
+    const first = await cli('sessions', 'wait', id, '--after', String(a.json.after))
+    expect(first.json.reason).toBe('turn-complete')
+    expect(first.json.session.status).toBe('idle')
+    // a queued flush / the phone starts B before the caller asks about A
+    const b = await cli('sessions', 'send', id, 'slow turn 6000')
+    expect(b.status).toBe(0)
+    expect(b.json.session.status).toBe('running')
+    const t0 = Date.now()
+    const again = await cli('sessions', 'wait', id, '--after', String(a.json.after), '--timeout', '3')
+    expect(again.status).toBe(0)
+    expect(again.json.reason).toBe('turn-complete')
+    expect(again.json.result).toBe(first.json.result)
+    expect(Date.now() - t0).toBeLessThan(2500)
+    // B is still in flight and its own wait is unaffected
+    const bw = await cli('sessions', 'wait', id, '--after', String(b.json.after), '--timeout', '1')
+    expect(bw.json.reason).toBe('timeout')
+    await cli('sessions', 'interrupt', id)
+  })
+
   test('permission: wait exits 3 with the request, stays pending, respond allow completes; a dead request exits 7', async () => {
     const made = await cli('sessions', 'new', 'ask permission', '--project', project, '--env', 'local')
     const id = made.json.session.id

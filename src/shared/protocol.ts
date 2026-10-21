@@ -572,8 +572,6 @@ export interface CliStatus {
   linkPath: string
   /** the userData shim the link must point at */
   target: string
-  /** ~/.local/bin is on the login shell's PATH */
-  onPath: boolean
 }
 
 /** Main asks the renderer to open/navigate a session's Browser tab (goto with no live tab). */

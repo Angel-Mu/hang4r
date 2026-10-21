@@ -171,12 +171,11 @@ export async function installCli(opts: InstallOpts): Promise<CliInstallResult> {
 
 /** Read-only: is ~/.local/bin/hang4r the link installCli made? Touches nothing. */
 export async function cliStatus(opts: InstallOpts): Promise<CliStatus> {
-  const { dir, link } = linkLocation(opts.home ?? homedir())
+  const { link } = linkLocation(opts.home ?? homedir())
   return {
     installed: isOurLink(link, opts.shimPath),
     linkPath: link,
-    target: opts.shimPath,
-    onPath: (await pathReport(dir, opts.pathValue)).onPath
+    target: opts.shimPath
   }
 }
 

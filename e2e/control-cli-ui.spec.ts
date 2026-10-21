@@ -138,7 +138,6 @@ test('Settings > Command line renders and Install reports its result without tou
   // cliStatus is read-only and reports the same link
   const st = await page.evaluate(() => window.hang4r.cliStatus())
   expect(st).toMatchObject({ installed: true, linkPath: bin })
-  expect(typeof st.onPath).toBe('boolean')
 
   await page.getByRole('button', { name: 'Uninstall' }).click()
   await expect(page.getByTestId('cli-install-result')).toContainText('Removed')

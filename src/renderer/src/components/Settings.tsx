@@ -1104,6 +1104,16 @@ function CommandLine(): JSX.Element {
   const [result, setResult] = useState<CliInstallResult | null>(null)
   const [action, setAction] = useState<'install' | 'uninstall' | null>(null)
   const [lastRan, setLastRan] = useState<'install' | 'uninstall'>('install')
+  // the link path while the command is installed ('' otherwise). Asked of the main
+  // process, not remembered from a click: it must survive a restart.
+  const [installedPath, setInstalledPath] = useState('')
+  const refreshStatus = (): void => {
+    void window.hang4r
+      .cliStatus()
+      .then((st) => setInstalledPath(st.installed ? st.linkPath : ''))
+      .catch(() => setInstalledPath(''))
+  }
+  useEffect(refreshStatus, [])
   const run = async (which: 'install' | 'uninstall'): Promise<void> => {
     setAction(which)
     setLastRan(which)
@@ -1123,6 +1133,7 @@ function CommandLine(): JSX.Element {
       })
     } finally {
       setAction(null)
+      refreshStatus()
     }
   }
   return (
@@ -1177,7 +1188,7 @@ function CommandLine(): JSX.Element {
       <Field label="Example">
         <pre className="cli-install-line">hang4r sessions new --project &lt;path&gt; &quot;…&quot;</pre>
       </Field>
-      <McpSetup installedPath={lastRan === 'install' && result?.ok ? result.linkPath : ''} />
+      <McpSetup installedPath={installedPath} />
     </>
   )
 }

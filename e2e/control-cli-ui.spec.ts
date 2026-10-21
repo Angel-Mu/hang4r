@@ -122,7 +122,28 @@ test('Settings > Command line renders and Install reports its result without tou
   mkdirSync('/private/tmp/claude-501/shots', { recursive: true })
   await page.screenshot({ path: '/private/tmp/claude-501/shots/control-cli-mcp-settings.png' })
 
+  // a reload (what a restart is, to the renderer) forgets the click: the absolute path
+  // must come from the app's own view of the link, not from this component's memory
+  await page.reload()
+  await page.waitForSelector('.app')
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].webContents.send('menu:command', 'settings')
+  )
+  await page.locator('.settings-nav-item', { hasText: 'Command line' }).click()
+  await expect(page.getByTestId('cli-install-result')).toHaveCount(0) // no click this load
+  await expect(page.getByTestId('mcp-snippet-claude-code')).toContainText(`-- ${bin} mcp --as claude-code`)
+  await expect(page.getByTestId('mcp-snippet-codex')).toContainText(`command = "${bin}"`)
+  await expect(page.getByTestId('mcp-snippet-hermes')).toContainText(`command: ${bin}`)
+  await expect(page.getByTestId('mcp-path-note')).toHaveCount(0)
+  // cliStatus is read-only and reports the same link
+  const st = await page.evaluate(() => window.hang4r.cliStatus())
+  expect(st).toMatchObject({ installed: true, linkPath: bin })
+  expect(typeof st.onPath).toBe('boolean')
+
   await page.getByRole('button', { name: 'Uninstall' }).click()
-  await expect(result).toContainText('Removed')
+  await expect(page.getByTestId('cli-install-result')).toContainText('Removed')
   expect(existsSync(join(home, '.local', 'bin', 'hang4r'))).toBe(false)
+  // and the snippets fall back to the bare name once it is gone
+  await expect(page.getByTestId('mcp-path-note')).toBeVisible()
+  expect((await page.evaluate(() => window.hang4r.cliStatus())).installed).toBe(false)
 })

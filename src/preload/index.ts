@@ -29,6 +29,7 @@ const api: Hang4rApi = {
   bridgeRepair: () => ipcRenderer.invoke('bridge:repair'),
   installCli: () => ipcRenderer.invoke('cli:install'),
   uninstallCli: () => ipcRenderer.invoke('cli:uninstall'),
+  cliStatus: () => ipcRenderer.invoke('cli:status'),
   bridgeReconnect: () => ipcRenderer.invoke('bridge:reconnect'),
   bridgeDiagnostics: () => ipcRenderer.invoke('bridge:diagnostics'),
   onBridgeStatus: (cb) => {

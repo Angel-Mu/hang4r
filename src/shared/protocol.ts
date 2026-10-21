@@ -564,6 +564,18 @@ export interface CliInstallResult {
   pathLine: string | null
 }
 
+/** Read-only: is the `hang4r` command installed right now (Settings > Command line)? */
+export interface CliStatus {
+  /** ~/.local/bin/hang4r exists and is the link hang4r made to its shim */
+  installed: boolean
+  /** ~/.local/bin/hang4r */
+  linkPath: string
+  /** the userData shim the link must point at */
+  target: string
+  /** ~/.local/bin is on the login shell's PATH */
+  onPath: boolean
+}
+
 /** Main asks the renderer to open/navigate a session's Browser tab (goto with no live tab). */
 export interface BrowserEnsureTab {
   sessionId: string
@@ -608,6 +620,8 @@ export interface Hang4rApi {
   installCli(): Promise<CliInstallResult>
   /** remove that link, only if hang4r made it */
   uninstallCli(): Promise<CliInstallResult>
+  /** is the command installed now? Read-only: changes nothing on disk */
+  cliStatus(): Promise<CliStatus>
   bridgeDiagnostics(): Promise<LinkDiagnostics>
   onBridgeStatus(cb: (s: BridgeStatus) => void): () => void
   /** the phone opened this session — clear its bell/badge here too */

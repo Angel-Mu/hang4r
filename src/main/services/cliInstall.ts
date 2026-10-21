@@ -11,7 +11,7 @@ import {
 import { execFile } from 'node:child_process'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import type { CliInstallResult } from '../../shared/protocol'
+import type { CliInstallResult, CliStatus } from '../../shared/protocol'
 
 /** where the installed app lives when the one we were started from has moved or vanished */
 export const FALLBACK_APP = '/Applications/hang4r.app'
@@ -166,6 +166,17 @@ export async function installCli(opts: InstallOpts): Promise<CliInstallResult> {
       onPath: false,
       pathLine: null
     }
+  }
+}
+
+/** Read-only: is ~/.local/bin/hang4r the link installCli made? Touches nothing. */
+export async function cliStatus(opts: InstallOpts): Promise<CliStatus> {
+  const { dir, link } = linkLocation(opts.home ?? homedir())
+  return {
+    installed: isOurLink(link, opts.shimPath),
+    linkPath: link,
+    target: opts.shimPath,
+    onPath: (await pathReport(dir, opts.pathValue)).onPath
   }
 }
 

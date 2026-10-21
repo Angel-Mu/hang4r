@@ -23,7 +23,8 @@ const MCP_HELP = `hang4r mcp — stdio MCP server for driving hang4r from anothe
 USAGE
   hang4r mcp [--as <name>] [--launch]
 
-  --as <name>   Who is calling; shown in hang4r as "via <name>" (default: mcp)
+  --as <name>   Who is calling; shown in hang4r as "via <name>" (default: the MCP client's
+                own name from initialize, e.g. claude-code; "mcp" if it sends none)
   --launch      Start hang4r if it is not running (or HANG4R_AUTO_LAUNCH=1)
 
 ENV
@@ -74,6 +75,21 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     cmd: 'app.projects',
     build: () => ({})
+  },
+  {
+    name: 'hang4r_list_models',
+    description:
+      'List the model ids each backend (claude, codex, cursor) offers: backend, id, label, and which one is hang4r\'s ' +
+      'default. The `model` argument of hang4r_new_session takes an id from this list. Omit `backend` for all of them.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        backend: { type: 'string', enum: ['claude', 'codex', 'cursor'], description: 'Only this backend\'s models.' }
+      },
+      additionalProperties: false
+    },
+    cmd: 'app.models',
+    build: (a) => ({ backend: a.backend })
   },
   {
     name: 'hang4r_list_sessions',
@@ -331,11 +347,29 @@ async function runTool(tool, args, ctx) {
     const rest = { ...built, wait: false }
     delete rest.timeout
     const acted = await call(ctx, tool.cmd, rest)
-    result = await call(ctx, 'app.wait', {
-      sessionId: acted.session.id,
-      after: acted.after,
-      timeout: built.timeout
-    })
+    try {
+      result = await call(ctx, 'app.wait', {
+        sessionId: acted.session.id,
+        after: acted.after,
+        timeout: built.timeout
+      })
+    } catch (err) {
+      // The act succeeded and the turn is running (or done): losing its session id and
+      // `after` here would push the agent to re-send or create a duplicate session.
+      const f = failure(err)
+      return {
+        structured: {
+          ...f.structured,
+          sent: true,
+          session: acted.session,
+          after: acted.after,
+          hint:
+            'The prompt WAS delivered and the turn started; only the wait failed. Do NOT send again or create another ' +
+            'session. Call hang4r_wait with this session_id and `after` once hang4r is reachable (hang4r_status checks).'
+        },
+        isError: true
+      }
+    }
   } else {
     result = await call(ctx, tool.cmd, built)
   }
@@ -428,6 +462,11 @@ async function handleMessage(msg, ctx, state) {
     case 'initialize': {
       const asked = msg.params && msg.params.protocolVersion
       state.client = (msg.params && msg.params.clientInfo) || null
+      // origin defaults to the client's own name ("via claude-code"); --as wins
+      if (!ctx.explicitAs) {
+        const named = cleanCaller(state.client && state.client.name)
+        if (named) ctx.caller = named
+      }
       return reply({
         protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0],
         capabilities: { tools: {} },
@@ -456,8 +495,14 @@ async function handleMessage(msg, ctx, state) {
   }
 }
 
+/** Same scrub the app applies to a caller label (appControlService.cleanCaller). */
+function cleanCaller(v) {
+  if (typeof v !== 'string') return undefined
+  return v.replace(/[^\w.@:-]/g, '').slice(0, 40) || undefined
+}
+
 function parseMcpArgs(argv) {
-  const flags = { as: 'mcp', launch: false, help: false }
+  const flags = { as: undefined, launch: false, help: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--help' || a === '-h') flags.help = true
@@ -484,7 +529,7 @@ function runMcp(argv) {
     process.stdout.write(MCP_HELP)
     return Promise.resolve(EXIT.ok)
   }
-  const ctx = { caller: flags.as, launch: flags.launch, cap: waitCapS() }
+  const ctx = { caller: flags.as || 'mcp', explicitAs: !!flags.as, launch: flags.launch, cap: waitCapS() }
   const state = { client: null }
   process.stderr.write(`hang4r mcp: serving on stdio as "${ctx.caller}" (wait cap ${ctx.cap}s)\n`)
   return new Promise((resolve) => {

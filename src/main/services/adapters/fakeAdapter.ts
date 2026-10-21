@@ -56,7 +56,20 @@ export class FakeAdapter implements AgentAdapter {
     const turn = this.turn
     // carry images on the user event, exactly like the real adapters — so the
     // chat thumbnail (and its click-to-enlarge lightbox) is exercised in e2e
-    this.emit({ kind: 'user-text', text, label: echo?.displayText, images, files: echo?.files, origin: echo?.origin })
+    const userText: AgentEvent = {
+      kind: 'user-text',
+      text,
+      label: echo?.displayText,
+      images,
+      files: echo?.files,
+      origin: echo?.origin
+    }
+    // E2E only: "late user-text N" records the user turn N ms AFTER prompt() returns
+    // (status is already 'running' by then), like codexAdapter, which emits user-text
+    // from inside a promise callback rather than synchronously from prompt().
+    const late = /late user-text (\d+)/.exec(text)
+    if (late) setTimeout(() => this.emit(userText), Number(late[1]))
+    else this.emit(userText)
 
     // E2E only: "stray complete N" makes a late, duplicate turn-complete land N ms
     // after the prompt, whatever state the session is in by then (a real adapter's

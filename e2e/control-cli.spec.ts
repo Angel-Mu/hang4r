@@ -221,6 +221,23 @@ test.describe('control CLI', () => {
     await cli('sessions', 'interrupt', id)
   })
 
+  test('wait --after N is not held by a turn whose user-text lands late (codex writes it after running)', async () => {
+    const made = await cli('sessions', 'new', '--project', project, '--env', 'local')
+    const id = made.json.session.id
+    const a = await cli('sessions', 'send', id, 'quick one')
+    expect(a.status).toBe(0)
+    // B is already `running` but its user-text is not in the transcript for 1500ms
+    const b = await cli('sessions', 'send', id, 'late user-text 1500 slow turn 6000')
+    expect(b.status).toBe(0)
+    expect(b.json.session.status).toBe('running')
+    const t0 = Date.now()
+    const w = await cli('sessions', 'wait', id, '--after', String(a.json.after), '--timeout', '5')
+    expect(w.json.reason).toBe('turn-complete')
+    expect(w.json.result).not.toContain('slow turn')
+    expect(Date.now() - t0).toBeLessThan(4000)
+    await cli('sessions', 'interrupt', id)
+  })
+
   test('permission: wait exits 3 with the request, stays pending, respond allow completes; a dead request exits 7', async () => {
     const made = await cli('sessions', 'new', 'ask permission', '--project', project, '--env', 'local')
     const id = made.json.session.id
@@ -550,6 +567,35 @@ test('installCli over IPC is wired (HOME redirected so the real one is never tou
   }
 })
 
+test('wait --after N is not held through the next turn\'s starting claim', async () => {
+  // B's claim sets `starting` before B's user-text exists (a worktree rebuild, or the
+  // missing-worktree dialog, can park it there). A's wait must not sit through that.
+  const l = await launchApp({ env: { HANG4R_TEST_CLAIM_DELAY_MS: '2500' } })
+  try {
+    const repo = makeScratchRepo()
+    await createProject(l.page, repo)
+    const env = { HANG4R_USER_DATA: l.userDataDir }
+    const made = await runCli(['sessions', 'new', '--project', basename(repo), '--env', 'local'], env)
+    const id = made.json.session.id
+    const a = await runCli(['sessions', 'send', id, 'quick one'], env)
+    expect(a.status).toBe(0)
+    const bSend = runCli(['sessions', 'send', id, 'slow turn 6000'], env) // parks in the claim
+    await expect
+      .poll(async () => (await runCli(['sessions', 'show', id], env)).json?.session?.status, {
+        timeout: 2000
+      })
+      .toBe('starting')
+    const t0 = Date.now()
+    const w = await runCli(['sessions', 'wait', id, '--after', String(a.json.after), '--timeout', '2'], env)
+    expect(w.json.reason).toBe('turn-complete')
+    expect(Date.now() - t0).toBeLessThan(1500)
+    await bSend
+    await runCli(['sessions', 'interrupt', id], env)
+  } finally {
+    await l.app.close().catch(() => {})
+  }
+})
+
 test('wait is not re-evaluated per streamed token', () => {
   // waiters are poked from the same broadcast the renderer gets, which carries every
   // block-delta. Only events that can end or block a turn, and status changes, may wake one.
@@ -575,15 +621,16 @@ test('wait is not re-evaluated per streamed token', () => {
   svc.onAgentEvent(ev(903, { kind: 'permission-resolved' }))
   svc.onAgentEvent(ev(904, { kind: 'question-request' }))
   svc.onAgentEvent(ev(905, { kind: 'question-resolved' }))
-  expect(wakes).toBe(6)
+  svc.onAgentEvent(ev(906, { kind: 'user-text' }))
+  expect(wakes).toBe(7)
 
   const upd = (status: string): never => ({ id: 's1', status }) as never
   svc.onSessionUpdated(upd('running')) // first sighting
   svc.onSessionUpdated(upd('running')) // a title/cost edit: same status
   svc.onSessionUpdated(upd('running'))
-  expect(wakes).toBe(7)
-  svc.onSessionUpdated(upd('idle'))
   expect(wakes).toBe(8)
+  svc.onSessionUpdated(upd('idle'))
+  expect(wakes).toBe(9)
 })
 
 test('--launch only honors HANG4R_LAUNCH_CMD under the fake-agent env', async () => {

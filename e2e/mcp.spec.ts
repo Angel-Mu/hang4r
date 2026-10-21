@@ -107,6 +107,7 @@ test.describe('hang4r mcp', () => {
   const NAMES = [
     'hang4r_status',
     'hang4r_list_projects',
+    'hang4r_list_models',
     'hang4r_list_sessions',
     'hang4r_new_session',
     'hang4r_show_session',
@@ -151,7 +152,7 @@ test.describe('hang4r mcp', () => {
     expect(await c.close()).toBe(0)
   })
 
-  test('new_session wait:true returns turn-complete; origin is mcp, or the --as name', async () => {
+  test('new_session wait:true returns turn-complete; origin is the client name, or the --as name', async () => {
     const c = new McpClient(env)
     await c.init()
     const projects = await c.tool('hang4r_list_projects')
@@ -161,7 +162,7 @@ test.describe('hang4r mcp', () => {
     expect(r.s.reason).toBe('turn-complete')
     expect(r.s.result).toBeTruthy()
     expect(r.s.session.status).toBe('idle')
-    expect(r.s.session.origin).toBe('cli:mcp')
+    expect(r.s.session.origin).toBe('cli:e2e') // initialize clientInfo.name
     const listed = await c.tool('hang4r_list_sessions')
     expect(listed.s.sessions.map((s: { id: string }) => s.id)).toContain(r.s.session.id)
     const shown = await c.tool('hang4r_show_session', { session_id: r.s.session.id })
@@ -173,6 +174,57 @@ test.describe('hang4r mcp', () => {
     const r2 = await h.tool('hang4r_new_session', { project, env: 'local', prompt: 'hello', wait: true })
     expect(r2.s.session.origin).toBe('cli:hermes')
     await h.close()
+  })
+
+  test('origin falls back to "mcp" without clientInfo, and the client name is scrubbed like --as', async () => {
+    const bare = new McpClient(env)
+    await bare.request('initialize', { protocolVersion: '2025-06-18', capabilities: {} })
+    const r = await bare.tool('hang4r_new_session', { project, env: 'local', prompt: 'hi', wait: true })
+    expect(r.s.session.origin).toBe('cli:mcp')
+    await bare.close()
+
+    const c = new McpClient(env)
+    await c.init('claude-code')
+    const r2 = await c.tool('hang4r_new_session', { project, env: 'local', prompt: 'hi', wait: true })
+    expect(r2.s.session.origin).toBe('cli:claude-code')
+    await c.close()
+
+    const dirty = new McpClient(env)
+    await dirty.init('Weird Client!/v2')
+    const r3 = await dirty.tool('hang4r_new_session', { project, env: 'local', prompt: 'hi', wait: true })
+    expect(r3.s.session.origin).toBe('cli:WeirdClientv2')
+    await dirty.close()
+
+    const as = new McpClient(env, ['--as', 'hermes'])
+    await as.init('claude-code')
+    const r4 = await as.tool('hang4r_new_session', { project, env: 'local', prompt: 'hi', wait: true })
+    expect(r4.s.session.origin).toBe('cli:hermes') // --as overrides
+    await as.close()
+  })
+
+  test('list_models mirrors `hang4r models`', async () => {
+    const c = new McpClient(env)
+    await c.init()
+    const all = await c.tool('hang4r_list_models')
+    expect(all.isError).toBe(false)
+    const claude = await c.tool('hang4r_list_models', { backend: 'claude' })
+    expect(claude.s.models.length).toBeGreaterThan(0)
+    expect(claude.s.models.every((m: { backend: string }) => m.backend === 'claude')).toBe(true)
+    expect(claude.s.models[0]).toEqual(
+      expect.objectContaining({ backend: 'claude', id: expect.any(String), label: expect.any(String), default: expect.any(Boolean) })
+    )
+    const viaCli = await new Promise<{ models: unknown[] }>((resolve) => {
+      const ch = spawn('node', [CLI, 'models', '--backend', 'claude', '--json'], {
+        env: { ...process.env, HANG4R_CTL_SOCK: '', HANG4R_CTL_TOKEN: '', ...env }
+      })
+      let out = ''
+      ch.stdout.on('data', (d) => (out += d))
+      ch.on('close', () => resolve(JSON.parse(out)))
+    })
+    expect(claude.s.models).toEqual(viaCli.models)
+    expect(all.s.models.length).toBeGreaterThanOrEqual(claude.s.models.length)
+    expect((await c.tool('hang4r_list_models', { backend: 'gpt' })).isError).toBe(true)
+    await c.close()
   })
 
   test('send while busy is a busy result, not an error; interrupt frees it', async () => {
@@ -276,4 +328,38 @@ test.describe('hang4r mcp', () => {
     expect((await c.request('ping')).result).toEqual({})
     await c.close()
   })
+})
+
+test('wait:true: the app dies after the send succeeded, the error still carries session id and after', async () => {
+  const l = await launchApp()
+  const c = new McpClient({ HANG4R_USER_DATA: l.userDataDir })
+  try {
+    const repo = makeScratchRepo()
+    await createProject(l.page, repo)
+    await c.init()
+    const call = c.tool('hang4r_new_session', {
+      project: basename(repo),
+      env: 'local',
+      prompt: 'slow turn 8000',
+      wait: true
+    })
+    // the send has landed once the session is running; the wait call is then in flight
+    await expect
+      .poll(async () => (await l.page.evaluate(() => window.hang4r.listSessions())).map((s) => s.status), {
+        timeout: 10_000
+      })
+      .toContain('running')
+    const sid = (await l.page.evaluate(() => window.hang4r.listSessions()))[0].id
+    await l.app.close() // quit: the socket under the wait goes away
+    const r = await call
+    expect(r.isError).toBe(true)
+    expect(r.s.code).toBeTruthy()
+    expect(r.s.sent).toBe(true)
+    expect(r.s.session.id).toBe(sid)
+    expect(typeof r.s.after).toBe('number')
+    expect(r.s.hint).toMatch(/Do NOT send again/)
+  } finally {
+    await c.close()
+    await l.app.close().catch(() => {})
+  }
 })

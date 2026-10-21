@@ -70,7 +70,10 @@ const WAKE_KINDS = new Set<string>([
   'permission-request',
   'permission-resolved',
   'question-request',
-  'question-resolved'
+  'question-resolved',
+  // a newer turn's user-text is what releases a hold on the previous boundary
+  // (codex records it asynchronously, after the status is already `running`)
+  'user-text'
 ])
 
 const RESULT_CAP = 20_000
@@ -479,12 +482,16 @@ export class AppControlService {
     // The transcript event is broadcast BEFORE sessionManager flips the status, so
     // resolving on the event alone returned a `session` still saying "running".
     // Hold the outcome until the flip lands: onSessionUpdated pokes us again.
-    // Only while `ended` is still the latest turn boundary: once a user-text follows
-    // it, the running/starting status belongs to a NEWER turn (a queued flush or the
-    // phone started B), and holding would block on B or drop A's result at timeout.
+    // Only while `running`, never `starting`: the stale status this hold waits out is
+    // `running` (the ended turn's). A claim's `starting` belongs to the NEXT turn, whose
+    // user-text does not exist yet and which can sit there through a worktree rebuild
+    // or the missing-worktree dialog.
+    // And only while `ended` is still the latest turn boundary: once a user-text follows
+    // it, the running status belongs to a NEWER turn (a queued flush or the phone
+    // started B), and holding would block on B or drop A's result at timeout.
     if (
       ended &&
-      (session.status === 'running' || session.status === 'starting') &&
+      session.status === 'running' &&
       !this.deps.store.firstEventOfKindsAfter(sessionId, ended.seq, ['user-text'])
     ) {
       return null

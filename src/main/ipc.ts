@@ -40,7 +40,7 @@ import { buildSharedApi } from './services/sharedApi'
 import type { BridgeSidebarState } from '../shared/bridge'
 import { BrowserControlService } from './services/browserControlService'
 import { AppControlService } from './services/appControlService'
-import { installCli, uninstallCli } from './services/cliInstall'
+import { cliStatus, installCli, uninstallCli } from './services/cliInstall'
 import QRCode from 'qrcode'
 import { CursorImport } from './services/cursorImport'
 import { ClaudeImport } from './services/claudeImport'
@@ -751,6 +751,9 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   )
   ipcMain.handle('cli:uninstall', () =>
     uninstallCli({ shimPath: browserControl!.shimPath, appPath: process.execPath })
+  )
+  ipcMain.handle('cli:status', () =>
+    cliStatus({ shimPath: browserControl!.shimPath, appPath: process.execPath })
   )
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('settings:get', (_e, key: string) => settings.getSetting(key))

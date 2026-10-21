@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { shownUserText } from '../../../shared/userText'
-import { isSessionBusyError } from '../../../shared/sessionBusy'
+import { isClaimRevokedError, isSessionBusyError } from '../../../shared/sessionBusy'
 import { applyTheme, type Theme } from '../theme'
 
 /** Which side of a previewable file's Preview/Source toggle it opens on. */
@@ -1482,6 +1482,23 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         displayText !== full ? displayText : undefined
       )
     } catch (err) {
+      if (isClaimRevokedError(err)) {
+        // Stop / archive / hand-off voided the send before the turn started. The
+        // draft and attachments were already cleared, so GIVE THEM BACK rather
+        // than queueing: the session is idle, so nothing would flush a queue, and
+        // a Stop is not a request to send anyway. Ahead of anything typed since.
+        set((s) => {
+          const cur = s.drafts[sessionId] ?? ''
+          return {
+            drafts: { ...s.drafts, [sessionId]: cur ? text + '\n' + cur : text },
+            attachments: {
+              ...s.attachments,
+              [sessionId]: [...atts, ...(s.attachments[sessionId] ?? [])]
+            }
+          }
+        })
+        return
+      }
       if (!isSessionBusyError(err)) throw err
       // Lost the race: someone else (the CLI, a phone) took the turn between our
       // idle snapshot and main's claim. The draft and attachments are already
@@ -1577,7 +1594,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       // Someone else (the CLI, a phone) took the turn first: main refuses a second
       // concurrent prompt. The message was explicit user intent — put it back at
       // the FRONT; the next running → idle transition flushes it again.
-      if (!isSessionBusyError(err)) throw err
+      // (a revoked claim — Stop landed first — holds it the same way: still queued,
+      // visible, and sendable, never lost to an unhandled rejection)
+      if (!isSessionBusyError(err) && !isClaimRevokedError(err)) throw err
       set((s) => ({
         messageQueue: {
           ...s.messageQueue,

@@ -38,7 +38,6 @@ export interface PromptExtra {
 /** E2E/loop verification mode: use a deterministic in-process agent. */
 const FAKE_AGENT = process.env.HANG4R_FAKE_AGENT === '1'
 /** a claim voided by Stop / archive / hand-off before its turn started */
-export const CLAIM_REVOKED_MESSAGE = 'The turn was cancelled before it started (the session was stopped).'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -62,7 +61,11 @@ import {
 import { resolveBackgroundTaskState } from './backgroundTask'
 import { asyncAgentId } from '../../shared/asyncAgentLaunch'
 import { AUTO_CONTINUE_LABEL, sentUserText } from '../../shared/userText'
-import { SESSION_BUSY_MESSAGE, WORKTREE_MISSING_MESSAGE } from '../../shared/sessionBusy'
+import {
+  CLAIM_REVOKED_MESSAGE,
+  SESSION_BUSY_MESSAGE,
+  WORKTREE_MISSING_MESSAGE
+} from '../../shared/sessionBusy'
 import { askWorktreeChoice } from '../worktreeAsk'
 import type { Store } from './store'
 import type { SettingsService } from './settingsService'
@@ -501,6 +504,9 @@ export class SessionManager {
     if (
       session.status === 'running' ||
       session.status === 'starting' ||
+      // a held claim outranks the status: a stray turn-complete can flip a claimed
+      // session to idle, and a second claimer must not replace the token under it
+      this.claims.has(sessionId) ||
       (!asRewind && this.rewinding.has(sessionId))
     ) {
       throw new Error(SESSION_BUSY_MESSAGE)
@@ -548,6 +554,10 @@ export class SessionManager {
     } catch {
       /* re-sync must never block a prompt */
     }
+    // E2E only: hold the claim open even when an adapter is alive (ensureWorkdir's
+    // delay only applies when there is none)
+    const claimDelay = FAKE_AGENT ? Number(process.env.HANG4R_TEST_CLAIM_DELAY_MS) || 0 : 0
+    if (claimDelay > 0) await new Promise((r) => setTimeout(r, claimDelay))
     this.assertClaim(sessionId, token)
     const session = this.store.getSession(sessionId)
     if (!session) throw new Error(`Unknown session: ${sessionId}`)
@@ -1370,9 +1380,13 @@ export class SessionManager {
       const adapter = await this.ensureAdapter(sessionId)
       this.assertClaim(sessionId, claim.token)
       const truncated = (await adapter.rewindTurns?.(turns)) ?? false
+      // Truncate BEFORE asserting: once the backend has rolled back, hang4r's
+      // transcript must follow even if Stop / archive revoked the claim during
+      // the await. Asserting first left the turns on screen while Codex had
+      // dropped them, and the next prompt continued a diverged conversation.
+      if (truncated) this.truncateTranscript(sessionId, target.seq)
       this.assertClaim(sessionId, claim.token)
       if (truncated) {
-        this.truncateTranscript(sessionId, target.seq)
         const agentText = this.writeImageAttachments(session, newText, images)
         adapter.prompt(agentText, images, agentText !== newText ? { displayText: newText } : undefined)
         this.claims.delete(sessionId)
@@ -1529,6 +1543,7 @@ export class SessionManager {
    *  wedged it) stays and can be restored. */
   async deleteSession(sessionId: string): Promise<void> {
     const session = this.store.getSession(sessionId)
+    this.revokeClaim(sessionId) // a prompt parked in an await must not spawn for a ghost
     this.adapters.get(sessionId)?.dispose()
     this.adapters.delete(sessionId)
     this.spawnedPermissionMode.delete(sessionId)
@@ -1557,6 +1572,7 @@ export class SessionManager {
   }
 
   disposeAll(): void {
+    this.claims.clear()
     for (const adapter of this.adapters.values()) adapter.dispose()
     this.adapters.clear()
     this.spawnedPermissionMode.clear()
@@ -1623,8 +1639,10 @@ export class SessionManager {
     // e2e only: widen the await window a prompt/rewind spends here, so the claim
     // races in e2e/claim-revoke.spec.ts are deterministic
     const testDelay = FAKE_AGENT && recreate ? Number(process.env.HANG4R_TEST_WORKDIR_DELAY_MS) : 0
-    if (testDelay > 0) await new Promise((r) => setTimeout(r, testDelay))
+    // after the lookup, like the real slow part (git worktree rebuild): the session
+    // can vanish while we are parked here, and the caller must notice
     const session = this.requireSession(sessionId)
+    if (testDelay > 0) await new Promise((r) => setTimeout(r, testDelay))
     if (session.environment === 'ssh') return session.cwd // remote path — not ours to create
     if (existsSync(session.cwd)) return session.cwd
     if (session.environment !== 'worktree') return session.cwd
@@ -1692,6 +1710,7 @@ export class SessionManager {
     const session = this.store.getSession(sessionId)
     if (!session) return undefined
     if (session.environment !== 'worktree') return session // no-op for local/ssh
+    this.revokeClaim(sessionId) // a parked prompt would spawn into the dir being removed
     this.adapters.get(sessionId)?.dispose() // release the dir before removing it
     this.adapters.delete(sessionId)
     const project = this.store.getProject(session.projectId)

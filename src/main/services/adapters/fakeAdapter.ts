@@ -58,6 +58,18 @@ export class FakeAdapter implements AgentAdapter {
     // chat thumbnail (and its click-to-enlarge lightbox) is exercised in e2e
     this.emit({ kind: 'user-text', text, label: echo?.displayText, images, files: echo?.files, origin: echo?.origin })
 
+    // E2E only: "stray complete N" makes a late, duplicate turn-complete land N ms
+    // after the prompt, whatever state the session is in by then (a real adapter's
+    // lagging end-of-turn, which the claim lock must survive). Not cleared by
+    // interrupt(), unlike a slow turn's own completion.
+    const stray = /stray complete (\d+)/.exec(text)
+    if (stray) {
+      setTimeout(
+        () => this.emit({ kind: 'turn-complete', isError: false, result: 'stray' }),
+        Number(stray[1])
+      )
+    }
+
     // a turn that takes real time ("slow turn" = 1500ms, "slow turn 600" = 600ms):
     // the window the prompt-lock and wait-correlation e2e specs need to act in.
     // Ends on its own, unlike 'agents still working', which only an interrupt ends.
@@ -732,6 +744,9 @@ export class FakeAdapter implements AgentAdapter {
    * sessionManager truncates the stored transcript — so acknowledging is enough.
    */
   async rewindTurns(turns: number): Promise<boolean> {
+    // E2E only: widen the window a real thread/rollback round-trip leaves open
+    const ms = Number(process.env.HANG4R_TEST_REWIND_DELAY_MS) || 0
+    if (ms > 0) await new Promise((r) => setTimeout(r, ms))
     return turns > 0
   }
 

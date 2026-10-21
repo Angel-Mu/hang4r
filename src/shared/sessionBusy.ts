@@ -22,3 +22,13 @@ export function isWorktreeMissingError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return msg.includes(WORKTREE_MISSING_MARKER)
 }
+
+/** a prompt's claim was revoked (Stop / archive / delete / hand-off) before it started */
+export const CLAIM_REVOKED_MARKER = 'hang4r:claim-revoked'
+
+export const CLAIM_REVOKED_MESSAGE = `The turn was cancelled before it started (the session was stopped) (${CLAIM_REVOKED_MARKER}).`
+
+export function isClaimRevokedError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.includes(CLAIM_REVOKED_MARKER)
+}

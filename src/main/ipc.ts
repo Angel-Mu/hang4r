@@ -35,9 +35,12 @@ import type {
 } from '../shared/protocol'
 import { SessionManager } from './services/sessionManager'
 import { BridgeService } from './services/bridgeService'
-import { eventPage, slimHistory } from './services/bridgeHistory'
-import type { BridgeEventPageOpts, BridgeSidebarState } from '../shared/bridge'
+import { slimHistory } from './services/bridgeHistory'
+import { buildSharedApi } from './services/sharedApi'
+import type { BridgeSidebarState } from '../shared/bridge'
 import { BrowserControlService } from './services/browserControlService'
+import { AppControlService } from './services/appControlService'
+import { installCli, uninstallCli } from './services/cliInstall'
 import QRCode from 'qrcode'
 import { CursorImport } from './services/cursorImport'
 import { ClaudeImport } from './services/claudeImport'
@@ -65,8 +68,12 @@ export function getPtyService(): PtyService | null {
 }
 
 let browserControl: BrowserControlService | null = null
+let appControl: AppControlService | null = null
 export function getBrowserControl(): BrowserControlService | null {
   return browserControl
+}
+export function getAppControl(): AppControlService | null {
+  return appControl
 }
 
 let bridgeService: BridgeService | null = null
@@ -300,6 +307,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
         win.webContents.send('agent-event', ev)
       }
       bridgeService?.onAgentEvent(ev)
+      appControl?.onAgentEvent(ev)
       // persist the environment snapshot so the Env panel has it after an app
       // restart (sessions are idle until the next turn — no live init event)
       if (ev.event.kind === 'init') {
@@ -316,6 +324,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
         win.webContents.send('session-updated', session)
       }
       bridgeService?.onSessionUpdated(session)
+      appControl?.onSessionUpdated(session)
     },
     transcriptReset(sessionId: string) {
       for (const win of BrowserWindow.getAllWindows()) {
@@ -339,34 +348,26 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     get: (k: string) => settings.getSetting(k),
     set: (k: string, v: string) => settings.setSetting(k, v)
   }
+  // handlers the control socket also uses live in sharedApi.ts; each surface
+  // keeps its own allowlist (BRIDGE_METHODS here, CTL_METHODS in appControlService)
+  const shared = buildSharedApi({ store, sessions, settings })
+  // the `hang4r sessions …` namespace on ctl.sock — same SessionManager, own allowlist
+  appControl = new AppControlService({
+    store,
+    sessions,
+    settings,
+    api: shared,
+    userData: app.getPath('userData'),
+    version: app.getVersion()
+  })
+  browserControl.setAppHandler((req, signal) => appControl!.handle(req, signal))
   const bridgeApi: Record<string, (...args: never[]) => unknown> = {
-    listProjects: () => store.listProjects(),
-    listSessions: () => store.listSessions(),
-    listArchivedSessions: () => store.listArchivedSessions(),
+    ...shared,
     getSessionEvents: (sessionId: string) => slimHistory(store.getEvents(sessionId)),
-    getSessionEventsPage: (sessionId: string, opts?: BridgeEventPageOpts) =>
-      eventPage(
-        {
-          backward: (before) => store.iterateEventsBackward(sessionId, before),
-          latest: (kind, before) => store.latestEventOfKind(sessionId, kind, before)
-        },
-        {
-          before: typeof opts?.before === 'number' ? opts.before : undefined,
-          budget:
-            (typeof opts?.budget === 'number' ? opts.budget : undefined) ??
-            (Number(process.env.HANG4R_TEST_BRIDGE_PAGE_BYTES) || undefined)
-        }
-      ),
     prompt: (sessionId: string, text: string, images?: PromptImage[]) =>
       sessions.prompt(sessionId, text, images),
-    interrupt: (sessionId: string) => sessions.interrupt(sessionId),
     createSession: (req: NewSessionRequest) => sessions.createSession(req),
-    respondPermission: (sessionId: string, requestId: string, decision: string) =>
-      sessions.respondPermission(sessionId, requestId, decision),
-    respondQuestion: (sessionId: string, requestId: string, answers: QuestionAnswer[]) =>
-      sessions.respondQuestion(sessionId, requestId, answers),
     renameSession: (sessionId: string, title: string) => void sessions.rename(sessionId, title),
-    archiveSession: (sessionId: string) => sessions.archive(sessionId),
     unarchiveSession: (sessionId: string) => store.updateSession(sessionId, { status: 'idle' }),
     retrySession: (sessionId: string) => sessions.retry(sessionId),
     rewindSession: (
@@ -380,10 +381,6 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
         settings.getSetting('codexBinaryPath'),
         settings.getSetting('cursorBinaryPath')
       ),
-    listCodexModels: () => CodexModelService.list(settings.getSetting('codexBinaryPath')),
-    listCursorModels: () => CursorModelService.list(settings.getSetting('cursorBinaryPath')),
-    resolveAgentDefault: (backend: BackendId, field: 'model' | 'permissionMode', projectId?: string) =>
-      settings.resolveAgentDefault(backend, field, projectId),
     scopeSummary: (sessionId: string) => sessions.scopeSummary(sessionId),
     scopedFiles: (sessionId: string, scope: DiffScope) => sessions.scopedFiles(sessionId, scope),
     scopedDiff: (sessionId: string, scope: DiffScope, path: string, ignoreWs?: boolean) =>
@@ -396,9 +393,6 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       UsageService.codexUsage(settings.getSetting('codexBinaryPath'), force, usagePersist),
     cursorUsage: (force?: boolean) =>
       UsageService.cursorUsage(settings.getSetting('cursorBinaryPath'), force, usagePersist),
-    appVersion: () => app.getVersion(),
-    agentAlive: (sessionId: string) => sessions.agentAlive(sessionId),
-    currentBranch: (sessionId: string) => sessions.currentBranch(sessionId),
     resyncSession: (sessionId: string) => sessions.resyncAndRecover(sessionId),
     // the phone opened this session — clear every "come look" signal here:
     // dock badge, sidebar bell, and the macOS notification banners
@@ -752,6 +746,12 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     const branch = await GitService.currentBranch(s.cwd).catch(() => null)
     return branch ? GitService.prStatus(s.cwd, branch) : null
   })
+  ipcMain.handle('cli:install', () =>
+    installCli({ shimPath: browserControl!.shimPath, appPath: process.execPath })
+  )
+  ipcMain.handle('cli:uninstall', () =>
+    uninstallCli({ shimPath: browserControl!.shimPath, appPath: process.execPath })
+  )
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('settings:get', (_e, key: string) => settings.getSetting(key))
   ipcMain.handle('settings:set', (_e, key: string, value: string) => settings.setSetting(key, value))

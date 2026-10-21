@@ -549,6 +549,21 @@ export interface BrowserGuestReport {
   tabs: BrowserGuestTab[]
 }
 
+/** Outcome of installing/removing the global `hang4r` command (~/.local/bin/hang4r). */
+export interface CliInstallResult {
+  ok: boolean
+  reason?: 'translocated' | 'exists' | 'error'
+  message: string
+  /** ~/.local/bin/hang4r */
+  linkPath: string
+  /** the userData shim the link points at */
+  target: string
+  /** ~/.local/bin is on the login shell's PATH */
+  onPath: boolean
+  /** the exact line to add to a shell profile when it is not */
+  pathLine: string | null
+}
+
 /** Main asks the renderer to open/navigate a session's Browser tab (goto with no live tab). */
 export interface BrowserEnsureTab {
   sessionId: string
@@ -589,6 +604,10 @@ export interface Hang4rApi {
   bridgeRepair(): Promise<{ url: string; qrDataUrl: string }>
   /** replace the relay socket now, keeping the pairing */
   bridgeReconnect(): Promise<BridgeStatus>
+  /** symlink ~/.local/bin/hang4r to the app's CLI shim (refuses under AppTranslocation) */
+  installCli(): Promise<CliInstallResult>
+  /** remove that link, only if hang4r made it */
+  uninstallCli(): Promise<CliInstallResult>
   bridgeDiagnostics(): Promise<LinkDiagnostics>
   onBridgeStatus(cb: (s: BridgeStatus) => void): () => void
   /** the phone opened this session — clear its bell/badge here too */

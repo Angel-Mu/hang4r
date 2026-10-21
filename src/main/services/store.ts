@@ -345,6 +345,31 @@ export class Store {
     }
   }
 
+  /** Newest event seq in a session's transcript (0 when it has none). */
+  latestSeq(sessionId: string): number {
+    const r = this.db
+      .prepare('SELECT MAX(id) AS id FROM session_events WHERE session_id = ?')
+      .get(sessionId) as { id: number | null }
+    return r.id ?? 0
+  }
+
+  /** The OLDEST event of any of `kinds` with seq > `after`, or undefined. */
+  firstEventOfKindsAfter(
+    sessionId: string,
+    after: number,
+    kinds: string[]
+  ): SessionEvent | undefined {
+    const marks = kinds.map(() => '?').join(',')
+    const r = this.db
+      .prepare(
+        `SELECT id, ts, event_json FROM session_events
+         WHERE session_id = ? AND id > ? AND json_extract(event_json, '$.kind') IN (${marks})
+         ORDER BY id LIMIT 1`
+      )
+      .get(sessionId, after, ...kinds) as { id: number; ts: number; event_json: string } | undefined
+    return r && { sessionId, seq: r.id, ts: r.ts, event: JSON.parse(r.event_json) }
+  }
+
   latestEventOfKind(sessionId: string, kind: string, before: number): SessionEvent | undefined {
     const r = this.db
       .prepare(

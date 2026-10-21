@@ -434,14 +434,10 @@ export class SessionManager {
   }
 
   /**
-   * Send a turn. The session is CLAIMED (status → 'starting') before the first
-   * await and a prompt that finds a turn already in flight is rejected with
-   * SESSION_BUSY_MESSAGE — for every caller (renderer, phone bridge, control CLI).
-   * Without the claim, two prompts reaching main on the same idle edge both got
-   * past the busy check (everything below awaits before it flips the status to
-   * 'running') and were both handed to the adapter: two turns in flight at once.
-   * `extra.origin` labels a turn sent by an external driver ("cli:buzz"); such a
-   * caller also never gets the modal worktree question (see PromptExtra).
+   * Send a turn. Claims the session (status -> 'starting') before the first await
+   * and rejects with SESSION_BUSY_MESSAGE if a turn is already in flight, for every
+   * caller; see e2e/prompt-lock.spec.ts for the race this closes.
+   * `extra` is set only by headless drivers (the control socket).
    */
   async prompt(
     sessionId: string,

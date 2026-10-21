@@ -97,6 +97,9 @@ export interface SessionMeta {
    *  live + its conversation searchable; opening it no longer resurrects the
    *  worktree. Cleared when the worktree is recreated. */
   worktreeDropped?: boolean
+  /** set only on sessions created by an external driver (hang4r CLI / MCP):
+   *  "cli:<caller>" | "mcp:<caller>". The caller name is self-declared, display only. */
+  origin?: string | null
 }
 
 /* ---------------- Diff & review ---------------- */
@@ -380,6 +383,9 @@ export type AgentEvent =
       kind: 'user-text'
       text: string
       label?: string
+      /** set when an EXTERNAL driver (hang4r CLI, MCP) sent this turn: "cli:<caller>".
+       *  Display only — `text` is still exactly what the agent received. */
+      origin?: string
       images?: PromptImage[]
       files?: PromptFile[]
     }
@@ -543,6 +549,31 @@ export interface BrowserGuestReport {
   tabs: BrowserGuestTab[]
 }
 
+/** Outcome of installing/removing the global `hang4r` command (~/.local/bin/hang4r). */
+export interface CliInstallResult {
+  ok: boolean
+  reason?: 'translocated' | 'exists' | 'error'
+  message: string
+  /** ~/.local/bin/hang4r */
+  linkPath: string
+  /** the userData shim the link points at */
+  target: string
+  /** ~/.local/bin is on the login shell's PATH */
+  onPath: boolean
+  /** the exact line to add to a shell profile when it is not */
+  pathLine: string | null
+}
+
+/** Read-only: is the `hang4r` command installed right now (Settings > Command line)? */
+export interface CliStatus {
+  /** ~/.local/bin/hang4r exists and is the link hang4r made to its shim */
+  installed: boolean
+  /** ~/.local/bin/hang4r */
+  linkPath: string
+  /** the userData shim the link must point at */
+  target: string
+}
+
 /** Main asks the renderer to open/navigate a session's Browser tab (goto with no live tab). */
 export interface BrowserEnsureTab {
   sessionId: string
@@ -583,6 +614,12 @@ export interface Hang4rApi {
   bridgeRepair(): Promise<{ url: string; qrDataUrl: string }>
   /** replace the relay socket now, keeping the pairing */
   bridgeReconnect(): Promise<BridgeStatus>
+  /** symlink ~/.local/bin/hang4r to the app's CLI shim (refuses under AppTranslocation) */
+  installCli(): Promise<CliInstallResult>
+  /** remove that link, only if hang4r made it */
+  uninstallCli(): Promise<CliInstallResult>
+  /** is the command installed now? Read-only: changes nothing on disk */
+  cliStatus(): Promise<CliStatus>
   bridgeDiagnostics(): Promise<LinkDiagnostics>
   onBridgeStatus(cb: (s: BridgeStatus) => void): () => void
   /** the phone opened this session — clear its bell/badge here too */

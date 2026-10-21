@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { shownUserText } from '../../../shared/userText'
+import { isClaimRevokedError, isSessionBusyError } from '../../../shared/sessionBusy'
 import { applyTheme, type Theme } from '../theme'
 
 /** Which side of a previewable file's Preview/Source toggle it opens on. */
@@ -116,6 +117,8 @@ export type TranscriptItem =
       text: string
       images?: { base64: string; mediaType: string }[]
       files?: PromptFile[]
+      /** "cli:<caller>" when an external driver sent this turn (display only) */
+      origin?: string
     }
   | {
       type: 'block'
@@ -189,6 +192,18 @@ export interface Transcript {
   lastSeq: number
   /** earlier turns exist on disk and were not loaded */
   truncated?: boolean
+}
+
+/** A user action lost the turn race (main refused a second concurrent prompt) and
+ *  has no queue to fall back on: say so rather than failing silently. */
+function noticeSessionBusy(what: string): void {
+  useHang4r.setState({
+    lightbox: {
+      text: `${what}: the session is busy with another turn. Try again when it finishes.`,
+      kind: 'text',
+      alt: 'Session busy'
+    }
+  })
 }
 
 function emptyTranscript(): Transcript {
@@ -312,7 +327,7 @@ async function loadTranscriptData(sessionId: string, allTurns = false): Promise<
 export function applyEvent(t: Transcript, ev: AgentEvent): void {
   switch (ev.kind) {
     case 'user-text':
-      t.items.push({ type: 'user', text: shownUserText(ev), images: ev.images, files: ev.files })
+      t.items.push({ type: 'user', text: shownUserText(ev), images: ev.images, files: ev.files, origin: ev.origin })
       break
     case 'external-turn':
       t.items.push({ type: 'external-turn', role: ev.role, text: ev.text })
@@ -787,6 +802,43 @@ let subscribed = false
 let urlOpenSeq = 0
 let unseenSyncWired = false
 
+/** per-session tail of the queue-flush chain (see flushQueue) */
+const flushChains = new Map<string, Promise<void>>()
+
+async function flushHead(sessionId: string): Promise<void> {
+  const q = useHang4r.getState().messageQueue[sessionId] ?? []
+  if (q.length === 0) return
+  const [next, ...rest] = q
+  useHang4r.setState((s) => ({ messageQueue: { ...s.messageQueue, [sessionId]: rest } }))
+  const { full, images, files, displayText } = composeMessage(next.text, next.attachments)
+  try {
+    await window.hang4r.prompt(
+      sessionId,
+      full,
+      images.length ? images : undefined,
+      files.length ? files : undefined,
+      // pass the display echo whenever it DIFFERS from the agent text — file cards
+      // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
+      // files.length, which dropped snippet-only quotes → they echoed the fenced
+      // `full` and rendered as a code block instead of a blockquote (Angel).
+      displayText !== full ? displayText : undefined
+    )
+  } catch (err) {
+    // Someone else (the CLI, a phone) took the turn first: main refuses a second
+    // concurrent prompt. The message was explicit user intent — put it back at
+    // the FRONT; the next running → idle transition flushes it again.
+    // (a revoked claim — Stop landed first — holds it the same way: still queued,
+    // visible, and sendable, never lost to an unhandled rejection)
+    if (!isSessionBusyError(err) && !isClaimRevokedError(err)) throw err
+    useHang4r.setState((s) => ({
+      messageQueue: {
+        ...s.messageQueue,
+        [sessionId]: [next, ...(s.messageQueue[sessionId] ?? [])]
+      }
+    }))
+  }
+}
+
 export const useHang4r = create<Hang4rState>((set, get) => ({
   projects: [],
   sessions: [],
@@ -1116,6 +1168,8 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
             : state.sessions.map((s) => (s.id === session.id ? session : s))
         return { sessions }
       })
+      // a claim handed back (starting → idle) is not a turn that ran
+      const turnRan = prev?.status === 'running' || session.status === 'error'
       // turn just settled (running/starting → idle|error): auto-send the next
       // queued message. We flush on 'error' too because a send-now interrupt
       // makes the real claude CLI emit an is_error result (status → 'error'),
@@ -1125,8 +1179,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         // a turn settled — if you weren't looking at THIS session (window hidden,
         // or focused on a different one), flag it "come look" in the sidebar so
         // you can tell which session finished. Cleared when you open/focus it.
-        const notLooking = document.hidden || session.id !== get().focusedSessionId
+        const notLooking = turnRan && (document.hidden || session.id !== get().focusedSessionId)
         set((s) => {
+          if (!turnRan) return {} // a released claim: nothing finished, no bell
           const has = s.finishedUnseen.has(session.id)
           if (notLooking === has) return {} // no change
           const next = new Set(s.finishedUnseen)
@@ -1135,7 +1190,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
           return { finishedUnseen: next }
         })
         // watched it finish: phones heard the turn end and would light a bell
-        if (!notLooking) void window.hang4r.notifySessionOpened(session.id)
+        if (turnRan && !notLooking) void window.hang4r.notifySessionOpened(session.id)
       }
     })
 
@@ -1451,17 +1506,55 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     const atts = get().attachments[sessionId] ?? []
     const { full, images, files, displayText } = composeMessage(text, atts)
     if (atts.length > 0) set((s) => ({ attachments: { ...s.attachments, [sessionId]: [] } }))
-    await window.hang4r.prompt(
-      sessionId,
-      full,
-      images.length ? images : undefined,
-      files.length ? files : undefined,
-      // pass the display echo whenever it DIFFERS from the agent text — file cards
-      // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
-      // files.length, which dropped snippet-only quotes → they echoed the fenced
-      // `full` and rendered as a code block instead of a blockquote (Angel).
-      displayText !== full ? displayText : undefined
-    )
+    try {
+      await window.hang4r.prompt(
+        sessionId,
+        full,
+        images.length ? images : undefined,
+        files.length ? files : undefined,
+        // pass the display echo whenever it DIFFERS from the agent text — file cards
+        // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
+        // files.length, which dropped snippet-only quotes → they echoed the fenced
+        // `full` and rendered as a code block instead of a blockquote (Angel).
+        displayText !== full ? displayText : undefined
+      )
+    } catch (err) {
+      if (isClaimRevokedError(err)) {
+        // Stop / archive / hand-off voided the send before the turn started. The
+        // draft and attachments were already cleared, so GIVE THEM BACK rather
+        // than queueing: the session is idle, so nothing would flush a queue, and
+        // a Stop is not a request to send anyway. Ahead of anything typed since.
+        set((s) => {
+          const cur = s.drafts[sessionId] ?? ''
+          return {
+            drafts: { ...s.drafts, [sessionId]: cur ? text + '\n' + cur : text },
+            attachments: {
+              ...s.attachments,
+              [sessionId]: [...atts, ...(s.attachments[sessionId] ?? [])]
+            }
+          }
+        })
+        return
+      }
+      if (!isSessionBusyError(err)) throw err
+      // Lost the race: someone else (the CLI, a phone) took the turn between our
+      // idle snapshot and main's claim. The draft and attachments are already
+      // cleared, so HOLD the message (attachments included) — it goes out when
+      // that turn settles, exactly as if it had been queued mid-turn.
+      set((s) => ({
+        messageQueue: {
+          ...s.messageQueue,
+          [sessionId]: [
+            ...(s.messageQueue[sessionId] ?? []),
+            {
+              id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              text,
+              attachments: atts
+            }
+          ]
+        }
+      }))
+    }
   },
 
   queueMessage(sessionId, text) {
@@ -1516,23 +1609,20 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     }
   },
 
-  async flushQueue(sessionId) {
-    const q = get().messageQueue[sessionId] ?? []
-    if (q.length === 0) return
-    const [next, ...rest] = q
-    set((s) => ({ messageQueue: { ...s.messageQueue, [sessionId]: rest } }))
-    const { full, images, files, displayText } = composeMessage(next.text, next.attachments)
-    await window.hang4r.prompt(
-      sessionId,
-      full,
-      images.length ? images : undefined,
-      files.length ? files : undefined,
-      // pass the display echo whenever it DIFFERS from the agent text — file cards
-      // (bytes hidden) AND snippet blockquotes (quoted selections). Was gated on
-      // files.length, which dropped snippet-only quotes → they echoed the fenced
-      // `full` and rendered as a code block instead of a blockquote (Angel).
-      displayText !== full ? displayText : undefined
-    )
+  flushQueue(sessionId) {
+    // One flush at a time per session. A flush that is still awaiting main (its
+    // claim parked in a slow await) has already taken the head off the queue; a
+    // second flush from the Stop's starting → idle update would take the NEXT
+    // message, and the first — requeued when its claim is revoked — would land
+    // behind it. Chaining makes the second flush wait for that requeue and take
+    // the head again.
+    const run = (flushChains.get(sessionId) ?? Promise.resolve()).then(() => flushHead(sessionId))
+    const tail = run.catch(() => undefined)
+    flushChains.set(sessionId, tail)
+    void tail.then(() => {
+      if (flushChains.get(sessionId) === tail) flushChains.delete(sessionId)
+    })
+    return run
   },
 
   addAttachment(sessionId, att) {
@@ -1829,7 +1919,12 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
 
   async sendReview(sessionId, comments) {
-    await window.hang4r.submitReview(sessionId, comments)
+    try {
+      await window.hang4r.submitReview(sessionId, comments)
+    } catch (err) {
+      if (!isSessionBusyError(err)) throw err
+      noticeSessionBusy('Your review comments were not sent')
+    }
   },
 
   async interrupt(sessionId) {
@@ -1948,7 +2043,12 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   },
 
   async retrySession(sessionId) {
-    await window.hang4r.retrySession(sessionId)
+    try {
+      await window.hang4r.retrySession(sessionId)
+    } catch (err) {
+      if (!isSessionBusyError(err)) throw err
+      noticeSessionBusy('Nothing was retried')
+    }
   },
 
   toggleExpand(sessionId) {

@@ -83,6 +83,11 @@ export class Store {
     if (!cols.has('worktree_dropped')) {
       this.db.exec('ALTER TABLE sessions ADD COLUMN worktree_dropped INTEGER NOT NULL DEFAULT 0')
     }
+    // Who created the session when it was NOT the app UI ("cli:<caller>"); NULL
+    // for every existing row and every UI-created session.
+    if (!cols.has('origin')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN origin TEXT')
+    }
     // One-time purge of TRANSIENT block-delta rows that older builds persisted per
     // streamed token. They had grown this table past 200k rows (≈73% were deltas),
     // so every session load re-read + JSON.parsed tens of thousands of fragments and
@@ -152,6 +157,7 @@ export class Store {
     baseRef: string
     permissionMode: PermissionMode
     remoteHostId?: string
+    origin?: string
   }): SessionMeta {
     const now = Date.now()
     const session: SessionMeta = {
@@ -170,15 +176,16 @@ export class Store {
       createdAt: now,
       updatedAt: now,
       totalCostUsd: 0,
-      lastError: null
+      lastError: null,
+      origin: opts.origin ?? null
     }
     this.db
       .prepare(
         `INSERT INTO sessions
          (id, project_id, backend, title, status, backend_session_id, model, cwd,
           environment, base_ref, permission_mode, remote_host_id, created_at,
-          updated_at, total_cost_usd, last_error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          updated_at, total_cost_usd, last_error, origin)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         session.id,
@@ -196,7 +203,8 @@ export class Store {
         session.createdAt,
         session.updatedAt,
         session.totalCostUsd,
-        session.lastError
+        session.lastError,
+        session.origin
       )
     return session
   }
@@ -337,6 +345,31 @@ export class Store {
     }
   }
 
+  /** Newest event seq in a session's transcript (0 when it has none). */
+  latestSeq(sessionId: string): number {
+    const r = this.db
+      .prepare('SELECT MAX(id) AS id FROM session_events WHERE session_id = ?')
+      .get(sessionId) as { id: number | null }
+    return r.id ?? 0
+  }
+
+  /** The OLDEST event of any of `kinds` with seq > `after`, or undefined. */
+  firstEventOfKindsAfter(
+    sessionId: string,
+    after: number,
+    kinds: string[]
+  ): SessionEvent | undefined {
+    const marks = kinds.map(() => '?').join(',')
+    const r = this.db
+      .prepare(
+        `SELECT id, ts, event_json FROM session_events
+         WHERE session_id = ? AND id > ? AND json_extract(event_json, '$.kind') IN (${marks})
+         ORDER BY id LIMIT 1`
+      )
+      .get(sessionId, after, ...kinds) as { id: number; ts: number; event_json: string } | undefined
+    return r && { sessionId, seq: r.id, ts: r.ts, event: JSON.parse(r.event_json) }
+  }
+
   latestEventOfKind(sessionId: string, kind: string, before: number): SessionEvent | undefined {
     const r = this.db
       .prepare(
@@ -435,6 +468,7 @@ interface SessionRow {
   total_cost_usd: number
   last_error: string | null
   worktree_dropped: number
+  origin: string | null
 }
 
 function rowToProject(r: ProjectRow): Project {
@@ -459,6 +493,7 @@ function rowToSession(r: SessionRow): SessionMeta {
     updatedAt: r.updated_at,
     totalCostUsd: r.total_cost_usd,
     lastError: r.last_error,
-    worktreeDropped: !!r.worktree_dropped
+    worktreeDropped: !!r.worktree_dropped,
+    origin: r.origin ?? null
   }
 }

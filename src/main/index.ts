@@ -3,7 +3,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { registerIpc, getPtyService, getBrowserControl, getBridge } from './ipc'
+import { registerIpc, getPtyService, getBrowserControl, getAppControl, getBridge } from './ipc'
 import { popupAction } from './popupAction'
 import { askInterrupt, guardActive, initInterruptGuard, liveWork, resolveInterrupt } from './interruptGuard'
 import { resolveWorktreeChoice, type WorktreeChoice } from './worktreeAsk'
@@ -429,6 +429,7 @@ app.on('before-quit', (event) => {
   try {
     sessionManager?.disposeAll()
     getPtyService()?.disposeAll()
+    getAppControl()?.dispose()
     getBrowserControl()?.dispose()
     getBridge()?.dispose()
   } catch {

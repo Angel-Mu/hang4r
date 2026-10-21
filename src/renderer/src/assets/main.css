@@ -252,7 +252,7 @@ button:disabled {
 
 .session-title {
   flex: 1;
-  min-width: 0;
+  min-width: 2em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -7009,4 +7009,70 @@ button:disabled {
 }
 .bridge-diag-log time {
   opacity: 0.7;
+}
+
+/* Settings > Command line */
+.cli-install { display: flex; flex-direction: column; gap: 10px; }
+.cli-install-actions { display: flex; gap: 8px; }
+.cli-install-result {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.cli-install-result code { font-family: var(--mono); color: var(--accent); font-size: var(--fs-xs); }
+.cli-install-result-error { border-color: var(--red); color: var(--red); }
+.cli-install-warn { color: var(--amber); }
+.cli-install-line {
+  margin: 4px 0 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Settings > Command line > MCP server */
+.mcp-setup { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+.mcp-setup-title { margin: 0; font-size: var(--fs-md, 14px); color: var(--text); }
+.mcp-snippet { display: flex; flex-direction: column; gap: 4px; }
+.mcp-snippet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mcp-snippet-label { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-sm); color: var(--text-muted); }
+.mcp-snippet-label code { font-family: var(--mono); font-size: var(--fs-xs); color: var(--accent); }
+.mcp-snippet .cli-install-line { margin: 0; }
+
+/* "via <caller>" — a session or turn that came from the hang4r command line */
+.session-origin {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--cyan, #8be9fd);
+}
+.session-origin .icon {
+  width: 14px;
+  height: 14px;
+}
+.msg-origin {
+  display: block;
+  width: fit-content;
+  font-size: var(--fs-2xs);
+  font-family: var(--mono);
+  color: var(--cyan, #8be9fd);
+  border: 1px solid #8be9fd44;
+  border-radius: 4px;
+  padding: 0 6px;
+  margin-bottom: 4px;
+  user-select: none;
 }

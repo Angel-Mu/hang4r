@@ -734,6 +734,39 @@ test('phone: an older desktop still gets bells from finished turns, not from met
   }
 })
 
+test('phone: a claim handed back (Stop before the turn started) is not a finished turn', async () => {
+  test.skip(!MOBILE_BUILT, 'mobile app not built')
+  test.setTimeout(150_000)
+  const { desktop, phone, ids, teardown } = await pairedHome([{ title: 'claimed' }], {
+    // an older desktop: the phone derives its bells from status changes alone
+    env: {
+      HANG4R_TEST_BRIDGE_WITHOUT: 'sidebarState,markUnseen',
+      HANG4R_TEST_WORKDIR_DELAY_MS: '1200'
+    }
+  })
+  try {
+    const row = phone.locator('.session-row', { hasText: 'claimed' })
+    await expect(row.locator('.session-bell')).toHaveCount(0)
+    // drop the idle adapter silently (releaseForExternal would emit a real
+    // turn-complete, which rings the bell for an unrelated reason)
+    await desktop.evaluate((id) => window.hang4r.setSessionPermissionMode(id, 'plan'), ids[0])
+    // a prompt takes the claim (starting), then Stop hands it back (idle) with no turn run
+    await desktop.evaluate(async (id) => {
+      const p = window.hang4r.prompt(id, 'slow turn 100 never started').catch(() => {})
+      await new Promise((r) => setTimeout(r, 400))
+      await window.hang4r.interrupt(id)
+      await p
+    }, ids[0])
+    await phone.waitForTimeout(3000) // long enough for both status frames to land
+    await expect(row.locator('.session-bell')).toHaveCount(0)
+    // control: a turn that does run still rings it
+    await desktop.evaluate((id) => window.hang4r.prompt(id, 'do a turn'), ids[0])
+    await expect(row.locator('.session-bell')).toBeVisible({ timeout: 20_000 })
+  } finally {
+    await teardown()
+  }
+})
+
 test('phone: workspaces and sessions come in the desktop sidebar order, offline too', async () => {
   test.skip(!MOBILE_BUILT, 'mobile app not built')
   test.setTimeout(150_000)

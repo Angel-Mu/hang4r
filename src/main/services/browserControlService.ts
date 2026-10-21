@@ -4,13 +4,33 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  rmSync,
   unlinkSync,
   writeFileSync
 } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { BrowserGuestReport, BrowserHotkeyAction } from '../../shared/protocol'
+import { writeShim } from './cliInstall'
+
+/** Handles one `app.*` request; rejects with an error carrying a `code` the CLI maps to an exit code. */
+export type AppHandler = (
+  req: { cmd: string; args: Record<string, unknown>; caller?: string },
+  signal: AbortSignal
+) => Promise<unknown>
+
+/** error codes an `app.*` handler may attach, echoed to the client as `code` */
+const APP_ERROR_CODES: Record<string, true> = {
+  usage: true,
+  'not-found': true,
+  busy: true,
+  'worktree-missing': true,
+  internal: true,
+  auth: true
+}
+
+class AuthError extends Error {
+  readonly code = 'auth'
+}
 
 /** one captured console message from a guest page (ring-buffered per tab) */
 interface ConsoleEntry {
@@ -68,6 +88,10 @@ export class BrowserControlService {
   readonly cliPath: string
   private readonly token = randomUUID()
   private server: Server | null = null
+  /** open client connections — a `wait` holds one open, so quit must be able to drop them */
+  private sockets = new Set<Socket>()
+  /** the `app.*` namespace (appControlService); null until the manager exists */
+  private appHandler: AppHandler | null = null
   /** sessionId -> tabId -> guest */
   private guests = new Map<string, Map<string, GuestEntry>>()
 
@@ -112,6 +136,11 @@ export class BrowserControlService {
     })
     this.writeToken()
     this.writeBinShim()
+  }
+
+  /** route `app.*` commands here. The browser namespace below is untouched. */
+  setAppHandler(handler: AppHandler | null): void {
+    this.appHandler = handler
   }
 
   /** env vars every per-session process gets so the CLI can find + auth the socket */
@@ -177,6 +206,10 @@ export class BrowserControlService {
   dispose(): void {
     for (const map of this.guests.values()) for (const e of map.values()) e.cleanup()
     this.guests.clear()
+    // server.close() waits for open connections, and a `wait` can hold one for an
+    // hour — destroy them or quit hangs on them
+    for (const socket of this.sockets) socket.destroy()
+    this.sockets.clear()
     this.server?.close()
     this.server = null
     try {
@@ -190,6 +223,10 @@ export class BrowserControlService {
 
   private onConnection(socket: Socket): void {
     let buf = ''
+    this.sockets.add(socket)
+    // aborts when the caller goes away (Ctrl-C, killed process): a long `wait`
+    // unsubscribes instead of leaking a listener per abandoned connection
+    const gone = new AbortController()
     socket.setEncoding('utf8')
     socket.on('data', (chunk) => {
       buf += chunk
@@ -197,26 +234,44 @@ export class BrowserControlService {
       if (nl === -1) return
       const line = buf.slice(0, nl)
       buf = ''
-      void this.handleLine(line)
+      void this.handleLine(line, gone.signal)
         .then((result) => socket.end(JSON.stringify({ ok: true, result }) + '\n'))
-        .catch((err: unknown) =>
-          socket.end(
-            JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }) +
-              '\n'
-          )
-        )
+        .catch((err: unknown) => {
+          const out: { ok: false; error: string; code?: string } = {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err)
+          }
+          const code = (err as { code?: unknown } | null)?.code
+          if (err instanceof Error && typeof code === 'string' && code in APP_ERROR_CODES) out.code = code
+          socket.end(JSON.stringify(out) + '\n')
+        })
+    })
+    socket.on('close', () => {
+      this.sockets.delete(socket)
+      gone.abort()
     })
     socket.on('error', () => socket.destroy())
   }
 
-  private async handleLine(line: string): Promise<unknown> {
-    let req: { token?: string; sessionId?: string; cmd?: string; args?: Record<string, unknown> }
+  private async handleLine(line: string, signal: AbortSignal): Promise<unknown> {
+    let req: {
+      token?: string
+      sessionId?: string
+      cmd?: string
+      args?: Record<string, unknown>
+      caller?: string
+    }
     try {
       req = JSON.parse(line)
     } catch {
       throw new Error('Malformed request (expected one JSON line).')
     }
-    if (req.token !== this.token) throw new Error('Unauthorized: bad or missing token.')
+    if (req.token !== this.token) throw new AuthError('Unauthorized: bad or missing token.')
+    // `app.*` is the control namespace: no session binding, its own dispatcher
+    if (req.cmd?.startsWith('app.')) {
+      if (!this.appHandler) throw new Error('hang4r is still starting; try again.')
+      return this.appHandler({ cmd: req.cmd, args: req.args ?? {}, caller: req.caller }, signal)
+    }
     if (!req.sessionId) throw new Error('Missing sessionId.')
     if (!req.cmd) throw new Error('Missing cmd.')
     return this.dispatch(req.sessionId, req.cmd, req.args ?? {})
@@ -707,15 +762,15 @@ export class BrowserControlService {
   private writeBinShim(): void {
     if (process.platform === 'win32') return // POSIX shim only; SSH/env still work
     try {
-      rmSync(this.binDir, { recursive: true, force: true })
-      mkdirSync(this.binDir, { recursive: true })
-      const shim = join(this.binDir, 'hang4r')
-      const script = `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "${process.execPath}" "${this.cliPath}" "$@"\n`
-      writeFileSync(shim, script, { mode: 0o755 })
-      chmodSync(shim, 0o755)
+      writeShim(this.binDir, process.execPath, this.cliPath)
     } catch (err) {
       console.error('[browserControl] failed to write bin shim:', err)
     }
+  }
+
+  /** the shim the global ~/.local/bin/hang4r link points at */
+  get shimPath(): string {
+    return join(this.binDir, 'hang4r')
   }
 }
 

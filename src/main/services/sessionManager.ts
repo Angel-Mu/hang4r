@@ -13,7 +13,8 @@ import type {
   ScopeSummary,
   ScopedFiles,
   SessionEvent,
-  SessionMeta
+  SessionMeta,
+  SessionStatus
 } from '../../shared/protocol'
 import { snapshotPrefix } from '../../shared/protocol'
 import { powerSaveBlocker } from 'electron'
@@ -25,8 +26,18 @@ import { CursorAdapter } from './adapters/cursorAdapter'
 import { FakeAdapter } from './adapters/fakeAdapter'
 import type { AgentAdapter } from './adapters/types'
 
+/** Per-call options of SessionManager.prompt that only headless drivers set. */
+export interface PromptExtra {
+  /** "cli:<caller>" — shown as a chip on the user message, never sent to the agent */
+  origin?: string
+  /** worktree gone: 'fail' = throw WORKTREE_MISSING_MESSAGE, 'rebuild' = recreate it.
+   *  Omitted = the interactive behaviour (remembered choice, else ask in a dialog). */
+  worktree?: 'fail' | 'rebuild'
+}
+
 /** E2E/loop verification mode: use a deterministic in-process agent. */
 const FAKE_AGENT = process.env.HANG4R_FAKE_AGENT === '1'
+/** a claim voided by Stop / archive / hand-off before its turn started */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -50,6 +61,11 @@ import {
 import { resolveBackgroundTaskState } from './backgroundTask'
 import { asyncAgentId } from '../../shared/asyncAgentLaunch'
 import { AUTO_CONTINUE_LABEL, sentUserText } from '../../shared/userText'
+import {
+  CLAIM_REVOKED_MESSAGE,
+  SESSION_BUSY_MESSAGE,
+  WORKTREE_MISSING_MESSAGE
+} from '../../shared/sessionBusy'
 import { askWorktreeChoice } from '../worktreeAsk'
 import type { Store } from './store'
 import type { SettingsService } from './settingsService'
@@ -135,7 +151,12 @@ export class SessionManager {
     }
   }
 
-  async createSession(req: NewSessionRequest): Promise<SessionMeta> {
+  /** `ctx.origin` ("cli:<caller>") is set only by the control socket — never
+   *  taken from the request, which a renderer or phone also sends. */
+  async createSession(
+    req: NewSessionRequest,
+    ctx?: { origin?: string }
+  ): Promise<SessionMeta> {
     const project = this.store.getProject(req.projectId)
     if (!project) throw new Error(`Unknown project: ${req.projectId}`)
 
@@ -192,7 +213,8 @@ export class SessionManager {
       environment,
       baseRef,
       permissionMode: req.permissionMode,
-      remoteHostId: req.environment === 'ssh' ? req.remoteHostId : undefined
+      remoteHostId: req.environment === 'ssh' ? req.remoteHostId : undefined,
+      origin: ctx?.origin
     })
 
     // Stamped once, at birth, rather than resolved at every spawn: a later
@@ -233,8 +255,8 @@ export class SessionManager {
       adapter.prompt(
         agentText,
         req.firstImages,
-        req.firstFiles?.length || echoDisplay !== undefined
-          ? { files: req.firstFiles, displayText: echoDisplay }
+        req.firstFiles?.length || echoDisplay !== undefined || ctx?.origin
+          ? { files: req.firstFiles, displayText: echoDisplay, origin: ctx?.origin }
           : undefined
       )
       this.updateSession(session.id, { status: 'running' })
@@ -416,14 +438,106 @@ export class SessionManager {
     return this.store.getSession(session.id)!
   }
 
+  /**
+   * Send a turn. Claims the session (status -> 'starting') before the first await
+   * and rejects with SESSION_BUSY_MESSAGE if a turn is already in flight, for every
+   * caller; see e2e/prompt-lock.spec.ts for the race this closes.
+   * `extra` is set only by headless drivers (the control socket).
+   */
   async prompt(
     sessionId: string,
     text: string,
     images?: PromptImage[],
     files?: PromptFile[],
     displayText?: string,
-    auto = false
+    auto = false,
+    extra?: PromptExtra
   ): Promise<void> {
+    const { prior, token } = this.claimTurn(sessionId)
+    let started = false
+    try {
+      started = await this.promptClaimed(
+        sessionId,
+        text,
+        images,
+        files,
+        displayText,
+        auto,
+        prior,
+        token,
+        extra
+      )
+    } finally {
+      // 'cancel', or any throw before the adapter took the turn: give the claim back
+      if (!started) this.releaseClaim(sessionId, prior, token)
+    }
+  }
+
+  /**
+   * sessionId -> the live claim on its next turn. A claim spans awaits
+   * (resyncExternal, ensureWorkdir) and Stop / archive / hand-off can land inside
+   * them: the status alone can't tell "my claim" from the NEXT claimer's, so each
+   * claim carries a token that interrupt/archive/releaseForExternal revoke, and
+   * promptClaimed re-checks it after every await. The entry ends when the adapter
+   * takes the turn (status 'running' from then on) or the claim is released.
+   */
+  private claims = new Map<string, symbol>()
+  /** sessions mid-rewind: it stops the turn first, and the idle that follows must
+   *  not be claimable by anyone else (e.g. the renderer's queued-message flush) */
+  private rewinding = new Set<string>()
+
+  private revokeClaim(sessionId: string): void {
+    this.claims.delete(sessionId)
+  }
+
+  private assertClaim(sessionId: string, token: symbol): void {
+    if (this.claims.get(sessionId) !== token) throw new Error(CLAIM_REVOKED_MESSAGE)
+  }
+
+  /** Atomically (no await) move an idle session to 'starting'; returns the status it had. */
+  private claimTurn(
+    sessionId: string,
+    asRewind = false
+  ): { prior: SessionStatus; token: symbol } {
+    const session = this.store.getSession(sessionId)
+    if (!session) throw new Error(`Unknown session: ${sessionId}`)
+    if (
+      session.status === 'running' ||
+      session.status === 'starting' ||
+      // a held claim outranks the status: a stray turn-complete can flip a claimed
+      // session to idle, and a second claimer must not replace the token under it
+      this.claims.has(sessionId) ||
+      (!asRewind && this.rewinding.has(sessionId))
+    ) {
+      throw new Error(SESSION_BUSY_MESSAGE)
+    }
+    const token = Symbol('claim')
+    this.claims.set(sessionId, token)
+    this.updateSession(sessionId, { status: 'starting' })
+    return { prior: session.status, token }
+  }
+
+  private releaseClaim(sessionId: string, prior: SessionStatus, token: symbol): void {
+    // only OUR claim: a revoked one belongs to whoever claimed (or stopped) since
+    if (this.claims.get(sessionId) !== token) return
+    this.claims.delete(sessionId)
+    if (this.store.getSession(sessionId)?.status === 'starting') {
+      this.updateSession(sessionId, { status: prior })
+    }
+  }
+
+  /** @returns true once the adapter took the turn, false if the user cancelled */
+  private async promptClaimed(
+    sessionId: string,
+    text: string,
+    images: PromptImage[] | undefined,
+    files: PromptFile[] | undefined,
+    displayText: string | undefined,
+    auto: boolean,
+    priorStatus: SessionStatus,
+    token: symbol,
+    extra?: PromptExtra
+  ): Promise<boolean> {
     // a MANUAL prompt (you stepping in) re-arms auto-continue: it clears the
     // consecutive-auto counter so recovery is available again. An auto-continue
     // (auto=true) does NOT, so a repeated-crash loop stays capped. It also clears
@@ -436,10 +550,15 @@ export class SessionManager {
     // BEFORE resuming — adoption switches backendSessionId to the fork's tip,
     // so this turn continues from the conversation INCLUDING those turns
     try {
-      await this.resyncExternal(sessionId)
+      await this.resyncExternal(sessionId, priorStatus)
     } catch {
       /* re-sync must never block a prompt */
     }
+    // E2E only: hold the claim open even when an adapter is alive (ensureWorkdir's
+    // delay only applies when there is none)
+    const claimDelay = FAKE_AGENT ? Number(process.env.HANG4R_TEST_CLAIM_DELAY_MS) || 0 : 0
+    if (claimDelay > 0) await new Promise((r) => setTimeout(r, claimDelay))
+    this.assertClaim(sessionId, token)
     const session = this.store.getSession(sessionId)
     if (!session) throw new Error(`Unknown session: ${sessionId}`)
 
@@ -456,7 +575,6 @@ export class SessionManager {
     // adapter ALIVE, so a respawn-only recovery never fired — the live adapter
     // just --resumed the poison and re-errored. When idle (never a live turn), we
     // drop the stale adapter so it respawns recovering.
-    const idle = session.status !== 'running' && session.status !== 'starting'
     // HEAL BEFORE RESUME: a poisoned tail (a dangling tool_use) makes a plain
     // --resume fail. PREFER repairing the jsonl in place — append the missing
     // tool_result so the file is valid again — over fork-truncating past the
@@ -467,7 +585,7 @@ export class SessionManager {
       !!session.backendSessionId &&
       ClaudeImport.tailIsPoisoned(session.backendSessionId)
     const healed = poisoned && ClaudeImport.healPoison(session.backendSessionId!)
-    const needsRecovery = !healed && (session.status === 'error' || poisoned)
+    const needsRecovery = !healed && (priorStatus === 'error' || poisoned)
     const recoverAt = needsRecovery ? this.recoveryAnchor(session) : null
 
     let adapter = this.adapters.get(sessionId)
@@ -475,7 +593,7 @@ export class SessionManager {
     // the jsonl: a live -p process holds the OLD conversation in memory and never
     // re-reads the file, so it would --resume from the stale (poisoned) history.
     // Respawning makes --resume re-read the repaired transcript.
-    if (adapter && (recoverAt || healed) && idle) {
+    if (adapter && (recoverAt || healed)) {
       adapter.dispose()
       this.adapters.delete(sessionId)
       adapter = undefined
@@ -483,8 +601,9 @@ export class SessionManager {
     // The worktree was cleaned up (merge-cleanup, `wt remove`, Drop worktree).
     // Rebuilding costs a whole setup run, so ask instead of assuming: a question
     // about what was already discussed needs no files at all.
-    const missing = await this.resolveMissingWorktree(session)
-    if (missing === 'cancel') return
+    const missing = await this.resolveMissingWorktree(session, extra?.worktree)
+    this.assertClaim(sessionId, token)
+    if (missing === 'cancel') return false
     if (missing === 'rebuild' && adapter) {
       // the live CLI still holds the deleted directory — only a re-spawn moves it
       adapter.dispose()
@@ -498,6 +617,8 @@ export class SessionManager {
       // now falls back to the project root, and handing the agent the MAIN repo
       // is exactly the isolation break the worktree existed to prevent.
       if (missing !== 'answer') await this.ensureWorkdir(sessionId, true)
+      // Stop / archive may have landed while we rebuilt the worktree
+      this.assertClaim(sessionId, token)
       const fresh = recoverAt
         ? this.spawnAdapter(session, session.backendSessionId!, true, recoverAt)
         : this.spawnAdapter(session, session.backendSessionId ?? undefined)
@@ -517,14 +638,17 @@ export class SessionManager {
         ' not available. Answer from this conversation; do not try to read or edit files.]'
     }
     const echoDisplay = displayText ?? (agentText !== text ? text : undefined)
+    this.assertClaim(sessionId, token)
     adapter.prompt(
       agentText,
       images,
-      files?.length || echoDisplay !== undefined
-        ? { files, displayText: echoDisplay }
+      files?.length || echoDisplay !== undefined || extra?.origin
+        ? { files, displayText: echoDisplay, origin: extra?.origin }
         : undefined
     )
+    this.claims.delete(sessionId) // the adapter owns the turn now
     this.updateSession(sessionId, { status: 'running', lastError: null })
+    return true
   }
 
   /**
@@ -682,9 +806,12 @@ export class SessionManager {
    * by the poll + prompt()) only for its harmless watermark bookkeeping and the
    * Codex usage sync. Always returns 0 for the Claude external-turn path now.
    */
-  async resyncExternal(sessionId: string): Promise<number> {
-    const s = this.store.getSession(sessionId)
-    if (!s || s.environment === 'ssh') return 0
+  async resyncExternal(sessionId: string, claimedStatus?: SessionStatus): Promise<number> {
+    const found = this.store.getSession(sessionId)
+    if (!found || found.environment === 'ssh') return 0
+    // prompt() calls this holding its 'starting' claim; judge by the status the
+    // session had before it, not by the claim itself
+    const s = claimedStatus ? { ...found, status: claimedStatus } : found
     if (s.status === 'running' || s.status === 'starting') return 0
     if (!s.backendSessionId) return 0
     // After a turn that ended in ERROR, the tail of the jsonl is OUR OWN
@@ -773,8 +900,14 @@ export class SessionManager {
   }
 
   interrupt(sessionId: string): void {
+    // a claim still waiting on its awaits has no turn to stop: void it, and
+    // unstick the status (the adapter, if any, never got the prompt)
+    const claimed = this.claims.has(sessionId)
+    this.revokeClaim(sessionId)
     const adapter = this.adapters.get(sessionId)
-    if (adapter) {
+    if (claimed) {
+      this.updateSession(sessionId, { status: 'idle' })
+    } else if (adapter) {
       adapter.interrupt()
     } else {
       // no live adapter (e.g. the session was mid-turn when the app restarted) —
@@ -795,6 +928,7 @@ export class SessionManager {
    * current tail so the mirror picks up cleanly from where the handoff happened.
    */
   releaseForExternal(sessionId: string): void {
+    this.revokeClaim(sessionId)
     const adapter = this.adapters.get(sessionId)
     if (adapter) {
       try {
@@ -1176,14 +1310,43 @@ export class SessionManager {
     const session = this.requireSession(sessionId)
     const strategy = rewindStrategyFor(session.backend)
 
-    // Editing while a turn is running always STOPS the turn first (Angel's
-    // call, Jul 15) — Claude's fork path effectively did this by disposing the
-    // adapter, but Codex/Cursor fired the edit concurrently, racing two turns.
-    if (session.status === 'running') {
-      this.interrupt(sessionId)
-      await this.waitForTurnEnd(sessionId, 5_000)
+    // A rewind owns the session from the moment it stops the running turn until
+    // it has handed the edit to an adapter. It takes the SAME claim as prompt()
+    // (busy -> reject); `rewinding` additionally shuts out claimers during the
+    // interrupt wait, where the idle that follows the stop would otherwise let
+    // the renderer's queued-message flush in before we claim.
+    if (this.rewinding.has(sessionId) || session.status === 'starting') {
+      throw new Error(SESSION_BUSY_MESSAGE)
     }
+    this.rewinding.add(sessionId)
+    let claim: { prior: SessionStatus; token: symbol } | null = null
+    try {
+      // Editing while a turn is running always STOPS the turn first (Angel's
+      // call, Jul 15) — Claude's fork path effectively did this by disposing the
+      // adapter, but Codex/Cursor fired the edit concurrently, racing two turns.
+      if (session.status === 'running') {
+        this.interrupt(sessionId)
+        await this.waitForTurnEnd(sessionId, 5_000)
+      }
+      claim = this.claimTurn(sessionId, true)
+      await this.rewindClaimed(session, strategy, originalText, occurrenceFromEnd, newText, claim)
+    } finally {
+      // no-op once the adapter took the turn (the claim ended there)
+      if (claim) this.releaseClaim(sessionId, claim.prior, claim.token)
+      this.rewinding.delete(sessionId)
+    }
+  }
 
+  /** The body of rewind(), run while holding the session's claim. */
+  private async rewindClaimed(
+    session: SessionMeta,
+    strategy: ReturnType<typeof rewindStrategyFor>,
+    originalText: string,
+    occurrenceFromEnd: number,
+    newText: string,
+    claim: { prior: SessionStatus; token: symbol }
+  ): Promise<void> {
+    const sessionId = session.id
     // locate the edited message in hang4r's own transcript (all backends share
     // this) and keep its image attachments to re-send with the edit
     const events = this.store.getEvents(sessionId)
@@ -1197,7 +1360,15 @@ export class SessionManager {
         : undefined
 
     if (strategy === 'fork') {
-      return this.rewindClaudeFork(session, originalText, occurrenceFromEnd, newText, target, images)
+      return this.rewindClaudeFork(
+        session,
+        originalText,
+        occurrenceFromEnd,
+        newText,
+        target,
+        images,
+        claim.token
+      )
     }
 
     if (strategy === 'rollback' && target) {
@@ -1207,11 +1378,18 @@ export class SessionManager {
       const userSeqs = events.filter((e) => e.event.kind === 'user-text').map((e) => e.seq)
       const turns = turnsToRewind(userSeqs, target.seq)
       const adapter = await this.ensureAdapter(sessionId)
+      this.assertClaim(sessionId, claim.token)
       const truncated = (await adapter.rewindTurns?.(turns)) ?? false
+      // Truncate BEFORE asserting: once the backend has rolled back, hang4r's
+      // transcript must follow even if Stop / archive revoked the claim during
+      // the await. Asserting first left the turns on screen while Codex had
+      // dropped them, and the next prompt continued a diverged conversation.
+      if (truncated) this.truncateTranscript(sessionId, target.seq)
+      this.assertClaim(sessionId, claim.token)
       if (truncated) {
-        this.truncateTranscript(sessionId, target.seq)
         const agentText = this.writeImageAttachments(session, newText, images)
         adapter.prompt(agentText, images, agentText !== newText ? { displayText: newText } : undefined)
+        this.claims.delete(sessionId)
         this.updateSession(sessionId, { status: 'running', lastError: null })
         return
       }
@@ -1223,7 +1401,16 @@ export class SessionManager {
     // the transcript intact and resend the edited text as a fresh turn. Cursor's
     // headless mode can't ingest images, so don't claim to re-send them there.
     const resendImages = session.backend === 'cursor' ? undefined : images
-    await this.prompt(sessionId, newText, resendImages)
+    await this.promptClaimed(
+      sessionId,
+      newText,
+      resendImages,
+      undefined,
+      undefined,
+      false,
+      claim.prior,
+      claim.token
+    )
   }
 
   /** Every view holding this transcript must refetch — deleted events never
@@ -1244,7 +1431,8 @@ export class SessionManager {
     occurrenceFromEnd: number,
     newText: string,
     target: SessionEvent | undefined,
-    images: PromptImage[] | undefined
+    images: PromptImage[] | undefined,
+    token: symbol
   ): Promise<void> {
     if (!session.backendSessionId)
       throw new Error('No backend session to rewind — send at least one message first.')
@@ -1270,20 +1458,30 @@ export class SessionManager {
     }
     if (!anchor)
       throw new Error("Couldn't locate that message in the Claude session history to rewind.")
+    // The ssh fetch above can take up to 30s: Stop / archive / delete may have
+    // revoked the claim meanwhile.
+    this.assertClaim(session.id, token)
+
+    // Every await and every throw happens BEFORE the transcript is touched. Once
+    // hang4r drops the turns, a fork MUST follow: Claude's jsonl still holds them,
+    // so a truncate with no fork makes the next prompt resume the full, hidden
+    // conversation. Hence the workdir rebuild and the claim re-check come first,
+    // and nothing between the truncate and the prompt below can throw or await.
+    await this.ensureWorkdir(session.id, true) // editing+re-running = continue here → rebuild if dropped
+    this.assertClaim(session.id, token)
+    const agentText = this.writeImageAttachments(session, newText, images)
 
     if (target) this.truncateTranscript(session.id, target.seq)
-
     // replace the live adapter with a fork truncated at the anchor. A null
     // parentUuid means the edited message was the very first — start fresh.
     this.adapters.get(session.id)?.dispose()
     this.adapters.delete(session.id)
-    await this.ensureWorkdir(session.id, true) // editing+re-running = continue here → rebuild if dropped
     const adapter = anchor.parentUuid
       ? this.spawnAdapter(session, session.backendSessionId, true, anchor.parentUuid)
       : this.spawnAdapter(session)
     this.adapters.set(session.id, adapter)
-    const agentText = this.writeImageAttachments(session, newText, images)
     adapter.prompt(agentText, images, agentText !== newText ? { displayText: newText } : undefined)
+    this.claims.delete(session.id)
     this.updateSession(session.id, { status: 'running', lastError: null })
   }
 
@@ -1300,12 +1498,13 @@ export class SessionManager {
   }
 
   /** Re-send the session's last user message as a fresh turn. */
-  retry(sessionId: string): void {
+  async retry(sessionId: string): Promise<void> {
     const events = this.store.getEvents(sessionId)
     for (let i = events.length - 1; i >= 0; i--) {
       const ev = events[i].event
       if (ev.kind === 'user-text') {
-        void this.prompt(sessionId, sentUserText(ev))
+        // awaited: a busy rejection must reach the caller, not vanish
+        await this.prompt(sessionId, sentUserText(ev))
         return
       }
     }
@@ -1314,6 +1513,7 @@ export class SessionManager {
 
   async archive(sessionId: string): Promise<void> {
     const session = this.store.getSession(sessionId)
+    this.revokeClaim(sessionId)
     this.adapters.get(sessionId)?.dispose()
     this.adapters.delete(sessionId)
     // the UI must see the archive INSTANTLY — deleting a worktree with a full
@@ -1351,6 +1551,7 @@ export class SessionManager {
    *  wedged it) stays and can be restored. */
   async deleteSession(sessionId: string): Promise<void> {
     const session = this.store.getSession(sessionId)
+    this.revokeClaim(sessionId) // a prompt parked in an await must not spawn for a ghost
     this.adapters.get(sessionId)?.dispose()
     this.adapters.delete(sessionId)
     this.spawnedPermissionMode.delete(sessionId)
@@ -1379,6 +1580,7 @@ export class SessionManager {
   }
 
   disposeAll(): void {
+    this.claims.clear()
     for (const adapter of this.adapters.values()) adapter.dispose()
     this.adapters.clear()
     this.spawnedPermissionMode.clear()
@@ -1426,9 +1628,13 @@ export class SessionManager {
    * choice sticks per session so a follow-up question doesn't re-ask.
    */
   private async resolveMissingWorktree(
-    session: SessionMeta
+    session: SessionMeta,
+    /** set by headless callers (control socket): never open the modal */
+    headless?: 'fail' | 'rebuild'
   ): Promise<'ok' | 'rebuild' | 'answer' | 'cancel'> {
     if (session.environment !== 'worktree' || existsSync(session.cwd)) return 'ok'
+    if (headless === 'rebuild') return 'rebuild'
+    if (headless === 'fail') throw new Error(WORKTREE_MISSING_MESSAGE)
     const key = `worktreeChoice:${session.id}`
     const remembered = this.settings.getSetting(key)
     if (remembered === 'answer' || remembered === 'rebuild') return remembered
@@ -1438,7 +1644,13 @@ export class SessionManager {
   }
 
   async ensureWorkdir(sessionId: string, recreate = false): Promise<string> {
+    // e2e only: widen the await window a prompt/rewind spends here, so the claim
+    // races in e2e/claim-revoke.spec.ts are deterministic
+    const testDelay = FAKE_AGENT && recreate ? Number(process.env.HANG4R_TEST_WORKDIR_DELAY_MS) : 0
+    // after the lookup, like the real slow part (git worktree rebuild): the session
+    // can vanish while we are parked here, and the caller must notice
     const session = this.requireSession(sessionId)
+    if (testDelay > 0) await new Promise((r) => setTimeout(r, testDelay))
     if (session.environment === 'ssh') return session.cwd // remote path — not ours to create
     if (existsSync(session.cwd)) return session.cwd
     if (session.environment !== 'worktree') return session.cwd
@@ -1506,6 +1718,7 @@ export class SessionManager {
     const session = this.store.getSession(sessionId)
     if (!session) return undefined
     if (session.environment !== 'worktree') return session // no-op for local/ssh
+    this.revokeClaim(sessionId) // a parked prompt would spawn into the dir being removed
     this.adapters.get(sessionId)?.dispose() // release the dir before removing it
     this.adapters.delete(sessionId)
     const project = this.store.getProject(session.projectId)
@@ -1756,7 +1969,7 @@ export class SessionManager {
    * The differentiator: serialize inline review comments into a single
    * structured follow-up prompt and send it as the next turn.
    */
-  submitReview(sessionId: string, comments: ReviewComment[]): void {
+  async submitReview(sessionId: string, comments: ReviewComment[]): Promise<void> {
     if (comments.length === 0) return
     const byFile = new Map<string, ReviewComment[]>()
     for (const c of comments) {
@@ -1775,7 +1988,7 @@ export class SessionManager {
         prompt += `  - ${tag}: ${c.body}\n`
       }
     }
-    void this.prompt(sessionId, prompt)
+    await this.prompt(sessionId, prompt) // awaited: busy must reach the caller
   }
 
   /* ---------- review actions (Cursor's stage/commit/PR surface) ---------- */

@@ -50,12 +50,7 @@ export interface CursorUsageSnapshot {
   stale?: boolean
 }
 
-export type SessionStatus =
-  | 'starting'
-  | 'idle'
-  | 'running'
-  | 'error'
-  | 'archived'
+export type SessionStatus = 'starting' | 'idle' | 'running' | 'error' | 'archived'
 
 export interface Project {
   id: string
@@ -583,13 +578,7 @@ export interface BrowserEnsureTab {
 /** Browser keybindings that need the pane's UI (pressed while the guest page has
  *  focus, so main intercepts and forwards; nav/reload/zoom act on the guest directly). */
 export type BrowserHotkeyAction =
-  | 'focus-address'
-  | 'new-tab'
-  | 'close-tab'
-  | 'prev-tab'
-  | 'next-tab'
-  | 'toggle-devtools'
-  | 'find'
+  'focus-address' | 'new-tab' | 'close-tab' | 'prev-tab' | 'next-tab' | 'toggle-devtools' | 'find'
 
 export interface BrowserHotkey {
   sessionId: string
@@ -754,7 +743,9 @@ export interface Hang4rApi {
   codexUsage(force?: boolean): Promise<CodexUsageSnapshot>
   cursorUsage(force?: boolean): Promise<CursorUsageSnapshot>
   /** SSH remote preflight: host reachable + remote claude CLI version (docs/ssh-design.md) */
-  testRemoteHost(host: string): Promise<{ reachable: boolean; claudeVersion: string | null; error?: string }>
+  testRemoteHost(
+    host: string
+  ): Promise<{ reachable: boolean; claudeVersion: string | null; error?: string }>
   /** ssh sessions: forward localhost:<remotePort> on the host to a fresh local port */
   openRemoteTunnel(sessionId: string, remotePort: number): Promise<{ localPort: number }>
   onUpdateStatus(cb: (status: UpdateStatus) => void): () => void
@@ -824,6 +815,12 @@ export interface Hang4rApi {
     sessionId: string,
     maxTurns: number
   ): Promise<{ events: SessionEvent[]; truncated: boolean }>
+  /** the slice of events before `beforeSeq` that the Subagents and Tasks panels
+   *  read (top-level tool calls + results + subagent notes), so they can show
+   *  runs older than the window getRecentSessionEvents returned */
+  getPanelHistory(sessionId: string, beforeSeq: number): Promise<SessionEvent[]>
+  /** every inner event of one subagent run (parentToolUseId = toolUseId) */
+  getSubagentEvents(sessionId: string, toolUseId: string): Promise<SessionEvent[]>
   getChangedFiles(sessionId: string): Promise<ChangedFile[]>
   /** Changed files + add/del totals for one review scope (scope dropdown). */
   scopedFiles(sessionId: string, scope: DiffScope): Promise<ScopedFiles>
@@ -889,10 +886,7 @@ export interface Hang4rApi {
   renamePath(sessionId: string, from: string, to: string): Promise<void>
   removePath(sessionId: string, relPath: string): Promise<void>
   resolveImport(sessionId: string, from: string, spec: string): Promise<string | null>
-  findDefinition(
-    sessionId: string,
-    symbol: string
-  ): Promise<{ path: string; line: number } | null>
+  findDefinition(sessionId: string, symbol: string): Promise<{ path: string; line: number } | null>
   tailFile(absPath: string): Promise<string>
   /** truthful state of a run_in_background task, read from its output file
    *  (terminal markers) + a live-writer probe (lsof). local sessions only;
@@ -901,6 +895,13 @@ export interface Hang4rApi {
     sessionId: string,
     outputPath: string
   ): Promise<{ state: 'running' | 'done' | 'failed' | 'stopped' }>
+  /** backgroundTaskState for many output files in one round trip, keyed by path.
+   *  Distinct paths only, capped at 200 (extras are omitted). A remote (ssh)
+   *  session gets 'unknown' for every path — the probe can't tell there. */
+  backgroundTaskStates(
+    sessionId: string,
+    outputPaths: string[]
+  ): Promise<Record<string, 'running' | 'done' | 'failed' | 'stopped' | 'unknown'>>
   /** stop one run_in_background task by killing its live writer(s).
    *  { stopped:false } on remote (ssh) — can't reach the host. */
   stopBackgroundTask(sessionId: string, outputPath: string): Promise<{ stopped: boolean }>

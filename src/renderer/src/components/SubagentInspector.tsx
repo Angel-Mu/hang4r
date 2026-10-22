@@ -4,7 +4,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkEmoji } from '../remarkEmoji'
 import { mdComponents } from './MarkdownBlocks'
-import { useHang4r, type TranscriptItem } from '../state/store'
+import { useHang4r, mergePanelItems, type TranscriptItem } from '../state/store'
 import { onSeedSessionUi, onForgetSession, persistSessionUi } from '../sessionUiMemos'
 
 type BlockItem = Extract<TranscriptItem, { type: 'block' }>
@@ -49,18 +49,55 @@ const STATUS_LABEL: Record<RunStatus, string> = {
  */
 export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Element {
   const transcript = useHang4r((s) => s.transcripts[sessionId])
-  const running = useHang4r(
-    (s) => s.sessions.find((x) => x.id === sessionId)?.status === 'running'
-  )
+  const running = useHang4r((s) => s.sessions.find((x) => x.id === sessionId)?.status === 'running')
   const liveAgents = useHang4r((s) => s.liveAgents[sessionId])
   // a launch that named no model runs on whatever the session is set to
-  const sessionModel = useHang4r(
-    (s) => s.sessions.find((x) => x.id === sessionId)?.model ?? ''
-  )
-  const runs = useMemo(
-    () => collectRuns(transcript?.items ?? [], running, liveAgents && new Set(liveAgents)),
-    [transcript, running, liveAgents]
-  )
+  const sessionModel = useHang4r((s) => s.sessions.find((x) => x.id === sessionId)?.model ?? '')
+  // Runs older than the transcript window come from panelHistory (launches +
+  // results only). It goes FIRST so their startIndex falls before the window's
+  // last turn boundary: an old unfinished background run reads 'ended', not live.
+  // A thread fetched on expand sits right after the launches it belongs to.
+  const history = useHang4r((s) => s.panelHistory[sessionId])
+  const windowStart = useHang4r((s) => s.panelWindowStart[sessionId])
+  useEffect(() => {
+    void useHang4r.getState().ensurePanelHistory(sessionId)
+  }, [sessionId, windowStart])
+  const threads = useHang4r((s) => s.subagentThreads[sessionId])
+  const [historyIds, interruptedIds] = useMemo(() => {
+    const ids = new Set<string>()
+    const dangling = new Set<string>()
+    for (const it of history?.items ?? []) {
+      if (
+        it.type === 'block' &&
+        it.toolUseId &&
+        (it.toolName === 'Task' || it.toolName === 'Agent')
+      ) {
+        ids.add(it.toolUseId)
+        if (it.toolResult === undefined) dangling.add(it.toolUseId)
+      }
+    }
+    return [ids, dangling]
+  }, [history])
+  const runs = useMemo(() => {
+    const collected = collectRuns(
+      mergePanelItems(
+        history?.items ?? [],
+        Object.values(threads ?? {}).flat(),
+        transcript?.items ?? []
+      ),
+      running,
+      liveAgents && new Set(liveAgents)
+    )
+    // Everything before the window is a finished turn, and a background launch
+    // always has a result (the async-launch message): a history launch with none
+    // was a synchronous run that was interrupted, whatever collectRuns made of the
+    // live turn (it would read 'running', or 'done' once the turn is over).
+    return collected.map((r) =>
+      interruptedIds.has(r.toolUseId) && r.status !== 'error'
+        ? { ...r, status: 'ended' as const }
+        : r
+    )
+  }, [history, threads, transcript, running, liveAgents, interruptedIds])
   // the ⤷ "View thread" signal — carries the clicked run's toolUseId so the
   // matching thread can expand + scroll itself into view (below)
   const focusSig = useHang4r((s) => s.subagentsToOpen)
@@ -69,9 +106,12 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
   // panel re-rendering the rest. A bulk toggle therefore writes collapsedRuns
   // and bumps this, which is the only thing the threads watch.
   const [bulkNonce, setBulkNonce] = useState(0)
-  const anyOpen = runs.some((r) => !(collapsedRuns.get(`${sessionId}:${r.toolUseId}`) ?? false))
+  // bulk toggle covers the window's runs only: opening hundreds of older runs
+  // would fetch every thread, so those open one at a time
+  const bulkRuns = runs.filter((r) => !historyIds.has(r.toolUseId))
+  const anyOpen = bulkRuns.some((r) => !isCollapsed(sessionId, r.toolUseId, false))
   const toggleAll = (): void => {
-    for (const r of runs) collapsedRuns.set(`${sessionId}:${r.toolUseId}`, anyOpen)
+    for (const r of bulkRuns) collapsedRuns.set(`${sessionId}:${r.toolUseId}`, anyOpen)
     persistCollapsed(sessionId)
     setBulkNonce((n) => n + 1)
   }
@@ -79,9 +119,9 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
   if (runs.length === 0) {
     return (
       <div className="diff-empty">
-        No subagents yet. When the agent delegates work to a subagent (via the
-        Agent/Task tool), each run appears here as a followable thread. For
-        commands the agent runs in the background, see the Tasks tab.
+        No subagents yet. When the agent delegates work to a subagent (via the Agent/Task tool),
+        each run appears here as a followable thread. For commands the agent runs in the background,
+        see the Tasks tab.
       </div>
     )
   }
@@ -90,7 +130,7 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
     <div className="subagents-view">
       <div className="subagents-header">
         Subagents ({runs.length})
-        {runs.length > 1 && (
+        {bulkRuns.length > 1 && (
           <button
             className="ghost-btn subagents-collapse-all"
             title={
@@ -119,6 +159,8 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
           run={run}
           sessionId={sessionId}
           sessionModel={sessionModel}
+          older={historyIds.has(run.toolUseId)}
+          historySeq={history?.beforeSeq}
           focus={focus}
           bulkNonce={bulkNonce}
         />
@@ -134,6 +176,11 @@ export function SubagentInspector({ sessionId }: { sessionId: string }): JSX.Ele
  * an app RESTART, not just a remount (Angel: everything re-expanded on restart).
  */
 const collapsedRuns = new Map<string, boolean>()
+/** An older run has no body until fetched, and a long session has hundreds: they
+ *  start collapsed unless the user already chose. */
+function isCollapsed(sessionId: string, toolUseId: string, older: boolean): boolean {
+  return collapsedRuns.get(`${sessionId}:${toolUseId}`) ?? older
+}
 
 /** on startup, seed the collapsed set for a session from its persisted snapshot */
 onSeedSessionUi((sessionId, snap) => {
@@ -150,7 +197,8 @@ onForgetSession((sessionId) => {
 function persistCollapsed(sessionId: string): void {
   const prefix = `${sessionId}:`
   const collapsed: string[] = []
-  for (const [k, v] of collapsedRuns) if (v && k.startsWith(prefix)) collapsed.push(k.slice(prefix.length))
+  for (const [k, v] of collapsedRuns)
+    if (v && k.startsWith(prefix)) collapsed.push(k.slice(prefix.length))
   void persistSessionUi(sessionId, { collapsedSubagents: collapsed })
 }
 
@@ -158,6 +206,8 @@ function SubagentThread({
   run,
   sessionId,
   sessionModel,
+  older,
+  historySeq,
   focus,
   bulkNonce
 }: {
@@ -165,12 +215,16 @@ function SubagentThread({
   sessionId: string
   /** what a run inherits when its launch named no model */
   sessionModel: string
+  /** the run predates the transcript window, so its blocks load on demand */
+  older: boolean
+  /** panelHistory boundary the fetched thread is valid for */
+  historySeq: number | undefined
   focus: { sessionId: string; toolUseId?: string; nonce: number } | null
   /** bumped by the header's collapse/expand all, after it writes collapsedRuns */
   bulkNonce: number
 }): JSX.Element {
   const collapseKey = `${sessionId}:${run.toolUseId}`
-  const [open, setOpenState] = useState(!(collapsedRuns.get(collapseKey) ?? false))
+  const [open, setOpenState] = useState(!isCollapsed(sessionId, run.toolUseId, older))
   const setOpen = (o: boolean): void => {
     collapsedRuns.set(collapseKey, !o)
     setOpenState(o)
@@ -181,8 +235,16 @@ function SubagentThread({
   const firstBulk = useRef(bulkNonce)
   useEffect(() => {
     if (bulkNonce === firstBulk.current) return
-    setOpenState(!(collapsedRuns.get(collapseKey) ?? false))
+    setOpenState(!isCollapsed(sessionId, run.toolUseId, older))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bulkNonce, collapseKey])
+
+  // an older run's body is fetched the first time it is opened
+  const threadLoaded = useHang4r((s) => s.subagentThreads[sessionId]?.[run.toolUseId] !== undefined)
+  useEffect(() => {
+    if (open && older && !threadLoaded)
+      void useHang4r.getState().loadSubagentThread(sessionId, run.toolUseId)
+  }, [open, older, threadLoaded, historySeq, sessionId, run.toolUseId])
 
   const bodyRef = useRef<HTMLDivElement>(null)
   const rowRef = useRef<HTMLDivElement>(null)
@@ -206,7 +268,9 @@ function SubagentThread({
     setOpen(true)
     setFlash(true)
     const t = setTimeout(() => setFlash(false), 1400)
-    requestAnimationFrame(() => rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+    requestAnimationFrame(() =>
+      rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    )
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, run.toolUseId])
@@ -244,7 +308,8 @@ function SubagentThread({
       </button>
       {open && (
         <div className="subagent-run-body" ref={bodyRef}>
-          {run.blocks.length === 0 && run.status !== 'done' && (
+          {older && !threadLoaded && <div className="subagent-empty">…loading thread</div>}
+          {!older && run.blocks.length === 0 && run.status !== 'done' && (
             <div className="subagent-empty">…starting up</div>
           )}
           {run.blocks.map((m) =>
@@ -259,7 +324,12 @@ function SubagentThread({
             ) : (
               m.text.trim() && (
                 <div key={m.key} className="subagent-text">
-                  <Markdown remarkPlugins={[remarkGfm, remarkEmoji]} components={mdComponents(sessionId)}>{m.text}</Markdown>
+                  <Markdown
+                    remarkPlugins={[remarkGfm, remarkEmoji]}
+                    components={mdComponents(sessionId)}
+                  >
+                    {m.text}
+                  </Markdown>
                 </div>
               )
             )
@@ -270,7 +340,12 @@ function SubagentThread({
           {run.resultText && (
             <div className="subagent-result">
               <div className="subagent-result-label">result</div>
-              <Markdown remarkPlugins={[remarkGfm, remarkEmoji]} components={mdComponents(sessionId)}>{run.resultText}</Markdown>
+              <Markdown
+                remarkPlugins={[remarkGfm, remarkEmoji]}
+                components={mdComponents(sessionId)}
+              >
+                {run.resultText}
+              </Markdown>
             </div>
           )}
         </div>
@@ -286,7 +361,11 @@ function SubagentToolRow({ item }: { item: BlockItem }): JSX.Element {
   return (
     <div className="subagent-tool-row">
       <button className="subagent-tool" onClick={() => setOpen((o) => !o)}>
-        <span className={'subagent-tool-dot' + (pending ? ' pending' : item.toolResultError ? ' err' : '')} />
+        <span
+          className={
+            'subagent-tool-dot' + (pending ? ' pending' : item.toolResultError ? ' err' : '')
+          }
+        />
         <span className="tool-name">{item.toolName}</span>
         <span className="tool-summary">{summarize(item.toolInput)}</span>
       </button>
@@ -350,7 +429,9 @@ function parseTaskResult(result: unknown): {
   if (typeof result === 'string') text = result
   else if (Array.isArray(result)) {
     text = result
-      .map((b) => (b && typeof b === 'object' && 'text' in b ? String((b as { text: unknown }).text) : ''))
+      .map((b) =>
+        b && typeof b === 'object' && 'text' in b ? String((b as { text: unknown }).text) : ''
+      )
       .join('\n')
   } else if (result != null) text = JSON.stringify(result)
   // blanked so the metadata blob never leaks to the user as a "result"

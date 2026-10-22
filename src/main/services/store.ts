@@ -13,6 +13,20 @@ import type {
 } from '../../shared/protocol'
 
 /**
+ * Tool calls the Subagents/Tasks panels read — keep in step with collectRuns
+ * (SubagentInspector.tsx), collectTasks and collectAgentTodos (BackgroundTasks.tsx
+ * + shared/agentTodos.ts), or older history silently loses what they consume.
+ * Bash with run_in_background needs an input test, so it is matched in SQL.
+ */
+/** read only at the top level (a subagent's own Agent/Task calls stay in its thread) */
+const PANEL_TOP_LEVEL_TOOLS = ['Task', 'Agent', 'Workflow', 'TaskCreate', 'TaskUpdate']
+/** read at any depth: subagents launch and poll background commands too */
+const PANEL_ANY_LEVEL_TOOLS = ['KillShell', 'KillBash', 'BashOutput', 'TaskOutput']
+/** …of which the panels never read the result */
+const PANEL_RESULTLESS_TOOLS = ['TaskUpdate', 'KillShell', 'KillBash']
+const sqlList = (names: string[]): string => names.map((t) => `'${t}'`).join(',')
+
+/**
  * App-owned persistence (SQLite). We never write into ~/.claude — Claude's
  * JSONL session files stay Claude's; we only store our own metadata and a
  * replayable transcript of translated agent events.
@@ -96,8 +110,12 @@ export class Store {
     // block's text, so dropping the deltas is lossless. Guarded to run once.
     const purged = this.db.prepare("SELECT 1 FROM settings WHERE key = 'deltaPurgeV1'").get()
     if (!purged) {
-      this.db.exec("DELETE FROM session_events WHERE json_extract(event_json, '$.kind') = 'block-delta'")
-      this.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('deltaPurgeV1', '1')").run()
+      this.db.exec(
+        "DELETE FROM session_events WHERE json_extract(event_json, '$.kind') = 'block-delta'"
+      )
+      this.db
+        .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('deltaPurgeV1', '1')")
+        .run()
       try {
         this.db.exec('VACUUM') // reclaim the freed space (one-time, best-effort)
       } catch {
@@ -109,9 +127,8 @@ export class Store {
   /* ---------- projects ---------- */
 
   createProject(path: string): Project {
-    const existing = this.db
-      .prepare('SELECT * FROM projects WHERE path = ?')
-      .get(path) as ProjectRow | undefined
+    const existing = this.db.prepare('SELECT * FROM projects WHERE path = ?').get(path) as
+      ProjectRow | undefined
     if (existing) return rowToProject(existing)
     const project: Project = {
       id: randomUUID(),
@@ -126,9 +143,9 @@ export class Store {
   }
 
   listProjects(): Project[] {
-    return (this.db.prepare('SELECT * FROM projects ORDER BY created_at').all() as ProjectRow[]).map(
-      rowToProject
-    )
+    return (
+      this.db.prepare('SELECT * FROM projects ORDER BY created_at').all() as ProjectRow[]
+    ).map(rowToProject)
   }
 
   /** Remove a workspace from hang4r. Does NOT touch the folder on disk, nor its
@@ -140,8 +157,7 @@ export class Store {
 
   getProject(id: string): Project | undefined {
     const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as
-      | ProjectRow
-      | undefined
+      ProjectRow | undefined
     return row ? rowToProject(row) : undefined
   }
 
@@ -226,8 +242,7 @@ export class Store {
     >
   ): SessionMeta | undefined {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as
-      | SessionRow
-      | undefined
+      SessionRow | undefined
     if (!row) return undefined
     const merged = { ...rowToSession(row), ...patch, updatedAt: Date.now() }
     this.db
@@ -274,8 +289,7 @@ export class Store {
 
   getSession(id: string): SessionMeta | undefined {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as
-      | SessionRow
-      | undefined
+      SessionRow | undefined
     return row ? rowToSession(row) : undefined
   }
 
@@ -410,7 +424,9 @@ export class Store {
       event: JSON.parse(r.event_json)
     })
     const rows = this.db
-      .prepare('SELECT id, ts, event_json FROM session_events WHERE session_id = ? AND id > ? ORDER BY id')
+      .prepare(
+        'SELECT id, ts, event_json FROM session_events WHERE session_id = ? AND id > ? ORDER BY id'
+      )
       .all(sessionId, boundary.id) as { id: number; ts: number; event_json: string }[]
     const init = this.db
       .prepare(
@@ -424,12 +440,77 @@ export class Store {
     return { events, truncated: true }
   }
 
+  /**
+   * What the Subagents and Tasks panels derive from, for the part of the
+   * transcript getRecentEvents left behind (events with seq < `beforeSeq`).
+   * Their collectors read only these tool calls, their results, and subagent
+   * notes, so this returns just those — a session's inner subagent traffic is
+   * most of its bytes and is fetched per run by getSubagentEvents. Background
+   * Bash and its Kill/Output calls are kept at any depth.
+   *
+   * No block-start is needed (applyEvent builds a block from its block-final),
+   * and no permission events: a pending approval is cancelled when its turn
+   * completes, so everything before a turn boundary is already resolved.
+   *
+   * Only the launch side is bounded by `beforeSeq`: a result may land after the
+   * boundary (a late async result) and would otherwise orphan its launch.
+   */
+  getPanelHistory(sessionId: string, beforeSeq: number): SessionEvent[] {
+    const rows = this.db
+      .prepare(
+        `WITH launch AS (
+           SELECT id,
+                  json_extract(event_json, '$.block.name') AS name,
+                  json_extract(event_json, '$.block.id') AS tool_use_id
+           FROM session_events
+           WHERE session_id = @sid AND id < @before
+             AND json_extract(event_json, '$.kind') = 'block-final'
+             AND json_extract(event_json, '$.block.type') = 'tool_use'
+             AND ((json_extract(event_json, '$.parentToolUseId') IS NULL
+                   AND json_extract(event_json, '$.block.name') IN (${sqlList(PANEL_TOP_LEVEL_TOOLS)}))
+                  OR json_extract(event_json, '$.block.name') IN (${sqlList(PANEL_ANY_LEVEL_TOOLS)})
+                  OR (json_extract(event_json, '$.block.name') = 'Bash'
+                      AND COALESCE(json_extract(event_json, '$.block.input.run_in_background'), 0) NOT IN (0, '')))
+         )
+         SELECT id, ts, event_json FROM session_events
+         WHERE session_id = @sid AND (
+           (id < @before AND (id IN (SELECT id FROM launch)
+                              OR json_extract(event_json, '$.kind') = 'subagent-note'))
+           OR (json_extract(event_json, '$.kind') = 'tool-result'
+               AND json_extract(event_json, '$.toolUseId') IN
+                 (SELECT tool_use_id FROM launch WHERE name NOT IN (${sqlList(PANEL_RESULTLESS_TOOLS)})))
+         )
+         ORDER BY id`
+      )
+      .all({ sid: sessionId, before: beforeSeq }) as {
+      id: number
+      ts: number
+      event_json: string
+    }[]
+    return rows.map((r) => ({ sessionId, seq: r.id, ts: r.ts, event: JSON.parse(r.event_json) }))
+  }
+
+  /**
+   * One subagent run's inner events (its own tool calls' results carry the same
+   * parentToolUseId, so this is the whole thread), for filling in a run whose
+   * body getPanelHistory left out.
+   */
+  getSubagentEvents(sessionId: string, toolUseId: string): SessionEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, ts, event_json FROM session_events
+         WHERE session_id = ? AND json_extract(event_json, '$.parentToolUseId') = ?
+         ORDER BY id`
+      )
+      .all(sessionId, toolUseId) as { id: number; ts: number; event_json: string }[]
+    return rows.map((r) => ({ sessionId, seq: r.id, ts: r.ts, event: JSON.parse(r.event_json) }))
+  }
+
   /* ---------- settings ---------- */
 
   getSetting(key: string): string | null {
     const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
-      | { value: string }
-      | undefined
+      { value: string } | undefined
     return row?.value ?? null
   }
 

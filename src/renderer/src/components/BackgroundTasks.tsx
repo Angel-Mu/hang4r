@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
-import { useHang4r } from '../state/store'
+import { useHang4r, mergePanelItems } from '../state/store'
 import { onForgetSession } from '../sessionUiMemos'
 import type { TranscriptItem } from '../state/store'
 import {
@@ -72,7 +72,8 @@ export function collectTasks(items: TranscriptItem[]): BgTask[] {
 
     // the agent checking on a task reveals its true state
     if (item.toolName === 'BashOutput' || item.toolName === 'TaskOutput') {
-      const ref = (item.toolInput as { bash_id?: string; shell_id?: string; task_id?: string }) ?? {}
+      const ref =
+        (item.toolInput as { bash_id?: string; shell_id?: string; task_id?: string }) ?? {}
       const refId = ref.bash_id ?? ref.shell_id ?? ref.task_id
       if (refId && res) evidence(refId, `${refId} ${res.slice(0, 2000)}`)
       continue
@@ -96,7 +97,11 @@ export function collectTasks(items: TranscriptItem[]): BgTask[] {
 
     // Bash run_in_background
     if (item.toolName !== 'Bash' || !item.toolInput) continue
-    const input = item.toolInput as { command?: string; description?: string; run_in_background?: boolean }
+    const input = item.toolInput as {
+      command?: string
+      description?: string
+      run_in_background?: boolean
+    }
     if (!input.run_in_background) continue
     const id = /background with ID:\s*([^\s.]+)/i.exec(res)?.[1] ?? item.toolUseId ?? '?'
     const outputPath = /written to:\s*(\S+)/i.exec(res)?.[1]
@@ -121,7 +126,12 @@ export function collectAgentTodos(items: TranscriptItem[]): AgentTodo[] {
   for (const it of items) {
     if (it.type !== 'block') continue
     if (it.blockType === 'tool_use') {
-      sources.push({ kind: 'tool', name: it.toolName ?? '', input: it.toolInput, result: it.toolResult })
+      sources.push({
+        kind: 'tool',
+        name: it.toolName ?? '',
+        input: it.toolInput,
+        result: it.toolResult
+      })
     } else if (it.blockType === 'text' && !it.parentToolUseId) {
       sources.push({ kind: 'text', text: it.text })
     }
@@ -137,6 +147,27 @@ const TODO_GLYPH: Record<string, string> = {
 
 export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Element {
   const transcript = useHang4r((s) => s.transcripts[sessionId])
+  // launches older than the transcript window, first so they read as earlier
+  const history = useHang4r((s) => s.panelHistory[sessionId])
+  const windowStart = useHang4r((s) => s.panelWindowStart[sessionId])
+  useEffect(() => {
+    void useHang4r.getState().ensurePanelHistory(sessionId)
+  }, [sessionId, windowStart])
+  const allItems = useMemo(
+    () => mergePanelItems(history?.items ?? [], transcript?.items ?? []),
+    [history, transcript]
+  )
+  // Tasks launched before the window: nothing in the transcript can say they are
+  // still running, so they read as not running until a probe of their output
+  // files says otherwise (below). Window tasks keep the poll-driven behavior.
+  const historyKeys = useMemo(() => {
+    const keys = new Set<string>()
+    for (const it of history?.items ?? []) {
+      if (it.type === 'block' && it.toolUseId) keys.add(it.toolUseId)
+    }
+    return keys
+  }, [history])
+  const probe = useHang4r((s) => s.bgTaskProbe[sessionId])
   const status = useHang4r((s) => s.sessions.find((x) => x.id === sessionId)?.status)
   // background commands are CHILDREN of the agent process — with no live
   // process (e.g. a replayed session after an app restart) nothing can still
@@ -163,18 +194,27 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
   const [taskState, setTaskState] = useState<Record<string, BgStatus>>({})
   const tasks = useMemo(() => {
     const gone = new Set(dismissed ?? [])
-    const collected = collectTasks(transcript?.items ?? []).filter((t) => !gone.has(t.key))
+    const collected = collectTasks(allItems).filter((t) => !gone.has(t.key))
     return collected.map((t) => {
-      const status = taskState[t.key] ?? t.status
+      let status = taskState[t.key] ?? t.status
+      if (historyKeys.has(t.key) && status === 'running') {
+        // only a probe that SAW it running promotes it ('unknown', e.g. over ssh, never does)
+        const seen = t.outputPath ? probe?.[t.outputPath] : undefined
+        status = seen === 'running' ? 'running' : seen && seen !== 'unknown' ? seen : 'ended'
+      }
       // agent gone → nothing can still be running (bg commands die with it)
-      return !agentAlive && status === 'running' ? { ...t, status: 'ended' as const } : { ...t, status }
+      return !agentAlive && status === 'running'
+        ? { ...t, status: 'ended' as const }
+        : { ...t, status }
     })
-  }, [transcript, agentAlive, dismissed, taskState])
+  }, [allItems, agentAlive, dismissed, taskState, historyKeys, probe])
 
   // Poll the real state of every bash task still showing "running" — regardless
   // of whether its row is expanded (the per-row tail only runs while open, which
   // is why collapsed tasks never updated). Only while the agent is live; stop
   // polling a task the moment it reaches a terminal state (it leaves pollKey).
+  // A history task only gets here once the batched probe saw it running; its
+  // terminal state is written back to that probe cache so a remount keeps it.
   const pollKey = tasks
     .filter((t) => t.kind === 'bash' && t.status === 'running' && t.outputPath)
     .map((t) => `${t.key}\t${t.outputPath}`)
@@ -191,6 +231,7 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
         void window.hang4r.backgroundTaskState(sessionId, path).then((r) => {
           if (alive && r.state !== 'running') {
             setTaskState((prev) => (prev[key] === r.state ? prev : { ...prev, [key]: r.state }))
+            if (historyKeys.has(key)) useHang4r.getState().setBgTaskProbe(sessionId, path, r.state)
           }
         })
       }
@@ -201,16 +242,38 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
       alive = false
       clearInterval(iv)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a stale historyKeys only skips a cache write-back; the cache resets on every history reload
   }, [pollKey, sessionId])
 
-  const todos = useMemo(() => collectAgentTodos(transcript?.items ?? []), [transcript])
+  // ONE batched probe per history task path, cached in the store so reopening the
+  // panel doesn't ask again. Reads the collected (pre-probe) status.
+  const probeKey = useMemo(
+    () =>
+      collectTasks(allItems)
+        .filter(
+          (t) =>
+            historyKeys.has(t.key) &&
+            t.kind === 'bash' &&
+            t.status === 'running' &&
+            t.outputPath &&
+            !(dismissed ?? []).includes(t.key)
+        )
+        .map((t) => t.outputPath!)
+        .join('\n'),
+    [allItems, historyKeys, dismissed]
+  )
+  useEffect(() => {
+    if (probeKey) void useHang4r.getState().probeBackgroundTasks(sessionId, probeKey.split('\n'))
+  }, [probeKey, sessionId])
+
+  const todos = useMemo(() => collectAgentTodos(allItems), [allItems])
 
   if (tasks.length === 0 && todos.length === 0) {
     return (
       <div className="diff-empty">
-        No tasks yet. The agent&apos;s task list (TaskCreate/TaskUpdate) shows here as it
-        plans work, and so does anything it runs in the background (run_in_background
-        commands, Workflows like /deep-research) with live output.
+        No tasks yet. The agent&apos;s task list (TaskCreate/TaskUpdate) shows here as it plans
+        work, and so does anything it runs in the background (run_in_background commands, Workflows
+        like /deep-research) with live output.
       </div>
     )
   }
@@ -248,7 +311,12 @@ export function BackgroundTasks({ sessionId }: { sessionId: string }): JSX.Eleme
             <button
               className="ghost-btn"
               title="Hide these task cards. Doesn't stop anything — use a task's ■ Stop to actually kill it; Clear just removes the cards."
-              onClick={() => dismissBgTasks(sessionId, tasks.map((t) => t.key))}
+              onClick={() =>
+                dismissBgTasks(
+                  sessionId,
+                  tasks.map((t) => t.key)
+                )
+              }
             >
               Clear
             </button>
@@ -329,11 +397,11 @@ function BgTaskRow({
       <div className="bgtask-headrow">
         <button className="bgtask-head" onClick={toggleOpen}>
           <span className="bgtask-caret">{open ? '▾' : '▸'}</span>
-        <span className={'bgtask-dot dot-' + task.status} />
-        <span className="bgtask-kind">{task.kind === 'workflow' ? 'workflow' : 'bash'}</span>
-        <span className="bgtask-cmd" title={task.command}>
-          {task.description || task.command}
-        </span>
+          <span className={'bgtask-dot dot-' + task.status} />
+          <span className="bgtask-kind">{task.kind === 'workflow' ? 'workflow' : 'bash'}</span>
+          <span className="bgtask-cmd" title={task.command}>
+            {task.description || task.command}
+          </span>
           <span className="bgtask-id">{task.id}</span>
           <span className={'bgtask-status bgtask-status-' + task.status}>
             {STATUS_LABEL[task.status]}

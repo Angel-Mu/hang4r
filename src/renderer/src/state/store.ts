@@ -229,8 +229,7 @@ export function isAwaitingPermission(t: Transcript | undefined): boolean {
  */
 export function isAwaitingQuestion(t: Transcript | undefined): boolean {
   return (
-    !!t &&
-    t.items.some((it) => it.type === 'question' && it.answers === undefined && !it.cancelled)
+    !!t && t.items.some((it) => it.type === 'question' && it.answers === undefined && !it.cancelled)
   )
 }
 
@@ -250,10 +249,87 @@ interface LoadedTranscript {
   /** the session's persisted init, so the `/` menu has its skills before the
    *  next turn re-announces them */
   init: SessionInit | undefined
+  /** seq of the first event of the window proper (not the init row getRecentEvents
+   *  prepends with a LOWER seq): panel history is everything before it */
+  windowStartSeq: number | undefined
 }
 
 /** in-flight transcript-reset reloads, so a local rewind can wait on its own */
 const resetReloads = new Map<string, Promise<void>>()
+
+/** latest panel-history request per session; an older fetch that resolves late
+ *  (session reopened, transcript reset) must not overwrite a newer one */
+const panelHistoryRequest = new Map<string, number>()
+/** the epoch being fetched per session, so two panels mounting don't both fetch */
+const panelHistoryInFlight = new Map<string, number>()
+let panelEpoch = 0
+/** subagent thread fetches run one at a time: "Expand all" on 165 old runs would
+ *  otherwise fire 165 scans of the session's event table at once */
+let threadQueue: Promise<unknown> = Promise.resolve()
+const threadsInFlight = new Set<string>()
+/** background-task probes in flight, by `${sessionId}\n${path}` */
+const bgProbesInFlight = new Set<string>()
+
+/**
+ * Concatenate transcript item lists for the panels, keeping the FIRST item for
+ * each tool call: a subagent's background command is in panelHistory and comes
+ * back again in its fetched thread, and must show once.
+ */
+export function mergePanelItems(...lists: TranscriptItem[][]): TranscriptItem[] {
+  const seen = new Set<string>()
+  const out: TranscriptItem[] = []
+  for (const list of lists) {
+    for (const it of list) {
+      if (it.type === 'block' && it.toolUseId) {
+        if (seen.has(it.toolUseId)) continue
+        seen.add(it.toolUseId)
+      }
+      out.push(it)
+    }
+  }
+  return out
+}
+
+/**
+ * The Subagents/Tasks panels read the whole session, not just the window
+ * loadTranscriptData opened. When the window is truncated, record where it
+ * starts; the panels call ensurePanelHistory when shown, which replays the older
+ * top-level launches/results into `panelHistory` (kept OUT of `transcripts`, so
+ * the chat, pendingWork and the footer still see only the window). Nothing is
+ * fetched for a session whose panels are never opened.
+ */
+function syncPanelHistory(sessionId: string, loaded: LoadedTranscript): void {
+  const seq = loaded.windowStartSeq
+  if (!loaded.transcript.truncated || seq === undefined) {
+    // bump so a fetch still in flight is dropped
+    panelHistoryRequest.set(sessionId, (panelHistoryRequest.get(sessionId) ?? 0) + 1)
+    panelHistoryInFlight.delete(sessionId)
+    useHang4r.setState((s) => {
+      if (
+        !s.panelWindowStart[sessionId] &&
+        !s.panelHistory[sessionId] &&
+        !s.subagentThreads[sessionId]
+      ) {
+        return {}
+      }
+      const panelWindowStart = { ...s.panelWindowStart }
+      const panelHistory = { ...s.panelHistory }
+      const subagentThreads = { ...s.subagentThreads }
+      const bgTaskProbe = { ...s.bgTaskProbe }
+      delete panelWindowStart[sessionId]
+      delete panelHistory[sessionId]
+      delete subagentThreads[sessionId]
+      delete bgTaskProbe[sessionId]
+      return { panelWindowStart, panelHistory, subagentThreads, bgTaskProbe }
+    })
+    return
+  }
+  // a new epoch per load: reopening or a transcript reset refetches even when
+  // the boundary is unchanged (a rewind can change what is behind it)
+  useHang4r.setState((s) => ({
+    panelWindowStart: { ...s.panelWindowStart, [sessionId]: { seq, epoch: ++panelEpoch } }
+  }))
+}
 
 /**
  * Resync + replay a session's persisted events into a transcript and its
@@ -289,7 +365,11 @@ async function loadTranscriptData(sessionId: string, allTurns = false): Promise<
   // built-ins alone until the next turn re-announced them. Angel: "it works for
   // internal commands, but my skills are not shown".
   let init: SessionInit | undefined
+  let windowStartSeq: number | undefined
   for (const e of events) {
+    if (e.event.kind !== 'init' && (windowStartSeq === undefined || e.seq < windowStartSeq)) {
+      windowStartSeq = e.seq
+    }
     applyEvent(t, e.event)
     t.lastSeq = Math.max(t.lastSeq, e.seq)
     if (e.event.kind === 'init') {
@@ -319,7 +399,8 @@ async function loadTranscriptData(sessionId: string, allTurns = false): Promise<
     outputTokens: outTok,
     contextTokens: ctxTok,
     contextWindowTokens: ctxWindow,
-    init
+    init,
+    windowStartSeq
   }
 }
 
@@ -327,7 +408,13 @@ async function loadTranscriptData(sessionId: string, allTurns = false): Promise<
 export function applyEvent(t: Transcript, ev: AgentEvent): void {
   switch (ev.kind) {
     case 'user-text':
-      t.items.push({ type: 'user', text: shownUserText(ev), images: ev.images, files: ev.files, origin: ev.origin })
+      t.items.push({
+        type: 'user',
+        text: shownUserText(ev),
+        images: ev.images,
+        files: ev.files,
+        origin: ev.origin
+      })
       break
     case 'external-turn':
       t.items.push({ type: 'external-turn', role: ev.role, text: ev.text })
@@ -476,7 +563,11 @@ export function applyEvent(t: Transcript, ev: AgentEvent): void {
         // pair the response with the most recent matching open hook run
         for (let i = t.hooks.length - 1; i >= 0; i--) {
           const h = t.hooks[i]
-          if (h.status === 'running' && h.hookName === ev.hookName && h.hookEvent === ev.hookEvent) {
+          if (
+            h.status === 'running' &&
+            h.hookName === ev.hookName &&
+            h.hookEvent === ev.hookEvent
+          ) {
             h.status = 'done'
             h.outcome = ev.outcome
             break
@@ -537,17 +628,29 @@ interface Hang4rState {
   /** per-session usage: cumulative tokens + last turn's context (input) size */
   sessionUsage: Record<
     string,
-    { inputTokens: number; outputTokens: number; contextTokens: number; contextWindowTokens?: number }
+    {
+      inputTokens: number
+      outputTokens: number
+      contextTokens: number
+      contextWindowTokens?: number
+    }
   >
   /** per-session loaded context from the init event (skills, mcp, plugins, tools) */
   /** async agents this session's LIVE CLI process still owns; anything the
    *  transcript calls "running in background" but is missing here died with an
    *  earlier process */
   liveAgents: Record<string, string[]>
-  sessionInit: Record<
-    string,
-    SessionInit
-  >
+  /** top-level launches/results older than a truncated transcript window, for the
+   *  Subagents/Tasks panels only (never merged into `transcripts`); `beforeSeq`
+   *  is the window's start */
+  panelHistory: Record<string, { beforeSeq: number; epoch: number; items: TranscriptItem[] }>
+  /** where a truncated session's window starts; absent when it holds everything */
+  panelWindowStart: Record<string, { seq: number; epoch: number }>
+  /** probed state of history background tasks, per session by output path */
+  bgTaskProbe: Record<string, Record<string, 'running' | 'done' | 'failed' | 'stopped' | 'unknown'>>
+  /** inner blocks of runs that only exist in panelHistory, fetched on expand */
+  subagentThreads: Record<string, Record<string, TranscriptItem[]>>
+  sessionInit: Record<string, SessionInit>
   /** latest rate-limit state per type (e.g. five_hour, weekly) */
   rateLimits: Record<string, { status: string; resetsAt: number; isUsingOverage: boolean }>
   /** per-session composer drafts, so any pane can push content into the chat */
@@ -600,7 +703,12 @@ interface Hang4rState {
   dialog:
     | { kind: 'prompt'; title: string; initial: string; resolve: (v: string | null) => void }
     | { kind: 'confirm'; title: string; resolve: (v: boolean) => void }
-    | { kind: 'save'; title: string; detail: string; resolve: (v: 'save' | 'dont' | 'cancel') => void }
+    | {
+        kind: 'save'
+        title: string
+        detail: string
+        resolve: (v: 'save' | 'dont' | 'cancel') => void
+      }
     | null
   /** a file the focused session's Files panel should open (set by ⌘P) */
   fileToOpen: { sessionId: string; path: string; line?: number; nonce: number } | null
@@ -617,7 +725,12 @@ interface Hang4rState {
    *  replay it into a duplicate tab (the pane unmounts when you switch panels) */
   consumeUrlToOpen(nonce: number): void
   /** a browser keybinding main intercepted while the guest page had focus (⌘L/⌘T/⌘W/tab cycling) */
-  browserHotkey: { sessionId: string; tabId: string; action: BrowserHotkeyAction; nonce: number } | null
+  browserHotkey: {
+    sessionId: string
+    tabId: string
+    action: BrowserHotkeyAction
+    nonce: number
+  } | null
   /** one-shot clear once BrowserPane acts on it — so a pane remount can't replay it */
   consumeBrowserHotkey(nonce: number): void
   /** a nudge to surface a session's Browser context tab (agent-driven `goto`) */
@@ -707,6 +820,20 @@ interface Hang4rState {
   ensureTranscript(sessionId: string): Promise<void>
   /** replace a capped transcript with its full history */
   loadEarlierTurns(sessionId: string): Promise<void>
+  /** fetch the panel history for a truncated session if not already loaded (the
+   *  Subagents/Tasks panels call this when shown) */
+  ensurePanelHistory(sessionId: string): Promise<void>
+  /** one batched probe of history background tasks' output files; paths already
+   *  probed are skipped */
+  probeBackgroundTasks(sessionId: string, paths: string[]): Promise<void>
+  /** record a history task's later-resolved state in the probe cache */
+  setBgTaskProbe(
+    sessionId: string,
+    path: string,
+    state: 'running' | 'done' | 'failed' | 'stopped' | 'unknown'
+  ): void
+  /** fetch + cache the inner blocks of an older run (once); no-op if cached */
+  loadSubagentThread(sessionId: string, toolUseId: string): Promise<void>
   closeTile(sessionId: string): void
   focusSession(sessionId: string): void
   sendPrompt(sessionId: string, text: string): Promise<void>
@@ -860,6 +987,10 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   usage: { inputTokens: 0, outputTokens: 0 },
   sessionUsage: {},
   liveAgents: {},
+  panelHistory: {},
+  panelWindowStart: {},
+  bgTaskProbe: {},
+  subagentThreads: {},
   sessionInit: {},
   rateLimits: {},
   drafts: {},
@@ -1220,6 +1351,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
               ? { transcripts: { ...s.transcripts, [sessionId]: loaded.transcript } }
               : {}
           )
+          syncPanelHistory(sessionId, loaded)
         })
         .catch(() => {})
         .finally(() => {
@@ -1330,9 +1462,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     // just register the workspace — don't force the New Agent dialog. A session
     // (with its prompt) is created explicitly via New Agent / the workspace's +.
     set((s) => ({
-      projects: s.projects.some((p) => p.id === project.id)
-        ? s.projects
-        : [...s.projects, project]
+      projects: s.projects.some((p) => p.id === project.id) ? s.projects : [...s.projects, project]
     }))
   },
 
@@ -1438,6 +1568,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         }
       }
     })
+    syncPanelHistory(sessionId, loaded)
     persistLayout(get())
   },
 
@@ -1450,6 +1581,94 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   async loadEarlierTurns(sessionId) {
     const loaded = await loadTranscriptData(sessionId, true)
     set((s) => ({ transcripts: { ...s.transcripts, [sessionId]: loaded.transcript } }))
+    syncPanelHistory(sessionId, loaded)
+  },
+
+  async ensurePanelHistory(sessionId) {
+    const ws = get().panelWindowStart[sessionId]
+    if (!ws || get().panelHistory[sessionId]?.epoch === ws.epoch) return
+    if (panelHistoryInFlight.get(sessionId) === ws.epoch) return
+    panelHistoryInFlight.set(sessionId, ws.epoch)
+    const request = (panelHistoryRequest.get(sessionId) ?? 0) + 1
+    panelHistoryRequest.set(sessionId, request)
+    try {
+      const events = await window.hang4r.getPanelHistory(sessionId, ws.seq)
+      if (panelHistoryRequest.get(sessionId) !== request) return
+      const h = emptyTranscript()
+      for (const e of events) applyEvent(h, e.event)
+      set((s) => ({
+        panelHistory: {
+          ...s.panelHistory,
+          [sessionId]: { beforeSeq: ws.seq, epoch: ws.epoch, items: h.items }
+        },
+        // threads fetched against an older boundary no longer apply
+        subagentThreads:
+          s.panelHistory[sessionId]?.beforeSeq === ws.seq
+            ? s.subagentThreads
+            : { ...s.subagentThreads, [sessionId]: {} },
+        // a reload (reopen, rewind) is when task states are asked again
+        bgTaskProbe: { ...s.bgTaskProbe, [sessionId]: {} }
+      }))
+    } catch {
+      /* the panels keep showing the window */
+    } finally {
+      if (panelHistoryRequest.get(sessionId) === request) panelHistoryInFlight.delete(sessionId)
+    }
+  },
+
+  async probeBackgroundTasks(sessionId, paths) {
+    const known = get().bgTaskProbe[sessionId] ?? {}
+    const todo = [...new Set(paths)].filter(
+      (p) => known[p] === undefined && !bgProbesInFlight.has(`${sessionId}\n${p}`)
+    )
+    if (todo.length === 0) return
+    for (const p of todo) bgProbesInFlight.add(`${sessionId}\n${p}`)
+    try {
+      const states = await window.hang4r.backgroundTaskStates(sessionId, todo)
+      set((s) => ({
+        bgTaskProbe: { ...s.bgTaskProbe, [sessionId]: { ...s.bgTaskProbe[sessionId], ...states } }
+      }))
+    } catch {
+      /* unprobed tasks stay not-running */
+    } finally {
+      for (const p of todo) bgProbesInFlight.delete(`${sessionId}\n${p}`)
+    }
+  },
+
+  setBgTaskProbe(sessionId, path, state) {
+    set((s) => ({
+      bgTaskProbe: { ...s.bgTaskProbe, [sessionId]: { ...s.bgTaskProbe[sessionId], [path]: state } }
+    }))
+  },
+
+  async loadSubagentThread(sessionId, toolUseId) {
+    const ph = get().panelHistory[sessionId]
+    const key = `${sessionId}:${toolUseId}`
+    if (!ph || get().subagentThreads[sessionId]?.[toolUseId] || threadsInFlight.has(key)) return
+    threadsInFlight.add(key)
+    const run = threadQueue.then(async () => {
+      let items: TranscriptItem[] = []
+      try {
+        const events = await window.hang4r.getSubagentEvents(sessionId, toolUseId)
+        const t = emptyTranscript()
+        // the window already holds anything from seq >= beforeSeq (a background
+        // agent still streaming); replaying it here too would double its blocks
+        for (const e of events) if (e.seq < ph.beforeSeq) applyEvent(t, e.event)
+        items = t.items
+      } catch {
+        /* resolves to an empty thread rather than a spinner that never ends */
+      }
+      // dropped if the history was reloaded against a different boundary meanwhile
+      if (get().panelHistory[sessionId]?.beforeSeq !== ph.beforeSeq) return
+      set((s) => ({
+        subagentThreads: {
+          ...s.subagentThreads,
+          [sessionId]: { ...s.subagentThreads[sessionId], [toolUseId]: items }
+        }
+      }))
+    })
+    threadQueue = run
+    await run.finally(() => threadsInFlight.delete(key))
   },
 
   async ensureTranscript(sessionId) {
@@ -1473,6 +1692,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
         }
       }
     }))
+    syncPanelHistory(sessionId, loaded)
   },
 
   closeTile(sessionId) {
@@ -1682,7 +1902,9 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
     if (get().terminalCommandToRun?.nonce === nonce) set({ terminalCommandToRun: null })
   },
   openSubagents(sessionId, toolUseId) {
-    set({ subagentsToOpen: { sessionId, toolUseId, nonce: (get().subagentsToOpen?.nonce ?? 0) + 1 } })
+    set({
+      subagentsToOpen: { sessionId, toolUseId, nonce: (get().subagentsToOpen?.nonce ?? 0) + 1 }
+    })
   },
   openTasks(sessionId) {
     set({ tasksToOpen: { sessionId, nonce: (get().tasksToOpen?.nonce ?? 0) + 1 } })
@@ -1794,7 +2016,11 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
       // notice instead. A USER click (no silent) still gets the modal feedback.
       if (!opts?.silent) {
         set({
-          lightbox: { text: `Couldn't open ${file.name} for preview.`, kind: 'text', alt: file.name }
+          lightbox: {
+            text: `Couldn't open ${file.name} for preview.`,
+            kind: 'text',
+            alt: file.name
+          }
         })
       }
       return false
@@ -2027,9 +2253,7 @@ export const useHang4r = create<Hang4rState>((set, get) => ({
   async duplicateSession(sessionId) {
     const dup = await window.hang4r.duplicateSession(sessionId)
     set((s) => ({
-      sessions: s.sessions.some((x) => x.id === dup.id)
-        ? s.sessions
-        : [...s.sessions, dup]
+      sessions: s.sessions.some((x) => x.id === dup.id) ? s.sessions : [...s.sessions, dup]
     }))
     await get().openSession(dup.id, { split: true })
   },

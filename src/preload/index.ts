@@ -134,8 +134,12 @@ const api: Hang4rApi = {
   forkToBackend: (sessionId: string, backend: string, model?: string) =>
     ipcRenderer.invoke('sessions:fork-to-backend', sessionId, backend, model),
   retrySession: (sessionId: string) => ipcRenderer.invoke('sessions:retry', sessionId),
-  rewindSession: (sessionId: string, originalText: string, occurrenceFromEnd: number, newText: string) =>
-    ipcRenderer.invoke('sessions:rewind', sessionId, originalText, occurrenceFromEnd, newText),
+  rewindSession: (
+    sessionId: string,
+    originalText: string,
+    occurrenceFromEnd: number,
+    newText: string
+  ) => ipcRenderer.invoke('sessions:rewind', sessionId, originalText, occurrenceFromEnd, newText),
   setSessionModel: (sessionId: string, model: string) =>
     ipcRenderer.invoke('sessions:set-model', sessionId, model),
   setSessionPermissionMode: (sessionId: string, mode: PermissionMode) =>
@@ -157,8 +161,11 @@ const api: Hang4rApi = {
     ipcRenderer.invoke('sessions:restore-snapshot', sessionId, ref),
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value),
-  resolveAgentDefault: (backend: BackendId, field: 'model' | 'permissionMode', projectId?: string) =>
-    ipcRenderer.invoke('settings:resolve-agent-default', backend, field, projectId),
+  resolveAgentDefault: (
+    backend: BackendId,
+    field: 'model' | 'permissionMode',
+    projectId?: string
+  ) => ipcRenderer.invoke('settings:resolve-agent-default', backend, field, projectId),
   settingsFilePath: (scope: SettingsScope, projectId?: string) =>
     ipcRenderer.invoke('settings-file:path', scope, projectId),
   readSettingsFile: (scope: SettingsScope, projectId?: string) =>
@@ -168,6 +175,10 @@ const api: Hang4rApi = {
   getSessionEvents: (sessionId: string) => ipcRenderer.invoke('sessions:events', sessionId),
   getRecentSessionEvents: (sessionId: string, maxTurns: number) =>
     ipcRenderer.invoke('sessions:recent-events', sessionId, maxTurns),
+  getPanelHistory: (sessionId: string, beforeSeq: number) =>
+    ipcRenderer.invoke('sessions:panel-history', sessionId, beforeSeq),
+  getSubagentEvents: (sessionId: string, toolUseId: string) =>
+    ipcRenderer.invoke('sessions:subagent-events', sessionId, toolUseId),
   getChangedFiles: (sessionId: string) => ipcRenderer.invoke('sessions:changed-files', sessionId),
   scopedFiles: (sessionId: string, scope: DiffScope) =>
     ipcRenderer.invoke('git:scoped-files', sessionId, scope),
@@ -240,6 +251,8 @@ const api: Hang4rApi = {
   tailFile: (absPath: string) => ipcRenderer.invoke('files:tail', absPath),
   backgroundTaskState: (sessionId: string, outputPath: string) =>
     ipcRenderer.invoke('tasks:bg-state', sessionId, outputPath),
+  backgroundTaskStates: (sessionId: string, outputPaths: string[]) =>
+    ipcRenderer.invoke('tasks:bg-states', sessionId, outputPaths),
   stopBackgroundTask: (sessionId: string, outputPath: string) =>
     ipcRenderer.invoke('tasks:bg-stop', sessionId, outputPath),
   readFileDataUrl: (sessionId: string, relPath: string) =>
@@ -255,7 +268,8 @@ const api: Hang4rApi = {
     ipcRenderer.invoke('preview:set', sessionId, relPath, html),
   resyncSession: (sessionId: string) => ipcRenderer.invoke('sessions:resync', sessionId),
   agentAlive: (sessionId: string) => ipcRenderer.invoke('sessions:agent-alive', sessionId),
-  getPermissionRules: (sessionId: string) => ipcRenderer.invoke('sessions:permission-rules', sessionId),
+  getPermissionRules: (sessionId: string) =>
+    ipcRenderer.invoke('sessions:permission-rules', sessionId),
   onQuitConfirm: (
     cb: (info: {
       message: string
@@ -324,8 +338,10 @@ const api: Hang4rApi = {
   },
   reportBrowserGuests: (report: BrowserGuestReport) =>
     ipcRenderer.invoke('browser:guest-register', report),
-  dockDevtools: (guestWcId: number, bounds: { x: number; y: number; width: number; height: number }) =>
-    ipcRenderer.invoke('browser:devtools-dock', { guestWcId, bounds }),
+  dockDevtools: (
+    guestWcId: number,
+    bounds: { x: number; y: number; width: number; height: number }
+  ) => ipcRenderer.invoke('browser:devtools-dock', { guestWcId, bounds }),
   setDevtoolsBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.invoke('browser:devtools-bounds', { bounds }),
   closeDevtools: () => ipcRenderer.invoke('browser:devtools-close'),

@@ -77,6 +77,8 @@ export function getAppControl(): AppControlService | null {
 }
 
 let bridgeService: BridgeService | null = null
+/** most output files one tasks:bg-states call probes (each can cost an lsof) */
+const BG_STATES_MAX_PATHS = 200
 /** renderer's finished-unseen set (JSON id array), hydrated on boot */
 const UNSEEN_KEY = 'finishedUnseenV1'
 export function getBridge(): BridgeService | null {
@@ -182,16 +184,19 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
             body: `Needs your approval: ${ev.event.tool} — ${ev.event.summary}`.slice(0, 140)
           })
         : ev.event.kind === 'question-request'
-        ? new Notification({
-            title: `⏸ ${session.title.slice(0, 60)}`,
-            body: `Waiting on your answer: ${ev.event.questions[0]?.prompt ?? 'a question'}`.slice(0, 140)
-          })
-        : new Notification({
-            title: `${ev.event.isError ? '✗' : '✓'} ${session.title.slice(0, 60)}`,
-            body: ev.event.isError
-              ? (ev.event.errorMessage ?? 'Agent turn failed').slice(0, 140)
-              : 'Agent finished — ready for review'
-          })
+          ? new Notification({
+              title: `⏸ ${session.title.slice(0, 60)}`,
+              body: `Waiting on your answer: ${ev.event.questions[0]?.prompt ?? 'a question'}`.slice(
+                0,
+                140
+              )
+            })
+          : new Notification({
+              title: `${ev.event.isError ? '✗' : '✓'} ${session.title.slice(0, 60)}`,
+              body: ev.event.isError
+                ? (ev.event.errorMessage ?? 'Agent turn failed').slice(0, 140)
+                : 'Agent finished — ready for review'
+            })
     note.on('click', () => {
       const win = BrowserWindow.getAllWindows()[0]
       if (win) {
@@ -203,7 +208,11 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     })
     note.on('close', () => {
       const list = liveNotes.get(ev.sessionId)
-      if (list) liveNotes.set(ev.sessionId, list.filter((n) => n !== note))
+      if (list)
+        liveNotes.set(
+          ev.sessionId,
+          list.filter((n) => n !== note)
+        )
     })
     liveNotes.set(ev.sessionId, [...(liveNotes.get(ev.sessionId) ?? []), note])
     note.show()
@@ -253,7 +262,12 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   // browser and scoped to that tab's guest.
   let devtoolsView: WebContentsView | null = null
   let devtoolsGuestWcId: number | null = null
-  const round = (b: { x: number; y: number; width: number; height: number }): Electron.Rectangle => ({
+  const round = (b: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }): Electron.Rectangle => ({
     x: Math.round(b.x),
     y: Math.round(b.y),
     width: Math.max(0, Math.round(b.width)),
@@ -269,7 +283,10 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   }
   ipcMain.handle(
     'browser:devtools-dock',
-    (e, args: { guestWcId: number; bounds: { x: number; y: number; width: number; height: number } }) => {
+    (
+      e,
+      args: { guestWcId: number; bounds: { x: number; y: number; width: number; height: number } }
+    ) => {
       const win = BrowserWindow.fromWebContents(e.sender)
       const guest = webContents.fromId(args.guestWcId)
       if (!win || !guest || guest.isDestroyed()) return false
@@ -302,41 +319,41 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     store,
     settings,
     {
-    agentEvent(ev: SessionEvent) {
-      for (const win of BrowserWindow.getAllWindows()) {
-        win.webContents.send('agent-event', ev)
-      }
-      bridgeService?.onAgentEvent(ev)
-      appControl?.onAgentEvent(ev)
-      // persist the environment snapshot so the Env panel has it after an app
-      // restart (sessions are idle until the next turn — no live init event)
-      if (ev.event.kind === 'init') {
-        try {
-          settings.setSetting(`sessionInitV1:${ev.sessionId}`, JSON.stringify(ev.event))
-        } catch {
-          /* non-fatal */
+      agentEvent(ev: SessionEvent) {
+        for (const win of BrowserWindow.getAllWindows()) {
+          win.webContents.send('agent-event', ev)
+        }
+        bridgeService?.onAgentEvent(ev)
+        appControl?.onAgentEvent(ev)
+        // persist the environment snapshot so the Env panel has it after an app
+        // restart (sessions are idle until the next turn — no live init event)
+        if (ev.event.kind === 'init') {
+          try {
+            settings.setSetting(`sessionInitV1:${ev.sessionId}`, JSON.stringify(ev.event))
+          } catch {
+            /* non-fatal */
+          }
+        }
+        maybeNotify(ev)
+      },
+      sessionUpdated(session: SessionMeta) {
+        for (const win of BrowserWindow.getAllWindows()) {
+          win.webContents.send('session-updated', session)
+        }
+        bridgeService?.onSessionUpdated(session)
+        appControl?.onSessionUpdated(session)
+      },
+      transcriptReset(sessionId: string) {
+        for (const win of BrowserWindow.getAllWindows()) {
+          win.webContents.send('session-transcript-reset', sessionId)
+        }
+        bridgeService?.sendTranscriptReset(sessionId)
+      },
+      liveAgentsChanged(sessionId: string, agentIds: string[]) {
+        for (const win of BrowserWindow.getAllWindows()) {
+          win.webContents.send('session-live-agents', { sessionId, agentIds })
         }
       }
-      maybeNotify(ev)
-    },
-    sessionUpdated(session: SessionMeta) {
-      for (const win of BrowserWindow.getAllWindows()) {
-        win.webContents.send('session-updated', session)
-      }
-      bridgeService?.onSessionUpdated(session)
-      appControl?.onSessionUpdated(session)
-    },
-    transcriptReset(sessionId: string) {
-      for (const win of BrowserWindow.getAllWindows()) {
-        win.webContents.send('session-transcript-reset', sessionId)
-      }
-      bridgeService?.sendTranscriptReset(sessionId)
-    },
-    liveAgentsChanged(sessionId: string, agentIds: string[]) {
-      for (const win of BrowserWindow.getAllWindows()) {
-        win.webContents.send('session-live-agents', { sessionId, agentIds })
-      }
-    }
     },
     (sessionId: string) => browserControl!.sessionEnv(sessionId)
   )
@@ -492,30 +509,24 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     ClaudeImport.listSessions(roots, { offset, limit })
   )
   ipcMain.handle('claude:transcript', (_e, id: string) => ClaudeImport.getTranscript(id))
-  ipcMain.handle(
-    'claude:resume',
-    (_e, id: string, cwd: string | undefined, name: string) =>
-      sessions.resumeExternalClaudeSession(id, cwd, name)
+  ipcMain.handle('claude:resume', (_e, id: string, cwd: string | undefined, name: string) =>
+    sessions.resumeExternalClaudeSession(id, cwd, name)
   )
   ipcMain.handle('codex:available', () => CodexImport.available())
   ipcMain.handle('codex:list', (_e, roots?: string[], offset?: number, limit?: number) =>
     CodexImport.listSessions(roots, { offset, limit })
   )
   ipcMain.handle('codex:transcript', (_e, id: string) => CodexImport.getTranscript(id))
-  ipcMain.handle(
-    'codex:resume',
-    (_e, id: string, cwd: string | undefined, name: string) =>
-      sessions.resumeExternalCodexSession(id, cwd, name)
+  ipcMain.handle('codex:resume', (_e, id: string, cwd: string | undefined, name: string) =>
+    sessions.resumeExternalCodexSession(id, cwd, name)
   )
   ipcMain.handle('cursorAgent:available', () => CursorAgentImport.available())
   ipcMain.handle('cursorAgent:list', (_e, roots?: string[], offset?: number, limit?: number) =>
     CursorAgentImport.listSessions(roots, { offset, limit })
   )
   ipcMain.handle('cursorAgent:transcript', (_e, id: string) => CursorAgentImport.getTranscript(id))
-  ipcMain.handle(
-    'cursorAgent:resume',
-    (_e, id: string, cwd: string | undefined, name: string) =>
-      sessions.resumeExternalCursorSession(id, cwd, name)
+  ipcMain.handle('cursorAgent:resume', (_e, id: string, cwd: string | undefined, name: string) =>
+    sessions.resumeExternalCursorSession(id, cwd, name)
   )
   ipcMain.handle('update:check', () => UpdateService.check())
   ipcMain.handle('update:download', () => UpdateService.download())
@@ -548,12 +559,17 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   // it never sits on a menu accelerator that could hijack the browser
   ipcMain.handle('app:toggle-devtools', (e) => e.sender.toggleDevTools())
   ipcMain.handle('auth:status', () =>
-    AuthService.status(settings.getSetting('codexBinaryPath'), settings.getSetting('cursorBinaryPath'))
+    AuthService.status(
+      settings.getSetting('codexBinaryPath'),
+      settings.getSetting('cursorBinaryPath')
+    )
   )
   ipcMain.handle('auth:login', (_e, backend: 'claude' | 'codex' | 'cursor') =>
     AuthService.openLogin(backend)
   )
-  ipcMain.handle('models:codex', () => CodexModelService.list(settings.getSetting('codexBinaryPath')))
+  ipcMain.handle('models:codex', () =>
+    CodexModelService.list(settings.getSetting('codexBinaryPath'))
+  )
   ipcMain.handle('models:cursor', () =>
     CursorModelService.list(settings.getSetting('cursorBinaryPath'))
   )
@@ -672,8 +688,10 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   ipcMain.handle('sessions:rename', (_e, sessionId: string, title: string) =>
     sessions.rename(sessionId, title)
   )
-  ipcMain.handle('sessions:respond-permission', (_e, sessionId: string, requestId: string, decision: string) =>
-    sessions.respondPermission(sessionId, requestId, decision)
+  ipcMain.handle(
+    'sessions:respond-permission',
+    (_e, sessionId: string, requestId: string, decision: string) =>
+      sessions.respondPermission(sessionId, requestId, decision)
   )
   ipcMain.handle(
     'sessions:respond-question',
@@ -697,9 +715,8 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   ipcMain.handle('sessions:set-model', (_e, sessionId: string, model: string) =>
     sessions.setModel(sessionId, model)
   )
-  ipcMain.handle(
-    'sessions:set-permission-mode',
-    (_e, sessionId: string, mode: PermissionMode) => sessions.setPermissionMode(sessionId, mode)
+  ipcMain.handle('sessions:set-permission-mode', (_e, sessionId: string, mode: PermissionMode) =>
+    sessions.setPermissionMode(sessionId, mode)
   )
   ipcMain.handle('sessions:set-effort', (_e, sessionId: string, effort: string) =>
     sessions.setEffort(sessionId, effort)
@@ -757,7 +774,9 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   )
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('settings:get', (_e, key: string) => settings.getSetting(key))
-  ipcMain.handle('settings:set', (_e, key: string, value: string) => settings.setSetting(key, value))
+  ipcMain.handle('settings:set', (_e, key: string, value: string) =>
+    settings.setSetting(key, value)
+  )
   // per-backend agent default (agents.<backend>.<field>), workspace overriding
   // app — backs the New Agent dialog's pre-fill (model + permission mode)
   ipcMain.handle(
@@ -781,6 +800,12 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   ipcMain.handle('sessions:events', (_e, sessionId: string) => store.getEvents(sessionId))
   ipcMain.handle('sessions:recent-events', (_e, sessionId: string, maxTurns: number) =>
     store.getRecentEvents(sessionId, maxTurns)
+  )
+  ipcMain.handle('sessions:panel-history', (_e, sessionId: string, beforeSeq: number) =>
+    store.getPanelHistory(sessionId, beforeSeq)
+  )
+  ipcMain.handle('sessions:subagent-events', (_e, sessionId: string, toolUseId: string) =>
+    store.getSubagentEvents(sessionId, toolUseId)
   )
   ipcMain.handle('sessions:changed-files', (_e, sessionId: string) =>
     sessions.changedFiles(sessionId)
@@ -867,9 +892,11 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     ]
     for (const [file, source] of files) {
       try {
-        const perms = (JSON.parse(readFileSync(file, 'utf8')) as {
-          permissions?: { allow?: string[]; deny?: string[] }
-        }).permissions
+        const perms = (
+          JSON.parse(readFileSync(file, 'utf8')) as {
+            permissions?: { allow?: string[]; deny?: string[] }
+          }
+        ).permissions
         for (const r of perms?.allow ?? []) out.push({ rule: r, kind: 'allow', source })
         for (const r of perms?.deny ?? []) out.push({ rule: r, kind: 'deny', source })
       } catch {
@@ -1000,7 +1027,11 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       remoteListCache.set(sessionId, { at: Date.now(), files })
       return files
     }
-    return FileService.listAllFiles(await sessions.ensureWorkdir(sessionId), undefined, includeIgnored)
+    return FileService.listAllFiles(
+      await sessions.ensureWorkdir(sessionId),
+      undefined,
+      includeIgnored
+    )
   })
   ipcMain.handle('files:sources', async (_e, sessionId: string) =>
     remoteFor(sessionId)
@@ -1069,6 +1100,19 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
   ipcMain.handle('tasks:bg-state', (_e, sessionId: string, outputPath: string) =>
     resolveBackgroundTaskState(outputPath, !!remoteFor(sessionId))
   )
+  // The same probe for many tasks at once (one round trip, probes in parallel).
+  // Remote (ssh) output logs aren't on this box, so every path is 'unknown' —
+  // unlike the single channel, which reports 'running' for them.
+  ipcMain.handle('tasks:bg-states', async (_e, sessionId: string, outputPaths: string[]) => {
+    const paths = [...new Set(outputPaths)].slice(0, BG_STATES_MAX_PATHS)
+    const remote = !!remoteFor(sessionId)
+    const states = await Promise.all(
+      paths.map(async (p) =>
+        remote ? ('unknown' as const) : (await resolveBackgroundTaskState(p, false)).state
+      )
+    )
+    return Object.fromEntries(paths.map((p, i) => [p, states[i]]))
+  })
   // Stop ONE background task: kill whatever still holds its output file open.
   // Remote (ssh) tasks run on a host we can't reach → { stopped:false }.
   ipcMain.handle('tasks:bg-stop', (_e, sessionId: string, outputPath: string) =>
@@ -1107,9 +1151,7 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
       const shell = mode === 'login' ? undefined : shellField || undefined
       const loginShell = mode === 'login' || mode === 'custom'
       const sshHost =
-        session?.environment === 'ssh'
-          ? sessions.remoteHost(session.remoteHostId)?.host
-          : undefined
+        session?.environment === 'ssh' ? sessions.remoteHost(session.remoteHostId)?.host : undefined
       // ssh terminals run on the remote host and can't reach the local socket, so
       // they get no browser-control env; local terminals do (skip ensure-tab there)
       const env = sshHost ? undefined : browserControl?.sessionEnv(sessionId)

@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -222,7 +223,13 @@ export class FakeAdapter implements AgentAdapter {
       parentToolUseId: null
     })
     for (const chunk of ['Working on ', 'it — ', `turn ${turn}.`]) {
-      this.emit({ kind: 'block-delta', messageId, blockIndex: 0, text: chunk, parentToolUseId: null })
+      this.emit({
+        kind: 'block-delta',
+        messageId,
+        blockIndex: 0,
+        text: chunk,
+        parentToolUseId: null
+      })
     }
     this.emit({
       kind: 'block-final',
@@ -253,7 +260,10 @@ export class FakeAdapter implements AgentAdapter {
       kind: 'block-final',
       messageId: subMsg,
       blockIndex: 0,
-      block: { type: 'text', text: `Subagent scanned the repo (turn ${turn}) and found 2 matches.` },
+      block: {
+        type: 'text',
+        text: `Subagent scanned the repo (turn ${turn}) and found 2 matches.`
+      },
       parentToolUseId: taskId
     })
     this.emit({
@@ -263,6 +273,42 @@ export class FakeAdapter implements AgentAdapter {
       isError: false,
       parentToolUseId: null
     })
+
+    // E2E only: the subagent launches a background command of its own (a Bash
+    // run_in_background INSIDE its thread), so the Tasks panel must pick up a
+    // task whose launch carries a parentToolUseId
+    if (text.includes('subagent bg bash')) {
+      const subBgId = randomUUID()
+      const subLog = join(this.cwd, `.hang4r-bg-sub-${turn}.log`)
+      try {
+        writeFileSync(subLog, `subagent task starting…\nturn ${turn}\n`)
+      } catch {
+        /* ignore */
+      }
+      this.emit({
+        kind: 'block-final',
+        messageId: randomUUID(),
+        blockIndex: 0,
+        block: {
+          type: 'tool_use',
+          id: subBgId,
+          name: 'Bash',
+          input: {
+            command: 'npm run watch',
+            description: 'subagent watcher',
+            run_in_background: true
+          }
+        },
+        parentToolUseId: taskId
+      })
+      this.emit({
+        kind: 'tool-result',
+        toolUseId: subBgId,
+        content: `Command running in background with ID: sub${turn}. Output is being written to: ${subLog}`,
+        isError: false,
+        parentToolUseId: taskId
+      })
+    }
 
     // an assistant message linking a file OUTSIDE this session's worktree — the
     // shape agents produce constantly, and the one that used to escape to the
@@ -607,6 +653,20 @@ export class FakeAdapter implements AgentAdapter {
     } catch {
       /* ignore */
     }
+    // E2E only: a REAL process that holds the task's output file open (what a live
+    // background command does, so `lsof` sees a writer) until `<log>.stop` exists
+    if (text.includes('hold bg open')) {
+      try {
+        const holder = spawn(
+          'sh',
+          ['-c', 'exec 3>>"$1"; while [ ! -e "$1.stop" ]; do sleep 0.2; done', 'sh', bgLog],
+          { detached: true, stdio: 'ignore' }
+        )
+        holder.unref()
+      } catch {
+        /* ignore */
+      }
+    }
     this.emit({
       kind: 'tool-result',
       toolUseId: bgId,
@@ -618,50 +678,50 @@ export class FakeAdapter implements AgentAdapter {
     // The real CLI retired TaskCreate around 2026-08-14, so a checklist session
     // must exercise the markdown path with no tool-made todos in the way.
     if (!text.includes('write a checklist')) {
-    // the agent's structured task list (TaskCreate/TaskUpdate — TodoWrite's
-    // successor) so the Tasks panel's list section has deterministic content
-    const todoCreateId = randomUUID()
-    this.emit({
-      kind: 'block-final',
-      messageId,
-      blockIndex: 6,
-      block: {
-        type: 'tool_use',
-        id: todoCreateId,
-        name: 'TaskCreate',
-        input: { subject: `fake task for turn ${turn}` }
-      },
-      parentToolUseId: null
-    })
-    this.emit({
-      kind: 'tool-result',
-      toolUseId: todoCreateId,
-      content: `Created task #${turn}`,
-      isError: false,
-      parentToolUseId: null
-    })
-    if (turn > 1) {
-      const todoUpdateId = randomUUID()
+      // the agent's structured task list (TaskCreate/TaskUpdate — TodoWrite's
+      // successor) so the Tasks panel's list section has deterministic content
+      const todoCreateId = randomUUID()
       this.emit({
         kind: 'block-final',
         messageId,
-        blockIndex: 7,
+        blockIndex: 6,
         block: {
           type: 'tool_use',
-          id: todoUpdateId,
-          name: 'TaskUpdate',
-          input: { taskId: String(turn - 1), status: 'completed' }
+          id: todoCreateId,
+          name: 'TaskCreate',
+          input: { subject: `fake task for turn ${turn}` }
         },
         parentToolUseId: null
       })
       this.emit({
         kind: 'tool-result',
-        toolUseId: todoUpdateId,
-        content: `Updated task #${turn - 1} status`,
+        toolUseId: todoCreateId,
+        content: `Created task #${turn}`,
         isError: false,
         parentToolUseId: null
       })
-    }
+      if (turn > 1) {
+        const todoUpdateId = randomUUID()
+        this.emit({
+          kind: 'block-final',
+          messageId,
+          blockIndex: 7,
+          block: {
+            type: 'tool_use',
+            id: todoUpdateId,
+            name: 'TaskUpdate',
+            input: { taskId: String(turn - 1), status: 'completed' }
+          },
+          parentToolUseId: null
+        })
+        this.emit({
+          kind: 'tool-result',
+          toolUseId: todoUpdateId,
+          content: `Updated task #${turn - 1} status`,
+          isError: false,
+          parentToolUseId: null
+        })
+      }
     }
 
     // a Workflow run (mirrors /deep-research fanning out background agents)

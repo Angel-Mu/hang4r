@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Menu, protocol } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, protocol, session } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -11,6 +11,8 @@ import { Store } from './services/store'
 import { SettingsService } from './services/settingsService'
 import { UpdateService } from './services/updateService'
 import type { SessionManager } from './services/sessionManager'
+import { handleMediaProtocol } from './services/mediaProtocol'
+import { MEDIA_SCHEME } from '../shared/mediaUrl'
 
 /** e2e/probe runs set this to keep automation from stealing focus */
 const QUIET_TEST_MODE = process.env.HANG4R_QUIET_TEST === '1'
@@ -41,6 +43,12 @@ app.setName('hang4r')
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'hang4r-preview',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  },
+  // Inline chat images/video (mediaProtocol.ts): stream:true is what lets <video>
+  // issue Range requests; the handler is bound to the default (main-window) session only.
+  {
+    scheme: MEDIA_SCHEME,
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
   }
 ])
@@ -174,6 +182,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('dev.hang4r')
+  handleMediaProtocol(session.defaultSession)
 
   // Quiet mode: run as a macOS "accessory" app — no Dock presence, no space
   // switching, no focus stealing. Playwright drives via CDP, which needs no

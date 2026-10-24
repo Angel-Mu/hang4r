@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentEvent, PromptImage, QuestionAnswer } from '../../../shared/protocol'
 import type { AdapterStartOptions, AgentAdapter, PromptEcho } from './types'
@@ -322,6 +322,119 @@ export class FakeAdapter implements AgentAdapter {
         block: {
           type: 'text',
           text: `See [lambda.stack.ts:235](file://${this.cwd}/../outside-me.txt) for the detail.`
+        },
+        parentToolUseId: null
+      })
+    }
+
+    // E2E only (chat-media.spec): `media demo <dir>` — <dir> holds shot.png / clip.mp4
+    // (made by the spec). Emits every shape of agent-produced media: a Read whose
+    // result is a base64 image block (main thread AND inside the subagent above),
+    // markdown + prose paths, remote / UNC / missing refs, and a Write of an image.
+    const mediaDemo = /media demo (\S+)/.exec(text)
+    if (mediaDemo) {
+      const dir = mediaDemo[1]
+      const png = readFileSync(join(dir, 'shot.png'))
+      const imageResult = [
+        { type: 'text', text: 'image read' },
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png.toString('base64') } }
+      ]
+      const readId = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId: randomUUID(),
+        blockIndex: 30,
+        block: { type: 'tool_use', id: readId, name: 'Read', input: { file_path: join(dir, 'shot.png') } },
+        parentToolUseId: null
+      })
+      this.emit({ kind: 'tool-result', toolUseId: readId, content: imageResult, isError: false, parentToolUseId: null })
+      const subReadId = randomUUID()
+      this.emit({
+        kind: 'block-final',
+        messageId: randomUUID(),
+        blockIndex: 31,
+        block: { type: 'tool_use', id: subReadId, name: 'Read', input: { file_path: join(dir, 'shot.png') } },
+        parentToolUseId: taskId
+      })
+      this.emit({
+        kind: 'tool-result',
+        toolUseId: subReadId,
+        content: imageResult,
+        isError: false,
+        parentToolUseId: taskId
+      })
+      const writeId = randomUUID()
+      writeFileSync(join(dir, 'written.png'), png)
+      this.emit({
+        kind: 'block-final',
+        messageId: randomUUID(),
+        blockIndex: 32,
+        block: { type: 'tool_use', id: writeId, name: 'Write', input: { file_path: join(dir, 'written.png') } },
+        parentToolUseId: null
+      })
+      this.emit({
+        kind: 'tool-result',
+        toolUseId: writeId,
+        content: 'wrote written.png',
+        isError: false,
+        parentToolUseId: null
+      })
+      this.emit({
+        kind: 'block-final',
+        messageId: randomUUID(),
+        blockIndex: 33,
+        block: {
+          type: 'text',
+          text: [
+            'Here is the capture:',
+            '',
+            `![shot](${join(dir, 'shot.png')})`,
+            '',
+            `The recording is at ${join(dir, 'clip.mp4')} and a stale one at ${join(dir, 'gone.png')}.`,
+            '',
+            `![stale](${join(dir, 'stale.png')})`,
+            '',
+            '![remote](https://example.com/a.png)',
+            '',
+            '![unc](//evil.host/a.png)'
+          ].join('\n')
+        },
+        parentToolUseId: null
+      })
+    }
+
+    // E2E only (chat-media.spec): `media many <dir>` — six image-returning Reads in one
+    // activity group (cap 4 + "+N more") and prose naming eight files many1..8.png (cap 6)
+    const mediaMany = /media many (\S+)/.exec(text)
+    if (mediaMany) {
+      const dir = mediaMany[1]
+      const data = readFileSync(join(dir, 'shot.png')).toString('base64')
+      for (let i = 1; i <= 6; i++) {
+        const id = randomUUID()
+        this.emit({
+          kind: 'block-final',
+          messageId: randomUUID(),
+          blockIndex: 40 + i,
+          block: { type: 'tool_use', id, name: 'Read', input: { file_path: join(dir, `many${i}.png`) } },
+          parentToolUseId: null
+        })
+        this.emit({
+          kind: 'tool-result',
+          toolUseId: id,
+          content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }],
+          isError: false,
+          parentToolUseId: null
+        })
+      }
+      this.emit({
+        kind: 'block-final',
+        messageId: randomUUID(),
+        blockIndex: 50,
+        block: {
+          type: 'text',
+          text:
+            'Eight shots: ' +
+            Array.from({ length: 8 }, (_, i) => join(dir, `many${i + 1}.png`)).join(', ')
         },
         parentToolUseId: null
       })

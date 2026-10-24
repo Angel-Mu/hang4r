@@ -1,10 +1,11 @@
 import { readdir, readFile, stat, writeFile, mkdir, rename, rm } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
 import { execFile } from 'node:child_process'
-import { basename, isAbsolute, join, normalize, relative, sep } from 'node:path'
+import { posix, basename, isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { promisify } from 'node:util'
 import type { Attachment, DirEntry } from '../../shared/protocol'
+import { inlineMediaMime, isUncPath } from '../../shared/mediaUrl'
 import { shellQuote, type Exec } from './remoteService'
 
 const exec = promisify(execFile)
@@ -45,6 +46,22 @@ function safeRel(relPath: string): string {
 }
 
 /**
+ * Map a path from the conversation onto a remote session's workdir. Relative
+ * paths pass through safeRel; an ABSOLUTE path (agents write `/home/u/proj/x.png`)
+ * under `root` is rebased to relative. Returns null when the path is absolute but
+ * outside `root` (or `~`/UNC) — we can't tell whether it exists, which is not the
+ * same as it being missing.
+ */
+function remoteRel(root: string, p: string): string | null {
+  if (isUncPath(p) || p === '~' || p.startsWith('~/')) return null
+  if (!p.startsWith('/')) return safeRel(p)
+  const abs = posix.normalize(p)
+  const base = posix.normalize(root).replace(/\/+$/, '')
+  if (abs === base || !abs.startsWith(base + '/')) return null
+  return safeRel(abs.slice(base.length + 1))
+}
+
+/**
  * Resolve a path for a LOCAL read/write. A user can open a file OUTSIDE the
  * worktree (drop it, click an absolute/~ path an agent wrote) as a real editable
  * tab — so an absolute or `~` path is used VERBATIM (no worktree sandbox; ~ is
@@ -54,6 +71,7 @@ function safeRel(relPath: string): string {
  */
 function localPath(root: string, p: string): string {
   const home = p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p
+  if (isUncPath(p) || isUncPath(home)) throw new Error('network paths are not allowed')
   return isAbsolute(home) ? home : safeJoin(root, p)
 }
 
@@ -180,7 +198,9 @@ export const FileService = {
     if (remote) return '' // background-task logs are a local-only concern in v1
     try {
       const buf = await readFile(absPath)
-      return buf.length > maxBytes ? buf.subarray(buf.length - maxBytes).toString('utf8') : buf.toString('utf8')
+      return buf.length > maxBytes
+        ? buf.subarray(buf.length - maxBytes).toString('utf8')
+        : buf.toString('utf8')
     } catch {
       return ''
     }
@@ -286,6 +306,7 @@ export const FileService = {
    */
   async readExternalAttachment(absPath: string, remote?: Remote): Promise<Attachment> {
     if (remote) throw new Error('Not available on SSH sessions yet.')
+    if (isUncPath(absPath)) throw new Error('network paths are not allowed')
     const name = absPath.split(sep).pop() ?? absPath
     const mime = mimeForPath(absPath)
     const buf = await readFile(absPath)
@@ -312,12 +333,42 @@ export const FileService = {
     }
   },
 
+  /**
+   * Does this media path exist? `abs` is the resolved local absolute path (~ and
+   * relative expanded; relative stays worktree-sandboxed) for the renderer's
+   * mediaUrl(). Remote sessions can't stream, so they report only existence;
+   * `exists: null` = remote path outside the workdir, existence unknowable.
+   */
+  async mediaInfo(
+    root: string,
+    p: string,
+    remote?: Remote
+  ): Promise<{ exists: boolean | null; abs?: string }> {
+    try {
+      if (remote) {
+        const rel = remoteRel(root, p)
+        if (rel === null) return { exists: null } // outside the remote workdir: unknown, not missing
+        const out = await remote.exec
+          .run('sh', ['-c', `test -f ${shellQuote(rel)}`], { cwd: root })
+          .then(() => true)
+          .catch(() => false)
+        return { exists: out }
+      }
+      const abs = localPath(root, p)
+      const s = await stat(abs).catch(() => null)
+      return { exists: !!s?.isFile(), abs }
+    } catch {
+      return { exists: false }
+    }
+  },
+
   /** Read a (binary) file as a data: URL for in-app rendering (images/PDF). */
   async readFileDataUrl(root: string, relPath: string, remote?: Remote): Promise<string | null> {
     const mime = mimeForPath(relPath)
     if (!mime) return null
     if (remote) {
-      const rel = safeRel(relPath)
+      const rel = remoteRel(root, relPath)
+      if (rel === null) return null
       const out = await remote.exec
         .run('sh', ['-c', `base64 < ${shellQuote(rel)}`], { cwd: root })
         .catch(() => null)
@@ -347,6 +398,7 @@ export const FileService = {
     // expand a leading ~ (home) so a path like ~/.claude/… the agent wrote
     // outside the worktree resolves to a real absolute path we can preview.
     const expanded = p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p
+    if (isUncPath(p) || isUncPath(expanded)) return null
     let file = external && isAbsolute(expanded) ? expanded : safeJoin(root, p)
     let s = await stat(file).catch(() => null)
     // Not at its literal location? A path referenced by bare/short name in the
@@ -452,7 +504,19 @@ export const FileService = {
     if (!spec.startsWith('.') && !spec.startsWith('/')) return null // bare import — skip
     const fromDir = fromRel.includes('/') ? fromRel.slice(0, fromRel.lastIndexOf('/')) : ''
     const baseRel = spec.startsWith('/') ? spec.slice(1) : normalize(join(fromDir, spec))
-    const exts = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css', '.svelte', '.vue']
+    const exts = [
+      '',
+      '.ts',
+      '.tsx',
+      '.js',
+      '.jsx',
+      '.mjs',
+      '.cjs',
+      '.json',
+      '.css',
+      '.svelte',
+      '.vue'
+    ]
     const candidates = [
       ...exts.map((e) => baseRel + e),
       ...['index.ts', 'index.tsx', 'index.js', 'index.jsx'].map((i) => join(baseRel, i))
@@ -602,9 +666,10 @@ function mimeForPath(path: string): string | null {
     bmp: 'image/bmp',
     ico: 'image/x-icon',
     svg: 'image/svg+xml',
+    avif: 'image/avif',
     pdf: 'application/pdf'
   }
-  return map[ext] ?? null
+  return map[ext] ?? inlineMediaMime(path)
 }
 
 /** classify an attachment path for preview (mirrors the renderer's mediaKind) */

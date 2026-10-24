@@ -905,6 +905,10 @@ export interface Hang4rApi {
   /** stop one run_in_background task by killing its live writer(s).
    *  { stopped:false } on remote (ssh) — can't reach the host. */
   stopBackgroundTask(sessionId: string, outputPath: string): Promise<{ stopped: boolean }>
+  /** Stat a media path without fetching it. `abs` = resolved local absolute path (for mediaUrl());
+   *  absent on SSH sessions, which cannot stream media. `exists: null` = UNKNOWN (SSH
+   *  session, absolute path outside the remote workdir) — render nothing, not "missing". */
+  fileExists(sessionId: string, path: string): Promise<{ exists: boolean | null; abs?: string }>
   readFileDataUrl(sessionId: string, relPath: string): Promise<string | null>
   /** Read an attached file back for click-to-preview: a data: URL for image/pdf,
    *  else utf-8 text. `external` reads the absolute path the user attached (they

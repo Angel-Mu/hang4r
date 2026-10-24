@@ -681,7 +681,7 @@ interface Hang4rState {
     src?: string
     text?: string
     alt?: string
-    kind: 'image' | 'pdf' | 'markdown' | 'text' | 'diagram'
+    kind: 'image' | 'pdf' | 'video' | 'markdown' | 'text' | 'diagram'
     /** markdown preview: render via the shared components (mermaid diagrams +
      *  safe in-app links) scoped to this session/file, not a bare renderer */
     sessionId?: string
@@ -689,7 +689,7 @@ interface Hang4rState {
     /** kind 'diagram': the rendered mermaid SVG markup, enlarged to fill the box */
     svg?: string
   } | null
-  openLightbox(src: string, kind: 'image' | 'pdf', alt?: string): void
+  openLightbox(src: string, kind: 'image' | 'pdf' | 'video', alt?: string): void
   /** enlarge a rendered mermaid diagram (its SVG markup) — click-to-magnify */
   openDiagram(svg: string): void
   closeLightbox(): void

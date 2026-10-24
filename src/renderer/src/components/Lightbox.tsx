@@ -133,6 +133,14 @@ export function Lightbox(): JSX.Element | null {
           type="application/pdf"
           onClick={(e) => e.stopPropagation()}
         />
+      ) : box.kind === 'video' ? (
+        <video
+          className="lightbox-img"
+          src={box.src}
+          controls
+          autoPlay
+          onClick={(e) => e.stopPropagation()}
+        />
       ) : box.kind === 'diagram' ? (
         <DiagramViewer svg={box.svg ?? ''} />
       ) : box.kind === 'markdown' || box.kind === 'text' ? (

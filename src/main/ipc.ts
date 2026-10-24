@@ -987,6 +987,10 @@ export function registerIpc(store: Store, settings: SettingsService): SessionMan
     }
   })
 
+  ipcMain.handle('files:exists', async (_e, sessionId: string, path: string) =>
+    FileService.mediaInfo(await sessions.ensureWorkdir(sessionId), path, remoteFor(sessionId))
+  )
+
   ipcMain.handle('files:data-url', async (_e, sessionId: string, relPath: string) =>
     FileService.readFileDataUrl(
       await sessions.ensureWorkdir(sessionId),

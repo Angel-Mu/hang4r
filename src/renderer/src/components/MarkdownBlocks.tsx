@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { isDarkTheme, resolveTheme } from '../theme'
 import { useHang4r } from '../state/store'
 import { Icon } from './Icon'
+import { MdImage } from './ChatMedia'
 
 /**
  * Shared markdown block renderers for every Markdown surface (chat, subagent
@@ -143,6 +144,7 @@ export function MdPre(props: { children?: React.ReactNode }): JSX.Element {
 }
 
 type MdCompMap = {
+  img: (p: { src?: string; alt?: string }) => JSX.Element
   code: typeof MdCode
   a: (p: { href?: string; children?: React.ReactNode }) => JSX.Element
   pre: typeof MdPre
@@ -194,6 +196,13 @@ function make(sessionId: string, basePath?: string): MdCompMap {
   return {
     code: MdCode,
     pre: MdPre,
+    img: ({ src, alt }) => (
+      <MdImage
+        sessionId={sessionId}
+        src={basePath && src && !/^([a-z]+:|\/|~)/i.test(src) ? resolveRel(basePath, src) : src}
+        alt={alt}
+      />
+    ),
     a: ({ href, children }) => {
       const open = (): void => {
         if (!href || href.startsWith('#')) return

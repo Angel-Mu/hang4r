@@ -9,6 +9,8 @@ import { useVerifiedPending } from '../useVerifiedPending'
 import { useHang4r, type TranscriptItem } from '../state/store'
 import { collectRuns, subagentLabelForPermission } from './SubagentInspector'
 import { MdCode, MdPre, mdComponents, openFileHref } from './MarkdownBlocks'
+import { GroupMedia, MdImage, ProseMedia, ToolMedia } from './ChatMedia'
+import { mdUrlTransform, redactImages } from '../mediaUtil'
 
 type BlockItem = Extract<TranscriptItem, { type: 'block' }>
 
@@ -33,6 +35,7 @@ function chatMdComponents(sessionId: string): Components {
   const made: Components = {
     // fenced code blocks get a hover copy button (Angel)
     pre: MdPre,
+    img: ({ src, alt }) => <MdImage sessionId={sessionId} src={src} alt={alt} />,
     // links open the inner browser pane, never the app window;
     // file:// under the workdir opens in the editor instead. Right-click →
     // "Copy link address" copies the real target (URL/path), not the rendered
@@ -474,6 +477,7 @@ function ActivityGroupImpl({
         {toolCount > 0 && <span className="activity-count">{toolCount} steps</span>}
         {!open && peek && <span className="activity-peek">{peek}</span>}
       </button>
+      {!open && <GroupMedia items={items} sessionId={sessionId} />}
       {open && (
         <div className="activity-body">
           {groupRuns(items).map((run) =>
@@ -683,7 +687,16 @@ function TranscriptItemViewImpl({
           ⇄ interactive CLI
         </span>
         {item.role === 'assistant' ? (
-          <Markdown remarkPlugins={[remarkGfm, remarkEmoji]} components={mdComponents(sessionId)}>{item.text}</Markdown>
+          <>
+            <Markdown
+              remarkPlugins={[remarkGfm, remarkEmoji]}
+              components={mdComponents(sessionId)}
+              urlTransform={mdUrlTransform}
+            >
+              {item.text}
+            </Markdown>
+            <ProseMedia text={item.text} sessionId={sessionId} />
+          </>
         ) : (
           <div className="msg-user-text">{replaceShortcodes(item.text)}</div>
         )}
@@ -694,9 +707,15 @@ function TranscriptItemViewImpl({
   if (item.blockType !== 'text' || !item.text) return null
   return (
     <div className={'msg-assistant' + (item.parentToolUseId ? ' msg-subagent' : '')}>
-      <Markdown remarkPlugins={[remarkGfm, remarkEmoji]} components={chatMdComponents(sessionId)}>
+      <Markdown
+        remarkPlugins={[remarkGfm, remarkEmoji]}
+        components={chatMdComponents(sessionId)}
+        urlTransform={mdUrlTransform}
+      >
         {item.text}
       </Markdown>
+      {/* a streaming message re-parses on every token; scan only once settled */}
+      {item.final && <ProseMedia text={item.text} sessionId={sessionId} />}
     </div>
   )
 }
@@ -1005,11 +1024,13 @@ function CompactToolRow({
           {item.toolResult !== undefined && (
             <>
               <div className="tool-section-label">result</div>
-              <pre>{pretty(item.toolResult)}</pre>
+              <pre>{pretty(redactImages(item.toolResult))}</pre>
             </>
           )}
         </div>
       )}
+      {/* outside the collapsible detail: screenshots must show without expanding */}
+      <ToolMedia item={item} sessionId={sessionId} />
     </div>
   )
 }

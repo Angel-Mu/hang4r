@@ -255,6 +255,11 @@ const api: Hang4rApi = {
     ipcRenderer.invoke('tasks:bg-states', sessionId, outputPaths),
   stopBackgroundTask: (sessionId: string, outputPath: string) =>
     ipcRenderer.invoke('tasks:bg-stop', sessionId, outputPath),
+  fileExists: (sessionId: string, path: string) =>
+    ipcRenderer.invoke('files:exists', sessionId, path) as Promise<{
+      exists: boolean | null
+      abs?: string
+    }>,
   readFileDataUrl: (sessionId: string, relPath: string) =>
     ipcRenderer.invoke('files:data-url', sessionId, relPath),
   previewAttachment: (sessionId: string, path: string, external?: boolean) =>

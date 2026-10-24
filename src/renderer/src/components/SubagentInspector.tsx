@@ -4,6 +4,8 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkEmoji } from '../remarkEmoji'
 import { mdComponents } from './MarkdownBlocks'
+import { ToolMedia } from './ChatMedia'
+import { mdUrlTransform, redactImages } from '../mediaUtil'
 import { useHang4r, mergePanelItems, type TranscriptItem } from '../state/store'
 import { onSeedSessionUi, onForgetSession, persistSessionUi } from '../sessionUiMemos'
 
@@ -314,7 +316,7 @@ function SubagentThread({
           )}
           {run.blocks.map((m) =>
             m.blockType === 'tool_use' ? (
-              <SubagentToolRow key={m.key} item={m} />
+              <SubagentToolRow key={m.key} item={m} sessionId={sessionId} />
             ) : m.blockType === 'thinking' ? (
               m.text.trim() && (
                 <div key={m.key} className="subagent-thinking">
@@ -327,6 +329,7 @@ function SubagentThread({
                   <Markdown
                     remarkPlugins={[remarkGfm, remarkEmoji]}
                     components={mdComponents(sessionId)}
+                    urlTransform={mdUrlTransform}
                   >
                     {m.text}
                   </Markdown>
@@ -343,6 +346,7 @@ function SubagentThread({
               <Markdown
                 remarkPlugins={[remarkGfm, remarkEmoji]}
                 components={mdComponents(sessionId)}
+                urlTransform={mdUrlTransform}
               >
                 {run.resultText}
               </Markdown>
@@ -355,7 +359,7 @@ function SubagentThread({
 }
 
 /** expandable tool row — full command/input + result on click, like the chat */
-function SubagentToolRow({ item }: { item: BlockItem }): JSX.Element {
+function SubagentToolRow({ item, sessionId }: { item: BlockItem; sessionId: string }): JSX.Element {
   const [open, setOpen] = useState(false)
   const pending = item.toolResult === undefined
   return (
@@ -374,11 +378,12 @@ function SubagentToolRow({ item }: { item: BlockItem }): JSX.Element {
           <pre>{pretty(item.toolInput)}</pre>
           {item.toolResult !== undefined && (
             <pre className={item.toolResultError ? 'tool-detail-err' : ''}>
-              {pretty(item.toolResult).slice(0, 4000)}
+              {pretty(redactImages(item.toolResult)).slice(0, 4000)}
             </pre>
           )}
         </div>
       )}
+      <ToolMedia item={item} sessionId={sessionId} />
     </div>
   )
 }

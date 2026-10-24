@@ -5,6 +5,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc, getPtyService, getBrowserControl, getAppControl, getBridge } from './ipc'
 import { popupAction } from './popupAction'
+import { userFullScreen, watchGuestFullscreen, watchWindowFullscreen } from './guestFullscreen'
 import { askInterrupt, guardActive, initInterruptGuard, liveWork, resolveInterrupt } from './interruptGuard'
 import { resolveWorktreeChoice, type WorktreeChoice } from './worktreeAsk'
 import { Store } from './services/store'
@@ -124,7 +125,7 @@ function createWindow(): void {
           JSON.stringify({
             ...mainWindow.getNormalBounds(),
             maximized: mainWindow.isMaximized(),
-            fullscreen: mainWindow.isFullScreen()
+            fullscreen: userFullScreen(mainWindow)
           })
         )
       } catch {
@@ -132,6 +133,7 @@ function createWindow(): void {
       }
     }, 300)
   }
+  watchWindowFullscreen(mainWindow)
   for (const ev of ['resize', 'move', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen'] as const) {
     mainWindow.on(ev as 'resize', saveBounds)
   }
@@ -399,6 +401,7 @@ ipcMain.handle('quit:answer', (_e, quit: boolean) => {
  */
 app.on('web-contents-created', (_e, contents) => {
   if (contents.getType() !== 'webview') return
+  watchGuestFullscreen(contents)
   contents.setWindowOpenHandler(({ url, disposition }) => {
     const action = popupAction(url, disposition)
     if (action === 'window') return { action: 'allow' } // keeps window.opener alive

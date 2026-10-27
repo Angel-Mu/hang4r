@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test'
-import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
+import {
+  launchApp,
+  makeScratchRepo,
+  createProject,
+  expectBrowserShown,
+  type LaunchedApp
+} from './helpers'
 
 /**
  * Browser pane tabs (Angel's Jul-15 report: ⌘W in the browser closed the whole
@@ -43,7 +49,10 @@ async function openLinkInFocused(page: LaunchedApp['page'], url: string): Promis
     const store = (
       window as unknown as {
         __hang4r_store: {
-          getState(): { focusedSessionId: string | null; requestOpenUrl(sid: string, url: string): void }
+          getState(): {
+            focusedSessionId: string | null
+            requestOpenUrl(sid: string, url: string): void
+          }
         }
       }
     ).__hang4r_store.getState()
@@ -75,7 +84,7 @@ test('browser opens with one tab; + adds; × closes; switching keeps per-tab URL
   // × closes a tab (never the pane)
   await page.locator('.browser-tab').nth(1).locator('.browser-tab-close').click()
   await expect(tabs).toHaveCount(1)
-  await expect(page.locator('.browser-pane')).toBeVisible()
+  await expectBrowserShown(page)
 })
 
 test('⌘W closes the active browser tab, not the tile; lone empty tab falls through', async () => {
@@ -164,13 +173,16 @@ test('the browser <webview> survives a context-panel switch — kept MOUNTED, ne
   // switch to another context panel — before the fix this UNMOUNTED the pane
   // and the webview reloaded its src, wiping the page. Now it stays in the DOM.
   await tile.locator('.tile-tabs button', { hasText: 'Files' }).click()
-  await expect(page.locator('.files-tree, .files-code, .file-row').first()).toBeVisible({ timeout: 5_000 })
+  await expect(page.locator('.files-tree, .files-code, .file-row').first()).toBeVisible({
+    timeout: 5_000
+  })
   // the SAME webview element is still mounted (hidden), not destroyed
   await expect(page.locator('.browser-webview')).toHaveCount(1)
 
   // back to Browser: the webview is shown again, same tab/url
   await tile.locator('.tile-tabs button', { hasText: 'Browser' }).click()
-  await expect(page.locator('.browser-webview')).toBeVisible()
+  await expectBrowserShown(page)
+  await expect(page.locator('.browser-webview')).not.toHaveClass(/browser-webview-parked/)
   await expect(page.locator('.browser-tab')).toHaveCount(1)
 })
 
@@ -243,7 +255,7 @@ test('link click with ONLY the conversation open: pane opens AND loads on the FI
     store.requestOpenUrl(store.focusedSessionId!, u)
   }, 'http://localhost:5993')
 
-  await expect(page.locator('.browser-pane')).toBeVisible()
+  await expectBrowserShown(page)
   await expect(page.locator('.browser-url')).toHaveValue('http://localhost:5993')
   await expect(page.locator('.browser-tab')).toHaveCount(1)
   await expect(page.locator('.browser-tab-active')).toContainText('localhost:5993')
@@ -253,7 +265,7 @@ test('a SECOND link re-surfaces the Browser panel after you leave it (Angel: hid
   launched = await launchApp()
   const { page } = launched
   await openBrowserTab(page)
-  await expect(page.locator('.browser-pane')).toBeVisible()
+  await expectBrowserShown(page)
 
   // give the lone tab content so each link opens a NEW tab (pristine reuse
   // would otherwise keep the count at one and hide the pile-up)
@@ -263,19 +275,19 @@ test('a SECOND link re-surfaces the Browser panel after you leave it (Angel: hid
   // 1st link — surfaces the pane and CONSUMES the url signal (this consume is
   // what used to peg the nonce at 1 for every subsequent click)
   await openLinkInFocused(page, 'http://localhost:5997')
-  await expect(page.locator('.browser-pane')).toBeVisible()
+  await expectBrowserShown(page)
   await expect(page.locator('.browser-tab')).toHaveCount(2)
 
-  // leave the Browser panel — the pane stays MOUNTED but hidden (display:none)
+  // leave the Browser panel — the pane stays MOUNTED but parked out of sight
   await page.locator('.tile .tile-tabs button', { hasText: 'Files' }).click()
-  await expect(page.locator('.browser-pane')).toBeHidden()
+  await expect(page.locator('.browser-overlay')).toHaveClass(/browser-overlay-parked/)
 
   // 2nd link MUST re-open the hidden Browser panel. The nonce-reset regression
   // made freshSignal treat this as a stale replay → setContextTab('Browser')
   // was skipped → the pane never resurfaced, so the user blind-clicked and the
   // background tabs multiplied. With a monotonic nonce it reopens every time.
   await openLinkInFocused(page, 'http://localhost:5998')
-  await expect(page.locator('.browser-pane')).toBeVisible()
+  await expectBrowserShown(page)
   await expect(page.locator('.browser-tab')).toHaveCount(3)
 })
 

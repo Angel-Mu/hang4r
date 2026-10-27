@@ -1927,11 +1927,21 @@ button:disabled {
 .browser-overlay {
   position: fixed;
   z-index: 5;
-  display: none; /* toggled to flex + positioned by BrowserLayer's sync() */
+  display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
   pointer-events: auto;
+  /* never shown before: a parked size the page can lay out in */
+  top: 0;
+  left: 0;
+  width: 1024px;
+  height: 768px;
+}
+/* transparent and input-dead, still rendering for an agent (see BrowserLayer) */
+.browser-overlay-parked {
+  opacity: 0;
+  pointer-events: none;
 }
 /* empty stand-in the tile renders where the browser goes; the overlay covers it */
 .browser-slot {
@@ -2023,11 +2033,20 @@ button:disabled {
   flex-direction: column;
   min-height: 0;
   position: relative;
+  isolation: isolate;
 }
 .browser-webview {
   flex: 1;
   min-height: 0;
   background: #fff;
+}
+/* under the active tab: z-index -1 stays inside .browser-stage's isolation */
+.browser-webview-parked {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
 }
 .ghost-btn-active {
   color: var(--text);

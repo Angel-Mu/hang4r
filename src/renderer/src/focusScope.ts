@@ -40,7 +40,7 @@ export function focusPane(): FocusPane {
 }
 
 /** The pane VISIBLE in the focused tile's context panel. `offsetParent === null`
- *  filters the persistently-mounted-but-hidden Browser (`display:none`). */
+ *  filters panes the panel keeps mounted but hidden. */
 function visiblePane(): FocusPane {
   const cp = document.querySelector('.tile-focused .context-panel')
   if (cp) {

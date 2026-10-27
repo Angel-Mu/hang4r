@@ -38,9 +38,11 @@ export function BrowserSlot({ sessionId }: { sessionId: string }): JSX.Element {
  * App-level layer that holds a POOL of BrowserPanes — one per session that has a
  * live browser — that survives session switches (tile unmount/remount). Each
  * pane is absolutely positioned (position: fixed) over the visible tile's
- * browser SLOT; a session whose slot isn't currently on screen is hidden
- * (display:none) but stays MOUNTED, so its <webview> keeps its page, scroll,
- * form state and history instead of reloading.
+ * browser SLOT; a session whose slot isn't currently on screen is PARKED
+ * (transparent, inert) but stays MOUNTED, so its <webview> keeps its page, scroll,
+ * form state and history instead of reloading. Not display:none: a hidden guest
+ * gets no frames, so rAF-driven apps stop rendering and capturePage hangs while
+ * an agent drives it in the background.
  *
  * A pane is mounted for a session while it has browser tabs in the store OR a
  * slot on screen (first open, before the empty seed tab exists), and only truly
@@ -76,17 +78,20 @@ export function BrowserLayer(): JSX.Element {
       const slot = getBrowserSlot(sid)
       const visible = !!slot && slot.offsetParent !== null && slot.getClientRects().length > 0
       if (!visible) {
-        if (el.style.display !== 'none') {
-          el.style.display = 'none'
+        if (!el.classList.contains('browser-overlay-parked')) {
+          el.classList.add('browser-overlay-parked')
+          el.inert = true
           lastApplied.current.delete(sid)
         }
         continue
       }
       const r = slot!.getBoundingClientRect()
       const key = `${r.left}|${r.top}|${r.width}|${r.height}`
-      if (el.style.display !== 'none' && lastApplied.current.get(sid) === key) continue
+      const parked = el.classList.contains('browser-overlay-parked')
+      if (!parked && lastApplied.current.get(sid) === key) continue
       lastApplied.current.set(sid, key)
-      el.style.display = 'flex'
+      el.classList.remove('browser-overlay-parked')
+      el.inert = false
       el.style.left = `${r.left}px`
       el.style.top = `${r.top}px`
       el.style.width = `${r.width}px`
@@ -137,7 +142,8 @@ export function BrowserLayer(): JSX.Element {
       {mountIds.map((sid) => (
         <div
           key={sid}
-          className="browser-overlay"
+          className="browser-overlay browser-overlay-parked"
+          inert
           ref={(el) => {
             if (el) overlayEls.current.set(sid, el)
             else {

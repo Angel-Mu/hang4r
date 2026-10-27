@@ -317,7 +317,7 @@ export function BrowserPane({
   const handleBrowserKey = (e: KeyboardEvent): void => {
     // Only act when DOM focus is genuinely inside the browser pane (its address
     // bar, find bar, tabs, or the guest webview) — NOT merely because this tile
-    // is focused and has a browser tab. BrowserPane stays mounted (display:none)
+    // is focused and has a browser tab. BrowserPane stays mounted (parked)
     // whenever the tile has any browser tab, so without this gate ⌘T/⌘L/⌘R/⌘[/⌘]
     // fired while the Files/Terminal panel was showing or while focus sat on the
     // conversation (clicking chat text drops focus to <body>). focusPane() can
@@ -795,8 +795,8 @@ export function BrowserPane({
         <div className="browser-stage">
           {tabs.map((t) =>
             t.current ? (
-              // every tab's webview stays mounted (hidden when inactive) so
-              // switching tabs never reloads the page
+              // every tab's webview stays mounted (parked, not display:none, so
+              // an agent can still drive it) and switching never reloads it
               <webview
                 key={t.id}
                 ref={((el: WebviewEl | null) => {
@@ -810,8 +810,10 @@ export function BrowserPane({
                     webviewRefs.current.set(t.id, el)
                   } else webviewRefs.current.delete(t.id)
                 }) as never}
-                className="browser-webview"
-                style={t.id === active?.id ? undefined : { display: 'none' }}
+                className={
+                  'browser-webview' + (t.id === active?.id ? '' : ' browser-webview-parked')
+                }
+                inert={t.id !== active?.id}
                 src={t.current}
                 // isolate embedded pages from the app
                 partition="persist:hang4r-browser"

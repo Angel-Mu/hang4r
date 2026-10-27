@@ -102,7 +102,9 @@ test('goto COLD-OPENS the browser: it works even when the session tile is not on
   // browser tabs ever opened, nothing holds a pane — the real cold state a
   // background/worktree agent hits.
   await page.evaluate((sid) => {
-    const store = (window as unknown as { __hang4r_store: { getState(): { closeTile(id: string): void } } }).__hang4r_store
+    const store = (
+      window as unknown as { __hang4r_store: { getState(): { closeTile(id: string): void } } }
+    ).__hang4r_store
     store.getState().closeTile(sid)
   }, sessionId)
   await expect(page.locator('.browser-pane')).toHaveCount(0)
@@ -174,6 +176,87 @@ test('the CLI drives the browser pane end-to-end (goto, snapshot, click, type, w
   expect(statSync(shotPath).size).toBeGreaterThan(0)
 })
 
+/** content that only exists once the page gets an animation frame — what SPAs
+ *  like Front and Customer.io depend on to render their buttons */
+const rafPage = (n: number): string =>
+  'data:text/html,' +
+  encodeURIComponent(`<!doctype html><html><head><title>RAF ${n}</title></head><body style="margin:0;height:100vh">
+<script>window.__clicks=0;addEventListener('click',()=>__clicks++);requestAnimationFrame(()=>{const d=document.createElement('div');d.textContent='RAF OK ${n}';document.body.appendChild(d)})</script></body></html>`)
+
+/** a hidden guest that gets no frames makes `screenshot` hang forever */
+async function cliWithin(
+  ms: number,
+  args: string[],
+  env: Record<string, string>
+): Promise<{ status: number | null | string; stdout: string; stderr: string }> {
+  return Promise.race([
+    runCli(args, env),
+    new Promise<{ status: string; stdout: string; stderr: string }>((r) =>
+      setTimeout(() => r({ status: 'HUNG', stdout: '', stderr: `no reply in ${ms}ms` }), ms)
+    )
+  ])
+}
+
+test('an agent drives a HIDDEN pane: frame-driven pages still render and screenshots return (Angel: "it was able to do it in the background")', async () => {
+  launched = await launchApp()
+  const { page, userDataDir } = launched
+  const { env } = await openSessionWithBrowser(page, userDataDir)
+  expect((await runCli(['browser', 'goto', rafPage(1)], env)).status).toBe(0)
+
+  // close the Browser panel: the pane stays mounted, out of the user's sight
+  await page.locator('.tile-tabs button', { hasText: 'Browser' }).click()
+  await expect(page.locator('.browser-slot')).toHaveCount(0)
+
+  expect((await runCli(['browser', 'goto', rafPage(2)], env)).status).toBe(0)
+  const waited = await runCli(['browser', 'wait', '--text', 'RAF OK 2', '--timeout', '5000'], env)
+  expect(waited.status, waited.stderr).toBe(0)
+  const shotPath = join(tmpdir(), `h4r-hidden-${Date.now()}.png`)
+  const shot = await cliWithin(15_000, ['browser', 'screenshot', shotPath], env)
+  expect(shot.status, shot.stderr).toBe(0)
+  expect(statSync(shotPath).size).toBeGreaterThan(0)
+
+  // ...and the parked pane neither shows nor swallows clicks meant for the app
+  const box = await page.locator('.browser-overlay').boundingBox()
+  expect(box).not.toBeNull()
+  const cx = box!.x + box!.width / 2
+  const cy = box!.y + box!.height / 2
+  expect(
+    await page.evaluate(
+      ([x, y]) => !!document.elementFromPoint(x, y)?.closest('.browser-overlay'),
+      [cx, cy]
+    )
+  ).toBe(false)
+  await page.mouse.click(cx, cy)
+  expect((await runCli(['browser', 'eval', '__clicks'], env)).stdout.trim()).toBe('0')
+  expect(await page.locator('.browser-overlay').evaluate((e) => getComputedStyle(e).opacity)).toBe(
+    '0'
+  )
+})
+
+test('an agent drives a BACKGROUND tab (--tab): frame-driven pages still render and screenshots return', async () => {
+  launched = await launchApp()
+  const { page, userDataDir } = launched
+  const { env } = await openSessionWithBrowser(page, userDataDir)
+  expect((await runCli(['browser', 'goto', rafPage(1)], env)).status).toBe(0)
+  const first = (await runCli(['browser', 'tabs'], env)).stdout.match(/^\*\s+(\S+)/m)?.[1]
+  expect(first).toBeTruthy()
+
+  await page.locator('.browser-tab-add').click()
+  await expect(page.locator('.browser-tab')).toHaveCount(2)
+
+  const t = ['--tab', first!]
+  expect((await runCli(['browser', 'goto', rafPage(2), ...t], env)).status).toBe(0)
+  const waited = await runCli(
+    ['browser', 'wait', '--text', 'RAF OK 2', '--timeout', '5000', ...t],
+    env
+  )
+  expect(waited.status, waited.stderr).toBe(0)
+  const shotPath = join(tmpdir(), `h4r-bgtab-${Date.now()}.png`)
+  const shot = await cliWithin(15_000, ['browser', 'screenshot', shotPath, ...t], env)
+  expect(shot.status, shot.stderr).toBe(0)
+  expect(statSync(shotPath).size).toBeGreaterThan(0)
+})
+
 test('the CLI fails honestly: bad token is rejected, unknown session is a clear error', async () => {
   launched = await launchApp()
   const { page, userDataDir } = launched
@@ -185,7 +268,10 @@ test('the CLI fails honestly: bad token is rejected, unknown session is a clear 
   expect(bad.stderr.toLowerCase()).toContain('unauthorized')
 
   // valid token but a session with no browser → an actionable error
-  const unknown = await runCli(['browser', 'snapshot'], { ...env, HANG4R_SESSION_ID: 'does-not-exist' })
+  const unknown = await runCli(['browser', 'snapshot'], {
+    ...env,
+    HANG4R_SESSION_ID: 'does-not-exist'
+  })
   expect(unknown.status).not.toBe(0)
   expect(unknown.stderr).toContain('no browser tab open')
 })

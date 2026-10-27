@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test'
-import { launchApp, makeScratchRepo, createProject, type LaunchedApp } from './helpers'
+import {
+  launchApp,
+  makeScratchRepo,
+  createProject,
+  expectBrowserShown,
+  type LaunchedApp
+} from './helpers'
 
 /**
  * The bug (Angel): switch to another session and back, and a session's open
@@ -71,7 +77,7 @@ test('a browser tab survives switching to another session and back — no reload
   // still the only one, its address bar state preserved, and visible again
   await expect(page.locator('.browser-webview')).toHaveCount(1)
   await expect(page.locator('.browser-webview')).toHaveAttribute('data-persist-marker', 'keepme')
-  await expect(page.locator('.browser-webview')).toBeVisible()
+  await expectBrowserShown(page)
   await expect(page.locator('.browser-tab')).toHaveCount(1)
   // address-bar state preserved (go() normalized the omnibox entry to a full URL)
   await expect(page.locator('.browser-url')).toHaveValue('http://localhost:5990')

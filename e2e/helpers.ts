@@ -2,7 +2,12 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import {
+  _electron as electron,
+  expect,
+  type ElectronApplication,
+  type Page
+} from '@playwright/test'
 
 export interface LaunchedApp {
   app: ElectronApplication
@@ -90,7 +95,8 @@ export async function dragTo(
     ({ sourceSelector, targetSelector, side }) => {
       const src = document.querySelector(sourceSelector)
       const tgt = document.querySelector(targetSelector)
-      if (!src || !tgt) throw new Error(`drag source/target not found: ${sourceSelector} → ${targetSelector}`)
+      if (!src || !tgt)
+        throw new Error(`drag source/target not found: ${sourceSelector} → ${targetSelector}`)
       const r = tgt.getBoundingClientRect()
       const pt = {
         left: { x: r.left + r.width * 0.1, y: r.top + r.height / 2 },
@@ -102,7 +108,13 @@ export async function dragTo(
       const dataTransfer = new DataTransfer()
       const fire = (el: Element, type: string, x: number, y: number): void => {
         el.dispatchEvent(
-          new DragEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer })
+          new DragEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            dataTransfer
+          })
         )
       }
       const s = src.getBoundingClientRect()
@@ -114,4 +126,20 @@ export async function dragTo(
     },
     { sourceSelector, targetSelector, side }
   )
+}
+
+/** The browser pane is ON SCREEN over its slot. A parked (hidden) pane is
+ *  opacity 0 and still counts as visible to Playwright's toBeVisible(). */
+export async function expectBrowserShown(page: Page): Promise<void> {
+  const overlay = page.locator('.browser-overlay:not(.browser-overlay-parked)')
+  await expect(overlay).toHaveCount(1)
+  await expect
+    .poll(async () => {
+      const [o, s] = await Promise.all([
+        overlay.boundingBox(),
+        page.locator('.browser-slot').first().boundingBox()
+      ])
+      return !!o && !!s && Math.abs(o.x - s.x) < 2 && Math.abs(o.width - s.width) < 2
+    })
+    .toBe(true)
 }

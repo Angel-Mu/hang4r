@@ -30,10 +30,13 @@ test('a collapsed activity row names the action, not just a step count', async (
   const tile = page.locator('.tile').first()
   await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
 
-  // the tail group stays open from the live turn — collapse it, which is the
-  // state Angel is looking at when he scrolls back
+  // collapsed is the state Angel is looking at when he scrolls back. The tail
+  // group is open only if it mounted while the turn was live — a fast fake turn
+  // can land already finished, and so already collapsed.
   const group = tile.locator('.activity-group').first()
-  await group.locator('.activity-header').click()
+  if ((await group.locator('.activity-body').count()) > 0) {
+    await group.locator('.activity-header').click()
+  }
   await expect(group.locator('.activity-body')).toHaveCount(0)
 
   const peek = group.locator('.activity-peek')

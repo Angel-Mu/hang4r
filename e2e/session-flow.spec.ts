@@ -49,10 +49,16 @@ test.describe('agent session flow', () => {
     await expect(tile.locator('.context-panel')).toHaveCount(0)
     await expect(tile.locator('.msg-user-card')).toContainText('Please make an edit')
     await expect(tile.locator('.msg-assistant').first()).toContainText('turn 1')
-    await expect(tile.locator('.tool-name', { hasText: 'Write' })).toBeVisible()
 
     // Session settles to idle after the turn completes.
     await expect(tile.locator('.status-dot.status-idle')).toBeVisible({ timeout: 20_000 })
+    // A finished turn's activity group can come back collapsed (~half the runs),
+    // and its tool rows only exist while it's open.
+    const group = tile.locator('.activity-group').first()
+    if ((await group.locator('.activity-body').count()) === 0) {
+      await group.locator('.activity-header').click()
+    }
+    await expect(tile.locator('.tool-name', { hasText: 'Write' })).toBeVisible()
 
     // Subagents tab: opening a context panel renders it SIDE-BY-SIDE with chat
     // (resizable split), and the Task subagent run is captured and inspectable.
